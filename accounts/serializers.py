@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.contrib.auth.hashers import make_password
 from .models import User
 import random
 
@@ -19,5 +20,6 @@ class UserSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         user_category = validated_data['user_category']
         validated_data['username'] = self.generate_username(user_category)
-        validated_data.pop('password')  # Password should be hashed and saved securely
+        # Hash the password using make_password
+        validated_data['password'] = make_password(validated_data['password'])
         return super().create(validated_data)
