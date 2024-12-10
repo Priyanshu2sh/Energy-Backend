@@ -69,6 +69,8 @@ class User(AbstractUser, PermissionsMixin):
     web = models.URLField(blank=True, null=True)
     gender = models.CharField(max_length=10, choices=[('male', 'Male'), ('female', 'Female'), ('other', 'Other')], blank=True, null=True)
     dob = models.DateField(blank=True, null=True)
+    otp = models.CharField(max_length=6, blank=True, null=True)  # OTP for Consumer users
+    verified_at = models.DateTimeField(blank=True, null=True)  # Verification timestamp
 
     # Define custom related names for groups and user_permissions
     groups = models.ManyToManyField(Group, related_name='custom_user_set', blank=True)
@@ -83,10 +85,3 @@ class User(AbstractUser, PermissionsMixin):
     def __str__(self):
         return self.email
     
-class OTP(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    otp = models.CharField(max_length=6)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def is_valid(self):
-        return now() < self.created_at + timedelta(minutes=5)  # OTP valid for 5 minutes
