@@ -12,6 +12,8 @@ import random
 from django.contrib.auth.hashers import check_password
 from django.utils.timezone import now
 from datetime import datetime, timedelta
+from rest_framework.permissions import IsAuthenticated
+
 
 class JWTAuthentication(BaseAuthentication):
     def authenticate(self, request):

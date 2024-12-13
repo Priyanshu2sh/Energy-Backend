@@ -10,11 +10,24 @@ class State(models.Model):
     
 class EnergyProfiles(models.Model):
     # Foreign key to the User model to link the profile to a user
-    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)  # Assuming User model is in 'accounts' app
-    energy_type = models.CharField(max_length=255)  # Energy type (e.g., solar, wind, etc.)
-    maximum_capacity = models.FloatField()  # Maximum energy capacity (e.g., in kWh or MW)
-    available_capacity = models.FloatField()  # Available energy capacity (e.g., in kWh or MW)
-    pricing = models.FloatField()  # Pricing for the energy profile (e.g., per kWh)
+    ENERGY_CHOICES = [
+        ('Solar', 'Solar'),
+        ('Wind', 'Wind'),
+        ('ESS', 'ESS'),  # Energy Storage System
+    ]
+
+    UNIT_CHOICES = [
+        ('kW', 'Kilowatt'),
+        ('MW', 'Megawatt'),
+        ('GW', 'Gigawatt'),
+    ]
+
+    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'}) # Restrict to users with user_category='Generator'
+    energy_type = models.CharField(max_length=255, choices=ENERGY_CHOICES) # Restrict energy types to specific choices
+    state = models.CharField(max_length=255, null=True, blank=True)  # State/Location of the energy source
+    capacity = models.FloatField()  # Maximum energy capacity (e.g., in kWh or MW)
+    unit = models.CharField(max_length=2, choices=UNIT_CHOICES, default='kW')  # Unit of measurement
+    cod = models.DateField(null=True, blank=True)  # COD (commercial operation date)
 
     def __str__(self):
         return f"{self.energy_type} - {self.user}"
