@@ -94,7 +94,6 @@ class LoginUser(APIView):
 
         try:
             user = User.objects.get(email=email)
-            print(user)
         except User.DoesNotExist:
             return Response({'error': 'Invalid email or password'}, status=status.HTTP_400_BAD_REQUEST)
 
