@@ -46,25 +46,20 @@ class RegisterUser(APIView):
 
         if serializer.is_valid():
             user = serializer.save()
-            if user_category == 'Consumer':
-                otp = random.randint(100000, 999999)
-                user.otp = otp
-                user.save()
-
-                # Save email to session
-                request.session['email'] = user.email
-
-                # Send OTP to the user's email
-                send_mail(
-                    'Your OTP for Registration',
-                    f'Your OTP is {otp}',
-                    'noreply@example.com',
-                    [user.email],
-                    fail_silently=False,
-                )
-                return Response({'message': 'OTP sent to your email'}, status=status.HTTP_200_OK)
-            
-            return Response({'message': 'User registered successfully', 'data': serializer.data}, status=status.HTTP_201_CREATED)
+            otp = random.randint(100000, 999999)
+            user.otp = otp
+            user.save()
+            # Save email to session
+            request.session['email'] = user.email
+            # Send OTP to the user's email
+            send_mail(
+                'Your OTP for Registration',
+                f'Your OTP is {otp}',
+                'noreply@example.com',
+                [user.email],
+                fail_silently=False,
+            )
+            return Response({'message': 'OTP sent to your email'}, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
