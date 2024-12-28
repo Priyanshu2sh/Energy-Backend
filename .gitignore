@@ -1,0 +1,22 @@
+# Python-related files
+*.pyc
+__pycache__/
+
+# Django-specific files
+*.sqlite3
+media/*
+staticfiles/
+
+# Ignore migrations if you prefer to generate them on the server
+**/migrations/*.py
+**/migrations/*.pyc
+**/migrations/__pycache__/
+
+# Ignore IDE-specific files
+.vscode/
+.idea/
+*.swp
+.bash_history
+
+# Ignore media files directory
+/media/

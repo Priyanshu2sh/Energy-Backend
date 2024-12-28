@@ -6,4 +6,5 @@ urlpatterns = [
     path('register/', views.RegisterUser.as_view(), name='registration'),
     path('verify-otp/', views.VerifyOTP.as_view(), name='verify_otp'),
     path('login/', views.LoginUser.as_view(), name='login'),
+    path('update-profile/<int:pk>/', views.UpdateProfileAPI.as_view(), name='update-profile'),
 ]

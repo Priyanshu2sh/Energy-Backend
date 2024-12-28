@@ -6,8 +6,8 @@ import random
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['user_category', 'name', 'email', 'mobile', 'company', 'password', 'otp', 'verified_at']
-        extra_kwargs = {'password': {'write_only': True}, 'otp': {'read_only': True}, 'verified_at': {'read_only': True}}
+        fields = ['user_category', 'name', 'email', 'mobile', 'company', 'cin_number', 'password', 'otp', 'verified_at']
+        extra_kwargs = {'cin_number': {'required': False}, 'password': {'write_only': True}, 'otp': {'read_only': True}, 'verified_at': {'read_only': True}}
 
     def generate_username(self, user_category):
         prefix = 'con' if user_category == 'Consumer' else 'gen'
@@ -23,3 +23,16 @@ class UserSerializer(serializers.ModelSerializer):
         # Hash the password using make_password
         validated_data['password'] = make_password(validated_data['password'])
         return super().create(validated_data)
+
+
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            "name",
+            "user_category",
+            "company",
+            "company_representative",
+            "cin_number",
+            "mobile",
+        ]

@@ -86,6 +86,9 @@ class MonthlyConsumptionDataAPI(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class MatchingIPPAPI(APIView):
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
     def post(self, request):
         data = request.data
         state = data.get("state")
@@ -111,6 +114,9 @@ class MatchingIPPAPI(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class MatchingConsumerAPI(APIView):
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+    
     def post(self, request):
         data = request.data
         email = data.get("email")
