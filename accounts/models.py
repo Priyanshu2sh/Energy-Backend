@@ -33,19 +33,6 @@ class UserManager(BaseUserManager):
 
 
 class User(AbstractUser, PermissionsMixin):
-    industry_choices = [
-    ("Residential", "Residential"),
-    ("Commercial", "Commercial"),
-    ("Industrial", "Industrial"),
-    ("Agriculture", "Agriculture"),
-    ("Transportation", "Transportation"),
-    ("Healthcare", "Healthcare"),
-    ("Telecommunications", "Telecommunications"),
-    ("Education", "Education"),
-    ("Government & Public Services", "Government & Public Services"),
-    ("Entertainment", "Entertainment")
-    ]
-
     user_category_choices = [
     ("Consumer", "Consumer"),
     ("Generator", "Generator"),
@@ -53,23 +40,12 @@ class User(AbstractUser, PermissionsMixin):
     
     # Adding additional columns
     email = models.EmailField(max_length=254, unique=True)
-    name = models.CharField(max_length=254, blank=True, null=True)
     user_category = models.CharField(max_length=255, choices= user_category_choices, blank=True, null=True)
-    # industry = models.CharField(max_length=255, choices= industry_choices, blank=True, null=True)
     company = models.CharField(max_length=255, blank=True, null=True)
     company_representative = models.CharField(max_length=255, blank=True, null=True)
     cin_number = models.CharField(max_length=255, blank=True, null=True)
-    # address = models.CharField(max_length=255, blank=True, null=True)
-    # landmark = models.CharField(max_length=255, blank=True, null=True)
+    designation = models.CharField(max_length=50, blank=True, null=True)
     mobile = models.CharField(max_length=20, blank=True, null=True)
-    # other_phone = models.CharField(max_length=20, blank=True, null=True)
-    # city_name = models.CharField(max_length=100, blank=True, null=True)
-    # state = models.CharField(max_length=255, null=True, blank=True)  # Link to the State model
-    # country = models.CharField(max_length=100, blank=True, null=True)
-    # pin = models.CharField(max_length=20, blank=True, null=True)
-    # web = models.URLField(blank=True, null=True)
-    # gender = models.CharField(max_length=10, choices=[('male', 'Male'), ('female', 'Female'), ('other', 'Other')], blank=True, null=True)
-    # dob = models.DateField(blank=True, null=True)
     otp = models.CharField(max_length=6, blank=True, null=True)  # OTP for Consumer users
     verified_at = models.DateTimeField(blank=True, null=True)  # Verification timestamp
 

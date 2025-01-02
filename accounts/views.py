@@ -1,3 +1,4 @@
+import json
 from django.conf import settings
 import jwt
 from rest_framework.views import APIView
@@ -38,28 +39,55 @@ class JWTAuthentication(BaseAuthentication):
         # Attach user to request for further use
         return (user, None)
 
+
 class RegisterUser(APIView):
     def post(self, request):
         data = request.data
+        email = data.get('email')
         user_category = data.get('user_category')
         serializer = UserSerializer(data=data)
 
-        if serializer.is_valid():
-            user = serializer.save()
-            otp = random.randint(100000, 999999)
-            user.otp = otp
-            user.save()
-            # Save email to session
-            request.session['email'] = user.email
-            # Send OTP to the user's email
-            send_mail(
-                'Your OTP for Registration',
-                f'Your OTP is {otp}',
-                'noreply@example.com',
-                [user.email],
-                fail_silently=False,
-            )
-            return Response({'message': 'OTP sent to your email'}, status=status.HTTP_200_OK)
+        try:
+            # Check if a user with this email already exists
+            existing_user = User.objects.get(email=email)
+            if existing_user.verified_at is None:
+                # If the user exists but is not verified, update details and resend OTP
+                otp = random.randint(100000, 999999)
+                existing_user.user_category = user_category
+                existing_user.otp = otp
+                existing_user.save()
+                # Save email to session
+                request.session['email'] = existing_user.email
+                # Resend OTP
+                send_mail(
+                    'Your OTP for Registration',
+                    f'Your OTP is {otp}',
+                    'noreply@example.com',
+                    [existing_user.email],
+                    fail_silently=False,
+                )
+                return Response({'message': 'OTP resent to your email'}, status=status.HTTP_200_OK)
+            else:
+                # If the user is verified, inform the user they cannot register again
+                return Response({'error': 'Email is already registered and verified. Please log in.'}, status=status.HTTP_400_BAD_REQUEST)
+        except User.DoesNotExist:
+            # If no existing user is found, proceed with registration
+            if serializer.is_valid():
+                user = serializer.save()
+                otp = random.randint(100000, 999999)
+                user.otp = otp
+                user.save()
+                # Save email to session
+                request.session['email'] = user.email
+                # Send OTP to the user's email
+                send_mail(
+                    'Your OTP for Registration',
+                    f'Your OTP is {otp}',
+                    'noreply@example.com',
+                    [user.email],
+                    fail_silently=False,
+                )
+                return Response({'message': 'OTP sent to your email'}, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -92,11 +120,11 @@ class LoginUser(APIView):
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            return Response({'error': 'Invalid email or password'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': f'Email ({email}) not found.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Verify password
         if not check_password(password, user.password):
-            return Response({'error': 'Invalid email or password'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': f'Email ({email}) found but password incorrect'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Check if the user is verified (Consumer)
         if user.user_category == 'Consumer' and user.verified_at is None:
@@ -110,13 +138,13 @@ class LoginUser(APIView):
         }
         token = jwt.encode(payload, settings.SECRET_KEY, algorithm='HS256')
 
+        # Serialize user data using UserSerializer
+        user_data = UserSerializer(user).data
+
         return Response({
             'message': 'Login successful',
             'token': token,
-            'user': {
-                'username': user.username,
-                'email': user.email,
-            }
+            'user': user_data
         }, status=status.HTTP_200_OK)
     
 class UpdateProfileAPI(APIView):

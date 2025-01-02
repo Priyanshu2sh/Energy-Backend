@@ -63,9 +63,15 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
 ]
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  # React dev server
+CORS_ALLOW_ALL_ORIGINS = True
+
+CORS_ALLOW_HEADERS = [
+    'content-type',
+    'authorization',
+    'access-control-allow-origin',
 ]
+
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '192.168.1.53', '*']
 
 ROOT_URLCONF = 'energy_transition.urls'
 
