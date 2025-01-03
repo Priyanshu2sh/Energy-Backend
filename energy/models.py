@@ -195,6 +195,14 @@ class Subscriptions(models.Model):
     def __str__(self):
         return f"{self.plan_type} Subscription for {self.user}"
     
+class MatchingIPP(models.Model):
+    requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE)
+    generator_ids = models.JSONField(default=list)
+
+    def __str__(self):
+        return f"{self.requirement} - {self.generator_ids}"
+    
+    
 # class Recommendations(models.Model):
 #     # Foreign key to EnergyDemands to link the recommendation to a specific demand
 #     demand = models.ForeignKey('ConsumerRequirements', on_delete=models.CASCADE)  # Assuming EnergyDemands is in the same app

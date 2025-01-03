@@ -4,7 +4,7 @@ from itertools import chain
 from django.shortcuts import get_object_or_404
 from accounts.models import User
 from accounts.views import JWTAuthentication
-from .models import SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet
+from .models import SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -44,10 +44,9 @@ class GenerationPortfolioAPI(APIView):
         elif energy_type == "ESS":
             return ESSPortfolio
 
-    def get(self, request):
+    def get(self, request, pk):
         try:
-            id = request.query_params.get("id")
-            user = User.objects.get(id=id)
+            user = User.objects.get(id=pk)
             # Query all portfolio models
             solar_data = SolarPortfolio.objects.filter(user=user)
             wind_data = WindPortfolio.objects.filter(user=user)
@@ -142,34 +141,50 @@ class MatchingIPPAPI(APIView):
 
     def post(self, request):
         data = request.data
-        state = data.get("state")
-        procurement_date = data.get("procurement_date")
+        requirement_id = data.get("requirement_id")
 
-        if not state or not procurement_date:
+        if not requirement_id:
             return Response(
-                {"error": "Please provide 'state' and 'procurement_date' parameters."},
+                {"error": "Please provide requirement id."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        
 
         try:
+            # Fetch the requirement
+            requirement = ConsumerRequirements.objects.get(id=requirement_id)
+
             # Filter the data
             # Query SolarPortfolio
             solar_data = SolarPortfolio.objects.filter(
-                Q(state=state) & Q(cod__gte=procurement_date)
+                Q(state=requirement.state) & Q(cod__gte=requirement.procurement_date)
             ).values("user", "user__username", "state", "capacity")
         
             # Query WindPortfolio
             wind_data = WindPortfolio.objects.filter(
-                Q(state=state) & Q(cod__gte=procurement_date)
+                Q(state=requirement.state) & Q(cod__gte=requirement.procurement_date)
             ).values("user", "user__username", "state", "capacity")
         
             # Query ESSPortfolio
             ess_data = ESSPortfolio.objects.filter(
-                Q(state=state) & Q(cod__gte=procurement_date)
+                Q(state=requirement.state) & Q(cod__gte=requirement.procurement_date)
             ).values("user", "user__username", "state", "capacity")
         
             # Combine all data
             filtered_data = list(chain(solar_data, wind_data, ess_data))
+
+            # Extract user IDs from the filtered data
+            user_ids = set()
+            for data_item in filtered_data:
+                user_ids.add(data_item["user"])  # Add the user ID to the set to avoid duplicates
+
+            user_ids_list = list(user_ids)
+            print(user_ids_list)
+
+            # Save the user IDs in MatchingIPP
+            matching_ipp, created = MatchingIPP.objects.get_or_create(requirement=requirement)
+            matching_ipp.generator_ids = user_ids_list
+            matching_ipp.save()
 
             # Convert QuerySet to a list for JSON response
             response_data = list(filtered_data)
@@ -184,8 +199,8 @@ class MatchingConsumerAPI(APIView):
     
     def post(self, request):
         data = request.data
-        email = data.get("email")
-        user = User.objects.get(email=email)
+        id = data.get("generator_id")
+        user = User.objects.get(id=id)
 
         try:
             # Get all GenerationPortfolio records for the user
@@ -268,7 +283,7 @@ class OptimizeCapacityAPI(APIView):
     
     def calculate_hourly_demand(consumer_requirement, state="MP"):
         consumer_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
-        
+
         # Define the state-specific hours
         state_hours = {
             "MP": {
@@ -276,29 +291,29 @@ class OptimizeCapacityAPI(APIView):
                 "off_peak_hours": (20, 24),  # 8 PM to 12 AM
             }
         }
-    
+
         monthly_consumptions = MonthlyConsumptionData.objects.filter(requirement=consumer_requirement)
-    
+
         # Get state-specific hours
         hours = state_hours[state]
         peak_hours = hours["peak_hours"]
         off_peak_hours = hours["off_peak_hours"]
         total_hours = 24
         normal_hours = total_hours - (peak_hours[1] - peak_hours[0]) - (off_peak_hours[1] - off_peak_hours[0])
-    
+
         # Initialize a list to store hourly data
         all_hourly_data = []
-    
+
         for month_data in monthly_consumptions:
             # Extract month details and convert month name to number
             month_name = month_data.month
             month_number = list(calendar.month_name).index(month_name)
             if month_number == 0:
                 raise ValueError(f"Invalid month name: {month_name}")
-            
+
             # Get the number of days in the month
             days_in_month = monthrange(2025, month_number)[-1]  # Update year dynamically
-    
+
             # Calculate consumption values
             normal_consumption = month_data.monthly_consumption - (
                 month_data.peak_consumption + month_data.off_peak_consumption
@@ -306,7 +321,7 @@ class OptimizeCapacityAPI(APIView):
             normal_hour_value = normal_consumption / (normal_hours * days_in_month)
             peak_hour_value = month_data.peak_consumption / ((peak_hours[1] - peak_hours[0]) * days_in_month)
             off_peak_hour_value = month_data.off_peak_consumption / ((off_peak_hours[1] - off_peak_hours[0]) * days_in_month)
-    
+
             # Distribute values across the hours of each day
             for day in range(1, days_in_month + 1):
                 for hour in range(24):
@@ -316,11 +331,11 @@ class OptimizeCapacityAPI(APIView):
                         all_hourly_data.append(off_peak_hour_value)
                     else:
                         all_hourly_data.append(normal_hour_value)
-    
+
         # Update the HourlyDemand model
         consumer_demand.set_hourly_data_from_list(all_hourly_data)
         consumer_demand.save()
-    
+
         # Return the data in the desired flat format
         return pd.Series(all_hourly_data)
 

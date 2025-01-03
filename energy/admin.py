@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet
+from .models import SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP
 
 # Register your models here.
 admin.site.register(SolarPortfolio)
@@ -10,3 +10,4 @@ admin.site.register(MonthlyConsumptionData)
 admin.site.register(HourlyDemand)
 admin.site.register(Combination)
 admin.site.register(StandardTermsSheet)
+admin.site.register(MatchingIPP)
