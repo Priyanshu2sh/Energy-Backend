@@ -4,14 +4,14 @@ from itertools import chain
 from django.shortcuts import get_object_or_404
 from accounts.models import User
 from accounts.views import JWTAuthentication
-from .models import SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP
+from .models import SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework import status
-from .serializers import SolarPortfolioSerializer, WindPortfolioSerializer, ESSPortfolioSerializer, ConsumerRequirementsSerializer, MonthlyConsumptionDataSerializer, StandardTermsSheetSerializer
+from .serializers import SolarPortfolioSerializer, WindPortfolioSerializer, ESSPortfolioSerializer, ConsumerRequirementsSerializer, MonthlyConsumptionDataSerializer, StandardTermsSheetSerializer, SubscriptionTypeSerializer, SubscriptionEnrolledSerializer
 from django.core.mail import send_mail
 import random
 from django.contrib.auth.hashers import check_password
@@ -77,6 +77,16 @@ class GenerationPortfolioAPI(APIView):
         serializer = serializer_class(data=request.data)
         if serializer.is_valid():
             serializer.save()
+
+            # Get the user associated with the saved data (assuming it's passed in the request)
+            user_id = request.data.get('user')  # Assuming user is passed in the request body
+            if user_id:
+                user = get_object_or_404(User, id=user_id)  # Get the user object
+
+                # Update the user's `is_new_user` field to False after saving the data
+                user.is_new_user = False
+                user.save()
+
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -113,6 +123,16 @@ class ConsumerRequirementsAPI(APIView):
         serializer = ConsumerRequirementsSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
+
+            # Get the user associated with the saved data (assuming it's passed in the request)
+            user_id = request.data.get('user')  # Assuming user is passed in the request body
+            if user_id:
+                user = get_object_or_404(User, id=user_id)  # Get the user object
+
+                # Update the user's `is_new_user` field to False after saving the data
+                user.is_new_user = False
+                user.save()
+                
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
@@ -612,5 +632,63 @@ class StandardTermsSheetAPI(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         except StandardTermsSheet.DoesNotExist:
             return Response({"error": "Record not found."}, status=status.HTTP_404_NOT_FOUND)
+    
+class SubscriptionTypeAPIView(APIView):
+    def get(self, request, user_type):
+        # Get all subscription types
+        subscription_types = SubscriptionType.objects.filter(user_type=user_type)
+
+        # Serialize the subscription types
+        serializer = SubscriptionTypeSerializer(subscription_types, many=True)
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
+        
+class SubscriptionEnrolledAPIView(APIView):
+    def get(self, request, pk):
+        subscriptions = SubscriptionEnrolled.objects.filter(user=pk)
+        serializer = SubscriptionEnrolledSerializer(subscriptions, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        user = request.data.get('user')
+        subscription_id = request.data.get('subscription')
+        start_date_str = request.data.get('start_date')
+
+        # Convert start_date to a datetime.date object
+        try:
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return Response(
+                {"detail": "Invalid start_date format. Expected YYYY-MM-DD."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check if the user is already enrolled in this subscription
+        existing_subscription = SubscriptionEnrolled.objects.filter(user=user, subscription_id=subscription_id).first()
+
+        if existing_subscription:
+            if existing_subscription.end_date >= now().date():
+                return Response(
+                    {"detail": "You have already taken this subscription and it is still active."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            else:
+                # Update the expired subscription
+                existing_subscription.start_date = start_date
+                subscription = existing_subscription.subscription
+                existing_subscription.end_date = start_date + timedelta(days=subscription.duration_in_days)
+                existing_subscription.status = 'active'
+                existing_subscription.save()
+                return Response(
+                    {"detail": "Your subscription has been renewed successfully."},
+                    status=status.HTTP_200_OK
+                )
+
+        # If no existing subscription or it has expired, create a new subscription
+        serializer = SubscriptionEnrolledSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
 

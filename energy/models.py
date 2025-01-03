@@ -184,16 +184,40 @@ class StandardTermsSheet(models.Model):
     def __str__(self):
         return f"{self.consumer} - {self.generator}"
 
-class Subscriptions(models.Model):
-    # Foreign key to User model to link subscription to a user
-    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)  # Assuming User model is in 'accounts' app
-    plan_type = models.CharField(max_length=255)  # The type of subscription plan (e.g., Basic, Premium)
-    plan_details = models.CharField(max_length=255)
-    start_date = models.DateField()  # Start date of the subscription
-    end_date = models.DateField()  # End date of the subscription
+
+# Model to store types of subscriptions
+class SubscriptionType(models.Model):
+    # Choices for user types
+    USER_TYPE_CHOICES = [
+        ('Consumer', 'Consumer'),
+        ('Generator', 'Generator'),
+    ]
+    user_type = models.CharField(max_length=50, choices=USER_TYPE_CHOICES, default='Consumer',)  # Specifies if the plan is for consumers or generators
+    name = models.CharField(max_length=255)  # Subscription plan name (e.g., Basic, Premium)
+    description = models.TextField(blank=True, null=True)  # Optional description of the plan
+    price = models.DecimalField(max_digits=10, decimal_places=2)  # Price of the subscription
+    duration_in_days = models.PositiveIntegerField()  # Duration of the plan in days
 
     def __str__(self):
-        return f"{self.plan_type} Subscription for {self.user}"
+        return f"{self.name} ({self.user_type})"
+
+# Model to store user subscriptions
+class SubscriptionEnrolled(models.Model):
+    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)  # User who enrolled
+    subscription = models.ForeignKey(SubscriptionType, on_delete=models.CASCADE)  # Subscription type
+    start_date = models.DateField()  # Subscription start date
+    end_date = models.DateField()  # Subscription end date
+    status = models.CharField(
+        max_length=50,
+        choices=[
+            ('active', 'Active'),
+            ('expired', 'Expired'),
+        ],
+        default='active',
+    )
+
+    def __str__(self):
+        return f"{self.subscription.name} for {self.user} ({self.subscription.user_type})"
     
 class MatchingIPP(models.Model):
     requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE)

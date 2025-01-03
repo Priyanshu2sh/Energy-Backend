@@ -14,6 +14,7 @@ from django.contrib.auth.hashers import check_password
 from django.utils.timezone import now
 from datetime import datetime, timedelta
 from rest_framework.permissions import IsAuthenticated
+from twilio.rest import Client
 
 
 class JWTAuthentication(BaseAuthentication):
@@ -41,6 +42,26 @@ class JWTAuthentication(BaseAuthentication):
 
 
 class RegisterUser(APIView):
+
+    @staticmethod
+    def send_sms_otp(mobile_number, otp):
+        print('otp sent')
+        print(mobile_number)
+        # Twilio Client initialization
+        client = Client('AC3630d520a873fc8cb05fc3dac8529dfd', '7c83f127d3dc8b7caf5e432b1a494887')
+
+        # Send OTP via SMS
+        # try:
+        print('111111111111111')
+        message = client.messages.create(
+            body=f'Your OTP for registration is {otp}',
+            from_='+17084773632',
+            to=f'+91{mobile_number}'
+        )
+        print(f"Message SID: {message.sid}")
+        # except Exception as e:
+        #     print(f"Failed to send OTP via SMS: {e}")
+
     def post(self, request):
         data = request.data
         email = data.get('email')
@@ -52,21 +73,30 @@ class RegisterUser(APIView):
             existing_user = User.objects.get(email=email)
             if existing_user.verified_at is None:
                 # If the user exists but is not verified, update details and resend OTP
-                otp = random.randint(100000, 999999)
+                email_otp = random.randint(100000, 999999)
+                mobile_otp = random.randint(100000, 999999)
+
                 existing_user.user_category = user_category
-                existing_user.otp = otp
+                existing_user.email_otp = email_otp
+                existing_user.mobile_otp = mobile_otp
+                existing_user.mobile = data.get('mobile')
                 existing_user.save()
+
                 # Save email to session
                 request.session['email'] = existing_user.email
+
+                # Send OTP via SMS using Twilio
+                self.send_sms_otp(existing_user.mobile, otp=mobile_otp)
+
                 # Resend OTP
                 send_mail(
                     'Your OTP for Registration',
-                    f'Your OTP is {otp}',
+                    f'Your OTP is {email_otp}',
                     'noreply@example.com',
                     [existing_user.email],
                     fail_silently=False,
                 )
-                return Response({'message': 'OTP resent to your email'}, status=status.HTTP_200_OK)
+                return Response({'message': 'OTP resent to your email and mobile.'}, status=status.HTTP_200_OK)
             else:
                 # If the user is verified, inform the user they cannot register again
                 return Response({'error': 'Email is already registered and verified. Please log in.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -74,19 +104,27 @@ class RegisterUser(APIView):
             # If no existing user is found, proceed with registration
             if serializer.is_valid():
                 user = serializer.save()
-                otp = random.randint(100000, 999999)
-                user.otp = otp
+                email_otp = random.randint(100000, 999999)
+                mobile_otp = random.randint(100000, 999999)
+                user.email_otp = email_otp
+                user.mobile_otp = mobile_otp
                 user.save()
+
                 # Save email to session
                 request.session['email'] = user.email
+
                 # Send OTP to the user's email
                 send_mail(
                     'Your OTP for Registration',
-                    f'Your OTP is {otp}',
+                    f'Your OTP is {email_otp}',
                     'noreply@example.com',
                     [user.email],
                     fail_silently=False,
                 )
+
+                # Send OTP via SMS using Twilio
+                self.send_sms_otp(existing_user.mobile, mobile_otp)
+
                 return Response({'message': 'OTP sent to your email'}, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -94,19 +132,50 @@ class RegisterUser(APIView):
 
 class VerifyOTP(APIView):
     def post(self, request):
-        otp = request.data.get('otp')
+        email_otp = request.data.get('email_otp')
+        mobile_otp = request.data.get('mobile_otp')
 
         # Fetch email from session
         email = request.session.get('email')
 
         try:
-            user = User.objects.get(email=email, otp=otp, verified_at__isnull=True)
+            user = User.objects.get(email=email, email_otp=email_otp, mobile_otp=mobile_otp, verified_at__isnull=True)
             user.verified_at = now()  # Set the verified timestamp
-            user.otp = None  # Clear the OTP field
+            user.email_otp = None  # Clear the OTP field
             user.save()
             return Response({'message': 'User verified successfully'}, status=status.HTTP_200_OK)
         except User.DoesNotExist:
             return Response({'error': 'Invalid email or OTP, or user already verified'}, status=status.HTTP_400_BAD_REQUEST)
+
+class ForgotPasswordOTP(APIView):
+    def post(self, request):
+        email_otp = request.data.get('email_otp')
+
+        # Fetch email from session
+        email = request.session.get('email')
+
+        try:
+            user = User.objects.get(email=email, email_otp=email_otp)
+            user.email_otp = None  # Clear the OTP field
+            user.save()
+            return Response({'message': 'User verified successfully'}, status=status.HTTP_200_OK)
+        except User.DoesNotExist:
+            return Response({'error': 'Invalid email or OTP, or user already verified'}, status=status.HTTP_400_BAD_REQUEST)
+
+class SetNewPassword(APIView):
+    def post(self, request):
+        password = request.data.get('password')
+
+        # Fetch email from session
+        email = request.session.get('email')
+
+        try:
+            user = User.objects.get(email=email)
+            user.set_password(password)
+            user.save()
+            return Response({'message': 'Password updated successfully'}, status=status.HTTP_200_OK)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found.'}, status=status.HTTP_400_BAD_REQUEST)
 
 class LoginUser(APIView):
     def post(self, request):
@@ -146,6 +215,32 @@ class LoginUser(APIView):
             'token': token,
             'user': user_data
         }, status=status.HTTP_200_OK)
+    
+    def get(self, request, email):
+
+        user = User.objects.get(email=email)
+        if user and user.verified_at is not None:
+            email_otp = random.randint(100000, 999999)
+
+            user.email_otp = email_otp
+            user.save()
+
+            # Save email to session
+            request.session['email'] = user.email
+            # Send OTP via SMS using Twilio
+            self.send_sms_otp(user.mobile, otp=email_otp)
+            # Resend OTP
+            send_mail(
+                'Verification Code',
+                f'Your OTP is {email_otp}',
+                'noreply@example.com',
+                [user.email],
+                fail_silently=False,
+            )
+            return Response({'message': 'OTP sent to your email.'}, status=status.HTTP_200_OK)
+        else:
+            # If the user is verified, inform the user they cannot register again
+            return Response({'error': 'Email not found.'}, status=status.HTTP_400_BAD_REQUEST)
     
 class UpdateProfileAPI(APIView):
     # authentication_classes = [JWTAuthentication]

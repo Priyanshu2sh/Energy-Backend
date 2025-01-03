@@ -46,8 +46,10 @@ class User(AbstractUser, PermissionsMixin):
     cin_number = models.CharField(max_length=255, blank=True, null=True)
     designation = models.CharField(max_length=50, blank=True, null=True)
     mobile = models.CharField(max_length=20, blank=True, null=True)
-    otp = models.CharField(max_length=6, blank=True, null=True)  # OTP for Consumer users
+    email_otp = models.CharField(max_length=6, blank=True, null=True)  # Email OTP for Consumer users
+    mobile_otp = models.CharField(max_length=6, blank=True, null=True)  # Mobile OTP for Consumer users
     verified_at = models.DateTimeField(blank=True, null=True)  # Verification timestamp
+    is_new_user = models.BooleanField(default=True)  # Assume user is new by default
 
     # Define custom related names for groups and user_permissions
     groups = models.ManyToManyField(Group, related_name='custom_user_set', blank=True)
