@@ -1,6 +1,7 @@
 from django.db import models
-
+from django.utils.timezone import now
 # Create your models here.
+
 # class State(models.Model):
 #     name = models.CharField(max_length=255)
 #     state_code = models.CharField(max_length=10)
@@ -20,8 +21,8 @@ class SolarPortfolio(models.Model):
     project = models.CharField(max_length=255)
     state = models.CharField(max_length=255)  # State/Location of the energy source
     connectivity = models.CharField(max_length=255, blank=True, null=True)
-    capacity = models.FloatField()  # Maximum energy capacity (in kWh)
     total_install_capacity = models.FloatField(blank=True, null=True)
+    available_capacity = models.FloatField()  # Maximum energy capacity (in kWh)
     capital_cost = models.FloatField(blank=True, null=True)
     marginal_cost = models.FloatField(blank=True, null=True)
     cod = models.DateField()  # COD (commercial operation date)
@@ -47,8 +48,8 @@ class WindPortfolio(models.Model):
     project = models.CharField(max_length=255)
     state = models.CharField(max_length=255)  # State/Location of the energy source
     connectivity = models.CharField(max_length=255, blank=True, null=True)
-    capacity = models.FloatField()  # Maximum energy capacity (in kWh)
     total_install_capacity = models.FloatField(blank=True, null=True)
+    available_capacity = models.FloatField()  # Maximum energy capacity (in kWh)
     capital_cost = models.FloatField(blank=True, null=True)
     marginal_cost = models.FloatField(blank=True, null=True)
     cod = models.DateField()  # COD (commercial operation date)
@@ -71,8 +72,8 @@ class ESSPortfolio(models.Model):
     project = models.CharField(max_length=255)
     state = models.CharField(max_length=255)  # State/Location of the energy source
     connectivity = models.CharField(max_length=255, blank=True, null=True)
-    capacity = models.FloatField()  # Maximum energy capacity (in kWh)
     total_install_capacity = models.FloatField(blank=True, null=True)
+    available_capacity = models.FloatField()  # Maximum energy capacity (in kWh)
     capital_cost = models.FloatField(blank=True, null=True)
     marginal_cost = models.FloatField(blank=True, null=True)
     cod = models.DateField()  # COD (commercial operation date)
@@ -109,7 +110,7 @@ class ConsumerRequirements(models.Model):
     procurement_date = models.DateField()  # Select the date when the procurement of services or goods occurred (expected Date).
 
     def __str__(self):
-        return f"Demand for {self.user} - {self.contracted_demand} kWh"
+        return f"Demand for {self.user} - {self.state} - {self.industry} - {self.contracted_demand} kWh"
     
 class MonthlyConsumptionData(models.Model):
     requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE)
@@ -164,8 +165,7 @@ class StandardTermsSheet(models.Model):
     ]
 
     consumer = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Consumer'}, related_name='consumer_terms_sheets')  # Unique related_name for consumer
-    generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'}, related_name='generator_terms_sheets')  # Unique related_name for generator
-    requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE, blank=True, null=True)
+    combination = models.ForeignKey(Combination, on_delete=models.CASCADE)
     term_of_ppa = models.PositiveIntegerField(help_text="Term of PPA in years")
     lock_in_period = models.PositiveIntegerField(help_text="Lock-in period in years")
     commencement_of_supply = models.DateField(help_text="Commencement date of supply")
@@ -182,7 +182,7 @@ class StandardTermsSheet(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.consumer} - {self.generator}"
+        return f"{self.consumer} - {self.combination.requirement}"
 
 
 # Model to store types of subscriptions
@@ -226,7 +226,50 @@ class MatchingIPP(models.Model):
     def __str__(self):
         return f"{self.requirement} - {self.generator_ids}"
     
+class Notifications(models.Model):
+    # Foreign key to User model to link notification to a user
+    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)  # Assuming User model is in 'accounts' app
+    message = models.TextField()  # The message to be sent to the user
+    timestamp = models.DateTimeField(auto_now_add=True)  # Timestamp of when the notification was created
+
+    def __str__(self):
+        return f"Notification for {self.user}"
     
+class Tariffs(models.Model):
+    terms_sheet = models.ForeignKey(StandardTermsSheet, on_delete=models.CASCADE)
+    offer_tariff = models.FloatField()
+
+    def __str__(self):
+        return f"Tariff for {self.terms_sheet}"
+    
+class GeneratorOffer(models.Model):
+    generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'})
+    tariff = models.ForeignKey(Tariffs, on_delete=models.CASCADE)
+    updated_tariff = models.FloatField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Offer by {self.generator.username} for Terms Sheet {self.tariff}"
+
+class NegotiationWindow(models.Model):
+    terms_sheet = models.ForeignKey(StandardTermsSheet, on_delete=models.CASCADE)
+    start_time = models.DateTimeField(default=now)
+    end_time = models.DateTimeField()
+
+    def is_active(self):
+        return self.start_time <= now() <= self.end_time
+
+
+class MatserTable(models.Model):
+    state = models.CharField(max_length=200)
+    ISTS_charges = models.FloatField()
+    state_charges = models.FloatField()
+
+class GridTariff(models.Model):
+    state = models.CharField(max_length=200)    
+    tariff_category = models.CharField(max_length=200)    
+    cost = models.FloatField()
+
 # class Recommendations(models.Model):
 #     # Foreign key to EnergyDemands to link the recommendation to a specific demand
 #     demand = models.ForeignKey('ConsumerRequirements', on_delete=models.CASCADE)  # Assuming EnergyDemands is in the same app
@@ -238,24 +281,7 @@ class MatchingIPP(models.Model):
 #         return f"Recommendation for {self.demand}"
 
 
-# class Notifications(models.Model):
-#     # Foreign key to User model to link notification to a user
-#     user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)  # Assuming User model is in 'accounts' app
-#     message = models.TextField()  # The message to be sent to the user
-#     timestamp = models.DateTimeField(auto_now_add=True)  # Timestamp of when the notification was created
-#     status = models.CharField(max_length=20, choices=[('sent', 'Sent'), ('read', 'Read'), ('pending', 'Pending')])  # Status of the notification
-
-#     def __str__(self):
-#         return f"Notification for {self.user} - {self.status}"
     
-# class Tariffs(models.Model):
-#     state = models.CharField(max_length=255)  # State to which the tariff applies
-#     open_access_charges = models.FloatField()  # Open access charges
-#     monthly_transmission_charges = models.FloatField()  # Monthly transmission charges
-#     calculation_details = models.TextField()  # Detailed calculation of the charges
-
-#     def __str__(self):
-#         return f"Tariff for {self.state}"
 
 # class Contracts(models.Model):
 #     # Foreign key to link ConsumerID and GeneratorID to users or other entities

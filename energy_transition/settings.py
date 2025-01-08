@@ -43,6 +43,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+
+    'channels',
 ]
 
 REST_FRAMEWORK = {
@@ -71,7 +73,7 @@ CORS_ALLOW_HEADERS = [
     'access-control-allow-origin',
 ]
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '192.168.1.53', '*']
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', ' 192.168.1.36', '*']
 
 ROOT_URLCONF = 'energy_transition.urls'
 
@@ -91,7 +93,16 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'energy_transition.wsgi.application'
+# WSGI_APPLICATION = 'energy_transition.wsgi.application'
+ASGI_APPLICATION = "energy_transition.asgi.application"
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [('127.0.0.1', 6379)],
+        },
+    },
+}
 
 
 # Database
@@ -129,11 +140,12 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'  # Set your desired timezone here
+USE_TZ = True               # Enable timezone-aware datetimes
 
 USE_I18N = True
 
-USE_TZ = True
 
 AUTH_USER_MODEL = 'accounts.User'
 

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from accounts.models import User
-from .models import SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled
+from .models import SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs
 from django.utils.timezone import timedelta, now
 
 class SolarPortfolioSerializer(serializers.ModelSerializer):
@@ -11,7 +11,7 @@ class SolarPortfolioSerializer(serializers.ModelSerializer):
     )
     class Meta:
         model = SolarPortfolio
-        fields = ['id', 'user', 'state', 'capacity', 'cod',
+        fields = ['id', 'user', 'state', 'connectivity', 'available_capacity', 'cod',
                   'total_install_capacity', 'capital_cost', 'marginal_cost',
                   'hourly_data', 'annual_generation_potential', 'updated'] 
         extra_kwargs = {
@@ -40,7 +40,7 @@ class WindPortfolioSerializer(serializers.ModelSerializer):
     )
     class Meta:
         model = WindPortfolio
-        fields = ['id', 'user', 'state', 'capacity', 'cod',
+        fields = ['id', 'user', 'state', 'connectivity', 'available_capacity', 'cod',
                   'total_install_capacity', 'capital_cost', 'marginal_cost',
                   'hourly_data', 'annual_generation_potential', 'updated'] 
         extra_kwargs = {
@@ -69,7 +69,7 @@ class ESSPortfolioSerializer(serializers.ModelSerializer):
     )
     class Meta:
         model = ESSPortfolio
-        fields = ['id', 'user', 'state', 'capacity', 'cod',
+        fields = ['id', 'user', 'state', 'connectivity', 'available_capacity', 'cod',
                   'total_install_capacity', 'capital_cost', 'marginal_cost',
                   'efficiency_of_storage', 'efficiency_of_dispatch', 'updated'] 
         extra_kwargs = {
@@ -112,7 +112,7 @@ class MonthlyConsumptionDataSerializer(serializers.ModelSerializer):
     )
     class Meta:
         model = MonthlyConsumptionData
-        fields = ['requirement', 'month', 'monthly_consumption', 'peak_consumption', 'off_peak_consumption', 'monthly_bill_amount']
+        fields = ['id', 'requirement', 'month', 'monthly_consumption', 'peak_consumption', 'off_peak_consumption', 'monthly_bill_amount']
 
     def validate_user(self, requirement):
         if requirement.user.user_category != 'Consumer':
@@ -161,3 +161,13 @@ class SubscriptionEnrolledSerializer(serializers.ModelSerializer):
 
         # Create and return the SubscriptionEnrolled object
         return super().create(validated_data)
+    
+class NotificationsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notifications
+        fields = ['id', 'user', 'message', 'timestamp']  # Include the necessary fields
+
+class TariffsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tariffs
+        fields = '__all__'

@@ -218,7 +218,7 @@ class LoginUser(APIView):
     
     def get(self, request, email):
 
-        user = User.objects.get(email=email)
+        user = User.objects.filter(email=email).first()
         if user and user.verified_at is not None:
             email_otp = random.randint(100000, 999999)
 
@@ -228,7 +228,7 @@ class LoginUser(APIView):
             # Save email to session
             request.session['email'] = user.email
             # Send OTP via SMS using Twilio
-            self.send_sms_otp(user.mobile, otp=email_otp)
+            RegisterUser.send_sms_otp(user.mobile, otp=email_otp)
             # Resend OTP
             send_mail(
                 'Verification Code',

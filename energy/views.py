@@ -1,28 +1,30 @@
 import calendar
 from calendar import monthrange
 from itertools import chain
+import re
 from django.shortcuts import get_object_or_404
+import pytz
 from accounts.models import User
 from accounts.views import JWTAuthentication
-from .models import SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled
+from .models import GeneratorOffer, SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework import status
-from .serializers import SolarPortfolioSerializer, WindPortfolioSerializer, ESSPortfolioSerializer, ConsumerRequirementsSerializer, MonthlyConsumptionDataSerializer, StandardTermsSheetSerializer, SubscriptionTypeSerializer, SubscriptionEnrolledSerializer
+from .serializers import SolarPortfolioSerializer, WindPortfolioSerializer, ESSPortfolioSerializer, ConsumerRequirementsSerializer, MonthlyConsumptionDataSerializer, StandardTermsSheetSerializer, SubscriptionTypeSerializer, SubscriptionEnrolledSerializer, NotificationsSerializer, TariffsSerializer
 from django.core.mail import send_mail
 import random
 from django.contrib.auth.hashers import check_password
-from django.utils.timezone import now
-from datetime import datetime, timedelta
+from django.utils.timezone import make_aware, now
+from datetime import datetime, timedelta, time
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q, Sum
 from .aggregated_model.main import optimization_model
 import pandas as pd
 from itertools import product
-
+from django.utils import timezone
 
 # Create your views here.
 class GenerationPortfolioAPI(APIView):
@@ -86,8 +88,10 @@ class GenerationPortfolioAPI(APIView):
                 # Update the user's `is_new_user` field to False after saving the data
                 user.is_new_user = False
                 user.save()
-
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+                # Include energy_type in the response
+                response_data = serializer.data
+                response_data["energy_type"] = energy_type
+            return Response(response_data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def put(self, request, pk):
@@ -102,8 +106,21 @@ class GenerationPortfolioAPI(APIView):
         serializer = serializer_class(instance, data=request.data)
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            response_data = serializer.data
+            response_data['energy_type'] = energy_type
+            return Response(response_data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request, pk):
+        # Determine the model based on `energy_type`
+        energy_type = request.data.get("energy_type")
+        if not energy_type:
+            return Response({"error": "Energy type is required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        model = self.get_model(energy_type)
+        instance = get_object_or_404(model, pk=pk)
+        instance.delete()
+        return Response({"message": f"{energy_type} portfolio record deleted successfully."}, status=status.HTTP_204_NO_CONTENT)
 
 
 class ConsumerRequirementsAPI(APIView):
@@ -136,6 +153,21 @@ class ConsumerRequirementsAPI(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+    def put(self, request, pk):
+        # Update an existing energy profile
+        instance = get_object_or_404(ConsumerRequirements, id=pk)
+        serializer = ConsumerRequirementsSerializer(instance, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        # Delete an energy profile
+        instance = get_object_or_404(ConsumerRequirements, id=pk)
+        instance.delete()
+        return Response({"message": "Profile deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+    
 class MonthlyConsumptionDataAPI(APIView):
     # authentication_classes = [JWTAuthentication]
     # permission_classes = [IsAuthenticated]
@@ -154,62 +186,75 @@ class MonthlyConsumptionDataAPI(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def put(self, request, pk):
+        # Update an existing consumption record
+        instance = get_object_or_404(MonthlyConsumptionData, id=pk)
+        serializer = MonthlyConsumptionDataSerializer(instance, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        # Delete a consumption record
+        instance = get_object_or_404(MonthlyConsumptionData, pk=pk)
+        instance.delete()
+        return Response({"message": "Record deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
 class MatchingIPPAPI(APIView):
     # authentication_classes = [JWTAuthentication]
     # permission_classes = [IsAuthenticated]
 
-    def post(self, request):
-        data = request.data
-        requirement_id = data.get("requirement_id")
-
-        if not requirement_id:
-            return Response(
-                {"error": "Please provide requirement id."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        
+    def get(self, request, pk):
 
         try:
             # Fetch the requirement
-            requirement = ConsumerRequirements.objects.get(id=requirement_id)
+            requirement = ConsumerRequirements.objects.get(id=pk)
 
             # Filter the data
             # Query SolarPortfolio
             solar_data = SolarPortfolio.objects.filter(
                 Q(state=requirement.state) & Q(cod__gte=requirement.procurement_date)
-            ).values("user", "user__username", "state", "capacity")
+            ).values("user", "user__username", "state", "available_capacity")
         
             # Query WindPortfolio
             wind_data = WindPortfolio.objects.filter(
                 Q(state=requirement.state) & Q(cod__gte=requirement.procurement_date)
-            ).values("user", "user__username", "state", "capacity")
+            ).values("user", "user__username", "state", "available_capacity")
         
             # Query ESSPortfolio
             ess_data = ESSPortfolio.objects.filter(
                 Q(state=requirement.state) & Q(cod__gte=requirement.procurement_date)
-            ).values("user", "user__username", "state", "capacity")
+            ).values("user", "user__username", "state", "available_capacity")
         
             # Combine all data
-            filtered_data = list(chain(solar_data, wind_data, ess_data))
+            combined_data = list(chain(solar_data, wind_data, ess_data))
 
-            # Extract user IDs from the filtered data
-            user_ids = set()
-            for data_item in filtered_data:
-                user_ids.add(data_item["user"])  # Add the user ID to the set to avoid duplicates
+            # Use a dictionary to store unique users with the highest capacity
+            unique_users = {}
+            for entry in combined_data:
+                user_id = entry["user"]
+                if user_id not in unique_users or entry["available_capacity"] > unique_users[user_id]["available_capacity"]:
+                    unique_users[user_id] = entry
 
-            user_ids_list = list(user_ids)
-            print(user_ids_list)
+            # Extract the unique entries and sort by capacity in descending order
+            unique_data = list(unique_users.values())
+            sorted_data = sorted(unique_data, key=lambda x: x["available_capacity"], reverse=True)
+
+            # Get only the top 3 matches
+            top_three_matches = sorted_data[:3]
+
+            # Extract user IDs from the top three matches
+            user_ids = [match["user"] for match in top_three_matches]
 
             # Save the user IDs in MatchingIPP
             matching_ipp, created = MatchingIPP.objects.get_or_create(requirement=requirement)
-            matching_ipp.generator_ids = user_ids_list
+            matching_ipp.generator_ids = user_ids
             matching_ipp.save()
 
-            # Convert QuerySet to a list for JSON response
-            response_data = list(filtered_data)
-
-            return Response(response_data, status=status.HTTP_200_OK)
+            # Return the top three matches as the response
+            return Response(top_three_matches, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -217,10 +262,8 @@ class MatchingConsumerAPI(APIView):
     # authentication_classes = [JWTAuthentication]
     # permission_classes = [IsAuthenticated]
     
-    def post(self, request):
-        data = request.data
-        id = data.get("generator_id")
-        user = User.objects.get(id=id)
+    def get(self, request, pk):
+        user = User.objects.get(id=pk)
 
         try:
             # Get all GenerationPortfolio records for the user
@@ -262,17 +305,63 @@ class MatchingConsumerAPI(APIView):
                     state__in=states,
                     procurement_date__gte=min(cod_dates),  # At least one COD <= procurement_date
                 )
-                .values("user__username", "state")
+            )
+            
+            # Check for subscription and notify consumers without a subscription
+            consumers_without_subscription = []
+            for requirement in filtered_data:
+                
+                if not SubscriptionEnrolled.objects.filter(user=requirement.user, status='active').exists():
+
+                    # Add the consumer to the notification list
+                    consumers_without_subscription.append(requirement.user)
+
+                    # Send a notification (customize this part as per your notification system)
+                    Notifications.objects.create(
+                        user=requirement.user,
+                        message="Please activate your subscription to access matching services."
+                    )
+
+            # Exclude consumers without a subscription from the response
+            filtered_data = filtered_data.exclude(user__in=consumers_without_subscription)
+
+            # Annotate and prepare the final response
+            response_data = (
+                filtered_data.values("id", "user__username", "state", "industry")
                 .annotate(total_contracted_demand=Sum("contracted_demand"))
             )
 
             # Convert QuerySet to a list for JSON response
-            response_data = list(filtered_data)
-
-            return Response(response_data, status=status.HTTP_200_OK)
+            return Response(list(response_data), status=status.HTTP_200_OK)
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class PortfolioUpdateStatusView(APIView):
+
+    def get(self, request, user_id):
+        try:
+            # Fetch records for the given user in all three models
+            solar_records = SolarPortfolio.objects.filter(user_id=user_id)
+            wind_records = WindPortfolio.objects.filter(user_id=user_id)
+            ess_records = ESSPortfolio.objects.filter(user_id=user_id)
+
+            # Combine all records into a single list
+            all_records = list(solar_records) + list(wind_records) + list(ess_records)
+
+            # Check if any record is not updated
+            all_updated = all(record.updated for record in all_records)
+
+            return Response({
+                "user_id": user_id,
+                "all_updated": all_updated
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({
+                "error": "An error occurred.",
+                "details": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class OptimizeCapacityAPI(APIView):
@@ -299,8 +388,8 @@ class OptimizeCapacityAPI(APIView):
                 
         return profile
     
+
     @staticmethod
-    
     def calculate_hourly_demand(consumer_requirement, state="MP"):
         consumer_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
 
@@ -391,9 +480,20 @@ class OptimizeCapacityAPI(APIView):
             consumer_requirement = ConsumerRequirements.objects.get(id=id)
 
             input_data = {}  # Initialize the final dictionary
+            new_list = []
             
             for id in generator_id:
                 generator = User.objects.get(id=id)
+                
+                if optimize_capacity_user == "consumer":
+                    
+                    if not SubscriptionEnrolled.objects.filter(user=generator, status='active').exists():
+                        message = "You have not subscribed yet. Please subscribe so that you don't miss the perfect matchings."
+                        notification = Notifications(user=generator, message=message)
+                        notification.save()
+                        new_list.append(id)
+                        continue
+
 
                 # Query generator's portfolios
                 solar_data = SolarPortfolio.objects.filter(
@@ -490,65 +590,69 @@ class OptimizeCapacityAPI(APIView):
             #         print(False)
             # return Response(combinations, status=status.HTTP_200_OK)
 
+            if new_list != generator_id:
 
-            consumer_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
-            
-            # monthly data conversion in hourly data
-            if not consumer_demand.bulk_file:
-                hourly_demand = self.calculate_hourly_demand(consumer_requirement)
-                response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement)
-            else:
-                consumer_demand_path = consumer_demand.bulk_file.path
-                response_data = optimization_model(input_data, consumer_demand_path=consumer_demand_path, re_replacement=re_replacement)
+                consumer_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
+
+                # monthly data conversion in hourly data
+                if not consumer_demand.bulk_file:
+                    hourly_demand = self.calculate_hourly_demand(consumer_requirement)
+                    response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement)
+                else:
+                    consumer_demand_path = consumer_demand.bulk_file.path
+                    response_data = optimization_model(input_data, consumer_demand_path=consumer_demand_path, re_replacement=re_replacement)
                 
 
-            updated_response = {}
+                updated_response = {}
 
-            for combination_key, details in response_data.items():
-            # Extract user and components from combination_key
-                components = combination_key.split('-')
-                username = components[0]  # Example: 'IPP585'
-                solar_component = components[1]  # Example: 'Solar_1'
-                wind_component = components[2]  # Example: 'Wind_1'
-                ess_component = components[3]  # Example: 'ESS_1'
+                for combination_key, details in response_data.items():
+                # Extract user and components from combination_key
+                    components = combination_key.split('-')
+                    username = components[0]  # Example: 'IPP585'
+                    solar_component = components[1]  # Example: 'Solar_1'
+                    wind_component = components[2]  # Example: 'Wind_1'
+                    ess_component = components[3]  # Example: 'ESS_1'
 
-                generator = User.objects.get(username=username)
+                    generator = User.objects.get(username=username)
 
-                # Find maximum capacities and corresponding states
-                solar = SolarPortfolio.objects.get(user__username=username, project=solar_component)
-                wind = WindPortfolio.objects.get(user__username=username, project=wind_component)
-                ess = ESSPortfolio.objects.get(user__username=username, project=ess_component)
+                    # Find maximum capacities and corresponding states
+                    solar = SolarPortfolio.objects.get(user__username=username, project=solar_component)
+                    wind = WindPortfolio.objects.get(user__username=username, project=wind_component)
+                    ess = ESSPortfolio.objects.get(user__username=username, project=ess_component)
 
-                if solar.capacity > wind.capacity and solar.capacity > ess.capacity:
-                    state = solar.state
-                elif wind.capacity > solar.capacity and wind.capacity > ess.capacity:
-                    state = wind.state
-                elif ess.capacity > solar.capacity and ess.capacity > wind.capacity:
-                    state = ess.state
+                    if solar.capacity > wind.capacity and solar.capacity > ess.capacity:
+                        state = solar.state
+                    elif wind.capacity > solar.capacity and wind.capacity > ess.capacity:
+                        state = wind.state
+                    elif ess.capacity > solar.capacity and ess.capacity > wind.capacity:
+                        state = ess.state
 
 
-                # Save to Combination table
-                Combination.objects.create(
-                    requirement=consumer_requirement,
-                    generator=generator,
-                    combination=combination_key,
-                    state=state,
-                    optimal_solar_capacity=details["Optimal Solar Capacity (MW)"],
-                    optimal_wind_capacity=details["Optimal Wind Capacity (MW)"],
-                    optimal_battery_capacity=details["Optimal Battery Capacity (MW)"],
-                    per_unit_cost=details["Per Unit Cost"],
-                    final_cost=details["Final Cost"],
-                    annual_demand_offset=details["Annual Demand Offset"],
-                    annual_curtailment=details["Annual Curtailment:"]
-                )
+                    # Save to Combination table
+                    Combination.objects.create(
+                        requirement=consumer_requirement,
+                        generator=generator,
+                        combination=combination_key,
+                        state=state,
+                        optimal_solar_capacity=details["Optimal Solar Capacity (MW)"],
+                        optimal_wind_capacity=details["Optimal Wind Capacity (MW)"],
+                        optimal_battery_capacity=details["Optimal Battery Capacity (MW)"],
+                        per_unit_cost=details["Per Unit Cost"],
+                        final_cost=details["Final Cost"],
+                        annual_demand_offset=details["Annual Demand Offset"],
+                        annual_curtailment=details["Annual Curtailment:"]
+                    )
 
-                # Update response dictionary
-                updated_response[combination_key] = {
-                    **details,
-                    "state": state
-                }
-            
-            return Response(updated_response, status=status.HTTP_200_OK)
+                    # Update response dictionary
+                    updated_response[combination_key] = {
+                        **details,
+                        "state": state
+                    }
+
+                return Response(updated_response, status=status.HTTP_200_OK)
+            else:
+                return Response({"response": "No IPPs matched"}, status=status.HTTP_200_OK)
+
 
         except User.DoesNotExist:
             return Response({"error": "Consumer or generator not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -597,7 +701,7 @@ class StandardTermsSheetAPI(APIView):
     def get(self, request, pk=None):
         if pk:
             try:
-                record = StandardTermsSheet.objects.filter(consumer=pk).first() or StandardTermsSheet.objects.filter(generator=pk).first()
+                record = StandardTermsSheet.objects.filter(consumer=pk).first() or StandardTermsSheet.objects.filter(combination__generator=pk).first()
                 if record is None:
                     return Response({"error": "Record not found."}, status=status.HTTP_404_NOT_FOUND)
                 serializer = StandardTermsSheetSerializer(record)
@@ -617,12 +721,54 @@ class StandardTermsSheetAPI(APIView):
 
     def put(self, request, pk):
         try:
-            record = StandardTermsSheet.objects.get(pk=pk)
+            record = StandardTermsSheet.objects.get(id=pk)
+
+            # Check if the update limit has been reached
             if record.count >= 4:
-                return Response(
-                    {"error": "Update limit reached. This record cannot be updated further."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+                # Check if a Tariffs record already exists for this StandardTermsSheet
+                tariffs_instance = Tariffs.objects.filter(terms_sheet=record).first()
+
+                if tariffs_instance:
+                    # Update the existing Tariffs record
+                    tariffs_serializer = TariffsSerializer(
+                        tariffs_instance, data=request.data, partial=True
+                    )
+                    if tariffs_serializer.is_valid():
+                        tariffs_serializer.save()
+                        return Response(
+                            {
+                                "message": "Update limit reached. Existing Tariff record updated.",
+                                "tariff_record": tariffs_serializer.data,
+                            },
+                            status=status.HTTP_200_OK,
+                        )
+                    return Response(
+                        {"error": "Failed to update Tariff record.", "details": tariffs_serializer.errors},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                else:
+                    # Create a new Tariffs record if none exists
+                    tariffs_data = {
+                        "terms_sheet": record.id,
+                        "offer_tariff": request.data.get("offer_tariff"),
+                        "generator": request.data.get("generator"),
+                    }
+                    tariffs_serializer = TariffsSerializer(data=tariffs_data)
+                    if tariffs_serializer.is_valid():
+                        tariffs_serializer.save()
+                        return Response(
+                            {
+                                "message": "Update limit reached. New Tariff record created.",
+                                "tariff_record": tariffs_serializer.data,
+                            },
+                            status=status.HTTP_201_CREATED,
+                        )
+                    return Response(
+                        {"error": "Update limit reached, but Tariff creation failed.", "details": tariffs_serializer.errors},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            # Proceed with updating the StandardTermsSheet record
             serializer = StandardTermsSheetSerializer(record, data=request.data, partial=True)
             if serializer.is_valid():
                 serializer.save()
@@ -630,8 +776,10 @@ class StandardTermsSheetAPI(APIView):
                 record.save()
                 return Response(serializer.data, status=status.HTTP_200_OK)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
         except StandardTermsSheet.DoesNotExist:
             return Response({"error": "Record not found."}, status=status.HTTP_404_NOT_FOUND)
+
     
 class SubscriptionTypeAPIView(APIView):
     def get(self, request, user_type):
@@ -691,4 +839,234 @@ class SubscriptionEnrolledAPIView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
+class NotificationsAPI(APIView):
+    
+    def get(self, request, user_id):
+        try:
+            # Fetch notifications based on user_id
+            notifications = Notifications.objects.filter(user_id=user_id).order_by('-timestamp')
+            
+            # Serialize the notifications data
+            serializer = NotificationsSerializer(notifications, many=True)
+            
+            # Return the response with serialized data
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        
+        except Notifications.DoesNotExist:
+            # Handle the case where no notifications are found
+            return Response({"message": "No notifications found for this user."}, status=status.HTTP_404_NOT_FOUND)
+        
+        except Exception as e:
+            # Handle any other exceptions
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+class NegotiateTariffView(APIView):
+    def get(self, request, terms_sheet_id):
+        try:
+            terms_sheet = StandardTermsSheet.objects.get(id=terms_sheet_id)
+            serializer = StandardTermsSheetSerializer(terms_sheet)
 
+            Tariffs.objects.get_or_create(terms_sheet=terms_sheet, offer_tariff=terms_sheet.combination.per_unit_cost)
+            return Response({
+                "terms_sheet": serializer.data,
+                "offer_tariff": terms_sheet.combination.per_unit_cost,
+            })
+        except StandardTermsSheet.DoesNotExist:
+            return Response({"error": "Terms Sheet not found."}, status=404)
+        
+    def post(self, request):
+        user_id = request.data.get('user_id')
+        terms_sheet_id = request.data.get('terms_sheet_id')
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            terms_sheet = StandardTermsSheet.objects.get(id=terms_sheet_id)
+        except StandardTermsSheet.DoesNotExist:
+            return Response({"error": "Terms Sheet not found."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Only consumers can initiate the negotiation
+        if user.user_category == 'Generator':
+            # Notify the consumer linked in the terms sheet
+            try:
+                updated_tariff = request.data.get("updated_tariff")
+                tariff = Tariffs.objects.get(terms_sheet=terms_sheet)
+                GeneratorOffer.objects.get_or_create(generator=user, tariff=tariff, updated_tariff=updated_tariff)
+
+                consumer = terms_sheet.combination.consumer
+                Notifications.objects.create(
+                    user=consumer,
+                    message=(
+                        f"Generator {user.username} is interested in initiating a negotiation for Terms Sheet {terms_sheet}. "
+                        f"The offer tariff being provided is {terms_sheet.combination.per_unit_cost}."
+                    )
+                )
+            except User.DoesNotExist:
+                return Response({"error": "Consumer linked to the terms sheet not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({"message": "Notification sent to the consumer linked to the terms sheet."}, status=200)
+        else:
+            # Notify all matching IPPs and the current generator
+            matching_ipps = MatchingIPP.objects.get(requirement=terms_sheet.combination.requirement)
+            recipients = matching_ipps.generator_ids
+
+            # Get current time in timezone-aware format
+            now_time = timezone.now()
+
+            # Calculate the negotiation window start time (tomorrow at 10:00 AM)
+            next_day_date = (now_time + timedelta(days=1)).date()
+            next_day_10_am = datetime.combine(next_day_date, time(10, 0))
+            next_day_10_am_aware = timezone.make_aware(next_day_10_am, timezone=timezone.get_current_timezone())
+
+            # Define the end time for the negotiation window (e.g., 1 hour after start time)
+            end_time = next_day_10_am_aware + timedelta(hours=1)
+
+            # Notify recipients
+            for recipient in recipients:
+                try:
+                    recipient_user = User.objects.get(id=recipient)
+                    Notifications.objects.create(
+                        user=recipient_user,
+                        message=(
+                            f"Consumer {user.username} has initiated a negotiation for Terms Sheet {terms_sheet}. "
+                            f"The negotiation window will open tomorrow at 10:00 AM. "
+                            f"The generator involved in this negotiation is {terms_sheet.combination.generator.username}, "
+                            f"and the offer tariff being provided is {terms_sheet.combination.per_unit_cost}."
+                        )
+                    )
+                except User.DoesNotExist:
+                    continue
+
+            # Create the negotiation window record with date and time
+            NegotiationWindow.objects.create(
+                terms_sheet=terms_sheet,
+                start_time=next_day_10_am_aware,
+                end_time=end_time
+            )
+
+            return Response({"message": "Negotiation initiated. Notifications sent and negotiation window created."}, status=200)
+        
+class NegotiationWindowStatusView(APIView):
+    def get(self, request, user_id):
+        user = User.objects.filter(id=user_id).first()
+        if not user:
+            return Response({"message": "no user found"}, status=status.HTTP_404_NOT_FOUND)
+        if user.user_category == 'Consumer':
+            tariff = Tariffs.objects.filter(terms_sheet__consumer=user).order_by('-id').first()
+            if tariff:
+                negotiation_window = NegotiationWindow.objects.filter(terms_sheet=tariff.terms_sheet).first()
+
+                if negotiation_window:
+                    # Check if the current time is less than the start time
+                    current_time = now()
+                    if current_time < negotiation_window.start_time:
+                        return Response({
+                            "status": "error",
+                            "message": f"The negotiation window is not yet open. It will open on {negotiation_window.start_time.strftime('%Y-%m-%d at %I:%M %p')}."
+                        }, status=status.HTTP_403_FORBIDDEN)
+                    elif current_time > negotiation_window.end_time:
+                        return Response({
+                            "status": "error",
+                            "message": f"The negotiation window is closed."
+                        }, status=status.HTTP_403_FORBIDDEN)
+                    else:
+                        return Response({
+                            "status": "success",
+                            'tariff_id': tariff.id,
+                            "message": "Negotiation window is open.",
+                        }, status=status.HTTP_200_OK)
+
+                else:
+                    return Response({
+                        "status": "error",
+                        "message": "Negotiation window not found.",
+                    }, status=status.HTTP_404_NOT_FOUND)
+
+            return Response({
+                "status": "error",
+                "message": "Not Eligible.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+       
+        # Fetch the latest notification for the user
+        notification = Notifications.objects.filter(user_id=user_id).order_by('-timestamp').first()
+
+        if notification:
+            # Check if the message contains the required substring
+            if "The negotiation window will open tomorrow at 10:00 AM" in notification.message:
+                # Extract the Terms Sheet name from the message using regex
+                terms_sheet_pattern = re.compile(r"Terms Sheet (.+?)\. The negotiation window will open tomorrow")
+                match = terms_sheet_pattern.search(notification.message)
+
+                if match:
+                    terms_sheet_name = match.group(1)
+
+                    # Regex to extract consumer email and requirement
+                    pattern = re.compile(r"^(?P<consumer_email>\S+) - Demand for (?P<requirement>.+)$")
+                    result = pattern.match(terms_sheet_name)
+
+                    if result:
+                        consumer_email = result.group("consumer_email")
+                        requirement = result.group("requirement")
+                        
+                        # Split the string by ' - '
+                        values = [value.strip() for value in requirement.split(' - ')]
+
+                        # Extracted values
+                        # email = values[0]  # Consumer email
+                        state = values[1]  # State
+                        industry = values[2]  # Industry
+                        contracted_demand = values[3]  # Contracted demand
+                        # Extract the numeric part using a regular expression
+                        contracted_demand = float(re.search(r"\d+(\.\d+)?", contracted_demand).group())
+
+                        consumer = User.objects.get(email=consumer_email)
+                        requirement = ConsumerRequirements.objects.get(user=consumer, state=state, industry=industry, contracted_demand=contracted_demand)
+                    else:
+                        print("No match found.")
+
+                    # Fetch the NegotiationWindow record based on the extracted Terms Sheet name
+                    try:
+                        terms_sheet = StandardTermsSheet.objects.get(consumer=consumer, combination__requirement=requirement)
+                        tariff = Tariffs.objects.get(terms_sheet=terms_sheet)
+                        negotiation_window = NegotiationWindow.objects.filter(terms_sheet=terms_sheet).order_by('-id').first()
+
+                        if negotiation_window:
+                            # Check if the current time is less than the start time
+                            current_time = now()
+                            if current_time < negotiation_window.start_time:
+                                return Response({
+                                    "status": "error",
+                                    "message": f"The negotiation window is not yet open. It will open on {negotiation_window.start_time.strftime('%Y-%m-%d at %I:%M %p')}."
+                                }, status=status.HTTP_403_FORBIDDEN)
+                            elif current_time > negotiation_window.end_time:
+                                return Response({
+                                    "status": "error",
+                                    "message": f"The negotiation window is closed."
+                                }, status=status.HTTP_403_FORBIDDEN)
+                            else:
+                                return Response({
+                                    "status": "success",
+                                    'tariff_id': tariff.id,
+                                    "message": "Negotiation window is open.",
+                                }, status=status.HTTP_200_OK)
+
+                    except StandardTermsSheet.DoesNotExist:
+                        return Response({
+                            "status": "error",
+                            "message": "Terms Sheet not found.",
+                        }, status=status.HTTP_404_NOT_FOUND)
+
+            return Response({
+                "status": "error",
+                "message": "Notification message format is invalid or does not contain the required information.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            "status": "error",
+            "message": "No notification found for the user.",
+        }, status=status.HTTP_404_NOT_FOUND)
+    
