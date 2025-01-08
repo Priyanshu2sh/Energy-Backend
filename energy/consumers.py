@@ -3,18 +3,25 @@ from datetime import datetime, time
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from .models import GeneratorOffer, Tariffs
+from urllib.parse import parse_qs
 
 class NegotiationWindowConsumer(AsyncWebsocketConsumer):
-    ALLOWED_START_TIME = time(10, 0)  # 10:00 AM
-    ALLOWED_END_TIME = time(11, 0)   # 11:00 AM
+    ALLOWED_START_TIME = time(13, 0)  # 10:00 AM
+    ALLOWED_END_TIME = time(14, 0)   # 11:00 AM
 
     async def connect(self):
-        # Extract query parameters
-        query_params = self.scope['query_string'].decode()
-        self.user_id = self.get_query_param(query_params, 'user_id')
-        self.tariff_id = self.get_query_param(query_params, 'tariff_id')
+        # Check if current time is within the allowed window
+        current_time = datetime.now().time()
+        if not self.is_within_allowed_time(current_time):
+            await self.close()
+            return
+        
+        query_params = parse_qs(self.scope['query_string'].decode())
+        self.user_id = query_params.get('user_id', [None])[0]
+        self.tariff_id = query_params.get('tariff_id', [None])[0]
 
         if not self.user_id or not self.tariff_id:
+            # Close the WebSocket connection if parameters are missing
             await self.close()
             return
 
@@ -28,15 +35,6 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
         )
         await self.accept()
 
-        # Notify the client about the connection status and time restrictions
-        current_time = datetime.now().time()
-        window_status = "open" if self.is_within_allowed_time(current_time) else "closed"
-        await self.send(text_data=json.dumps({
-            'status': 'connected',
-            'message': f'Negotiation window is currently {window_status}.',
-            'window_status': window_status
-        }))
-
     async def disconnect(self, close_code):
         # Leave the WebSocket group when the user disconnects
         await self.channel_layer.group_discard(
@@ -45,27 +43,35 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
         )
 
     async def receive(self, text_data):
-        # Parse the incoming message
-        text_data_json = json.loads(text_data)
-        updated_tariff = text_data_json.get('updated_tariff')
-
-        # Allow only record viewing after the window closes
+        # Check if the negotiation window is still open
         current_time = datetime.now().time()
         if not self.is_within_allowed_time(current_time):
-            if updated_tariff is not None:
-                await self.send(text_data=json.dumps({
-                    'status': 'error',
-                    'message': 'Negotiation window is closed. Updates are not allowed.'
-                }))
-                return
+            await self.send(text_data=json.dumps({
+                'status': 'error',
+                'message': 'Negotiation window is closed.'
+            }))
+            await self.close()
+            return
+        
+        # Parse the incoming message
+        text_data_json = json.loads(text_data)
 
+        # Extract the data from the incoming request
+        # user_id = text_data_json.get('user_id')
+        updated_tariff = text_data_json.get('updated_tariff')
+
+        # Process the update only when 'updated_tariff' is provided (triggered by button click)
         if updated_tariff is not None:
             try:
+                # Fetch the Tariff and Generator Offer records asynchronously
                 tariff = await self.get_tariff(self.tariff_id)
                 generator_offer, created = await self.get_or_create_generator_offer(self.user_id, tariff)
+
+                # Update the Generator Offer with the new tariff value
                 generator_offer.updated_tariff = updated_tariff
                 await self.save_generator_offer(generator_offer)
 
+                # Send confirmation message to the client (all connected clients for this tariff)
                 await self.channel_layer.group_send(
                     self.room_group_name,
                     {
@@ -90,27 +96,11 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
                     'message': str(e)
                 }))
         else:
-            # Handle a request to view records
-            try:
-                tariff = await self.get_tariff(self.tariff_id)
-                generator_offers = await self.get_generator_offers(self.tariff_id)
-                offers_data = [
-                    {
-                        'generator_id': offer.generator_id,
-                        'updated_tariff': offer.updated_tariff,
-                        'timestamp': offer.updated_at.strftime('%Y-%m-%d %H:%M:%S')
-                    } for offer in generator_offers
-                ]
-                await self.send(text_data=json.dumps({
-                    'status': 'success',
-                    'message': 'Fetched generator offers.',
-                    'offers': offers_data
-                }))
-            except Tariffs.DoesNotExist:
-                await self.send(text_data=json.dumps({
-                    'status': 'error',
-                    'message': 'Tariff not found'
-                }))
+            # If no tariff update, send a simple response or ignore
+            await self.send(text_data=json.dumps({
+                'status': 'waiting',
+                'message': 'Waiting for tariff update.'
+            }))
 
     async def offer_update(self, event):
         # Send the updated offer details to all connected clients in the group (for the same tariff)
@@ -120,24 +110,18 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
     def is_within_allowed_time(self, current_time):
         return self.ALLOWED_START_TIME <= current_time <= self.ALLOWED_END_TIME
 
-    # Helper method to extract query parameters
-    def get_query_param(self, query_string, param):
-        from urllib.parse import parse_qs
-        parsed_params = parse_qs(query_string)
-        return parsed_params.get(param, [None])[0]
-
     # Database interaction methods
     @database_sync_to_async
     def get_tariff(self, tariff_id):
         return Tariffs.objects.get(id=tariff_id)
 
     @database_sync_to_async
-    def get_generator_offers(self, tariff_id):
-        return GeneratorOffer.objects.filter(tariff_id=tariff_id)
-
-    @database_sync_to_async
     def get_or_create_generator_offer(self, user_id, tariff):
-        return GeneratorOffer.objects.get_or_create(generator_id=user_id, tariff=tariff)
+        # Fetch the GeneratorOffer object or create it
+        return GeneratorOffer.objects.get_or_create(
+            generator_id=user_id,
+            tariff=tariff
+        )
 
     @database_sync_to_async
     def save_generator_offer(self, generator_offer):

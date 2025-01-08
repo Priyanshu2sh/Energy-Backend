@@ -9,6 +9,8 @@ class SolarPortfolioSerializer(serializers.ModelSerializer):
         queryset=User.objects.all(),
         slug_field='id'  # Map the user field to the email field
     )
+    hourly_data = serializers.FileField(required=False)
+
     class Meta:
         model = SolarPortfolio
         fields = ['id', 'user', 'state', 'connectivity', 'available_capacity', 'cod',
@@ -38,6 +40,7 @@ class WindPortfolioSerializer(serializers.ModelSerializer):
         queryset=User.objects.all(),
         slug_field='id'  # Map the user field to the email field
     )
+    hourly_data = serializers.FileField(required=False)
     class Meta:
         model = WindPortfolio
         fields = ['id', 'user', 'state', 'connectivity', 'available_capacity', 'cod',
