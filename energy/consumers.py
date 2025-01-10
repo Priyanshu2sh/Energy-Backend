@@ -4,10 +4,13 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from .models import GeneratorOffer, Tariffs
 from urllib.parse import parse_qs
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 class NegotiationWindowConsumer(AsyncWebsocketConsumer):
-    ALLOWED_START_TIME = time(13, 0)  # 10:00 AM
-    ALLOWED_END_TIME = time(14, 0)   # 11:00 AM
+    ALLOWED_START_TIME = time(11, 0)  # 10:00 AM
+    ALLOWED_END_TIME = time(13, 0)   # 11:00 AM
 
     async def connect(self):
         # Check if current time is within the allowed window
@@ -56,35 +59,53 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
         # Parse the incoming message
         text_data_json = json.loads(text_data)
 
+        text_data_json = json.loads(text_data)
+        action = text_data_json.get('action')
+
+        if action == 'select_generator':
+            selected_generator_id = text_data_json.get('selected_generator_id')
+            consumer_id = self.user_id # Get the consumer id
+
+
+            try:
+                tariff = await self.get_tariff(self.tariff_id)
+                await self.finalize_negotiation(tariff, selected_generator_id, consumer_id)
+                await self.send_final_messages(tariff, selected_generator_id)
+                await self.close()  # Close the consumer's connection
+            except Tariffs.DoesNotExist:
+                await self.send(text_data=json.dumps({
+                    'status': 'error',
+                    'message': 'Tariff not found'
+                }))
+            except GeneratorOffer.DoesNotExist:
+                await self.send(text_data=json.dumps({
+                    'status': 'error',
+                    'message': 'Selected Generator Offer not found.'
+                }))
+            except Exception as e:
+                await self.send(text_data=json.dumps({
+                    'status': 'error',
+                    'message': str(e)
+                }))
+            return
+
         # Extract the data from the incoming request
         # user_id = text_data_json.get('user_id')
-        updated_tariff = text_data_json.get('updated_tariff')
 
         # Process the update only when 'updated_tariff' is provided (triggered by button click)
+        updated_tariff = text_data_json.get('updated_tariff')
         if updated_tariff is not None:
             try:
-                # Fetch the Tariff and Generator Offer records asynchronously
                 tariff = await self.get_tariff(self.tariff_id)
                 generator_offer, created = await self.get_or_create_generator_offer(self.user_id, tariff)
-
-                # Update the Generator Offer with the new tariff value
                 generator_offer.updated_tariff = updated_tariff
                 await self.save_generator_offer(generator_offer)
 
-                # Send confirmation message to the client (all connected clients for this tariff)
-                await self.channel_layer.group_send(
-                    self.room_group_name,
-                    {
-                        'type': 'offer_update',
-                        'message': {
-                            'status': 'success',
-                            'generator_id': self.user_id,
-                            'tariff_id': self.tariff_id,
-                            'updated_tariff': updated_tariff,
-                            'timestamp': generator_offer.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
-                        }
-                    }
-                )
+                # Send confirmation message (Corrected):
+                message = await self.build_offer_update_message(generator_offer)
+                await self.channel_layer.group_send(self.room_group_name, message)
+
+            
             except Tariffs.DoesNotExist:
                 await self.send(text_data=json.dumps({
                     'status': 'error',
@@ -101,6 +122,103 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
                 'status': 'waiting',
                 'message': 'Waiting for tariff update.'
             }))
+
+    async def build_offer_update_message(self, generator_offer):
+        generator_username = await self.get_generator_username(generator_offer.generator_id)
+        return {
+            'type': 'offer_update',
+            'message': {
+                'status': 'success',
+                'generator_id': generator_offer.generator_id,
+                'generator_username': generator_username,
+                'tariff_id': generator_offer.tariff_id,
+                'updated_tariff': generator_offer.updated_tariff,
+                'timestamp': generator_offer.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
+            }
+        }
+
+    async def send_final_messages(self, tariff, selected_generator_id):
+        selected_offer = await self.get_generator_offer(tariff, selected_generator_id)
+        consumer = await self.get_user(selected_offer.accepted_by_id)
+
+        generator_offers = await self.get_generator_offers(tariff)
+
+        for offer in generator_offers:
+            group_name = f"negotiation_{self.tariff_id}_{offer.generator_id}"
+            message = {
+                'type': 'negotiation_finalized',
+                'message': {
+                    'tariff_id': self.tariff_id,
+                    'updated_tariff': offer.updated_tariff,
+                    'consumer_username': consumer.username,
+                    'consumer_id': consumer.id,
+                }
+            }
+
+            if offer.generator_id == int(selected_generator_id):
+                message['message']['is_selected'] = True
+                message['message']['message'] = "Your offer has been accepted!"  # Specific message for selected generator
+            else:
+                message['message']['is_selected'] = False
+                message['message']['message'] = f"Another generator's offer has been accepted. Thank you for participating."  # Message for others
+
+            await self.channel_layer.group_send(group_name, message)
+
+        # Send message to consumer
+        consumer_message = {
+            'type': 'negotiation_finalized',
+            'message': {
+                'tariff_id': self.tariff_id,
+                'selected_generator_id': selected_generator_id,
+                'selected_generator_username': (await self.get_user(selected_generator_id)).username,
+                'updated_tariff': selected_offer.updated_tariff,
+                'consumer_username': consumer.username,
+                'consumer_id': consumer.id,
+            }
+        }
+        await self.send(text_data=json.dumps(consumer_message['message']))
+
+    @database_sync_to_async
+    def get_generator_username(self, generator_id):
+        try:
+            user = User.objects.get(id=generator_id)
+            return user.username
+        except User.DoesNotExist:
+            return None
+
+    @database_sync_to_async
+    def get_generator_offer(self, tariff, generator_id):
+        try:
+            return GeneratorOffer.objects.get(tariff=tariff, generator_id=generator_id)
+        except GeneratorOffer.DoesNotExist:
+            return None  # Return None if not found
+
+    @database_sync_to_async
+    def get_generator_offers(self, tariff):
+        return list(GeneratorOffer.objects.filter(tariff=tariff))
+
+    @database_sync_to_async
+    def get_user(self, user_id):
+        try:
+            return User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return None # Handle case where user does not exist
+
+    async def negotiation_finalized(self, event):
+        await self.send(text_data=json.dumps(event['message']))
+
+    @database_sync_to_async
+    def finalize_negotiation(self, tariff, selected_generator_id, consumer_id):
+        try:
+            selected_offer = GeneratorOffer.objects.get(tariff=tariff, generator_id=selected_generator_id)
+            selected_offer.is_accepted = True
+            selected_offer.accepted_by_id = consumer_id # Set the consumer
+            selected_offer.save()
+
+            # Optionally, you might want to mark other offers for this tariff as rejected:
+            GeneratorOffer.objects.filter(tariff=tariff).exclude(id=selected_offer.id).update(is_accepted=False)
+        except GeneratorOffer.DoesNotExist:
+            raise  # Re-raise the exception to be handled in the caller
 
     async def offer_update(self, event):
         # Send the updated offer details to all connected clients in the group (for the same tariff)

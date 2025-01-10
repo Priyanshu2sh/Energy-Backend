@@ -1,3 +1,4 @@
+import base64
 import calendar
 from calendar import monthrange
 from itertools import chain
@@ -6,7 +7,7 @@ from django.shortcuts import get_object_or_404
 import pytz
 from accounts.models import User
 from accounts.views import JWTAuthentication
-from .models import GeneratorOffer, SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow
+from .models import GeneratorOffer, GridTariff, SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -22,6 +23,7 @@ from datetime import datetime, timedelta, time
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q, Sum
 from .aggregated_model.main import optimization_model
+from django.core.files.base import ContentFile
 import pandas as pd
 from itertools import product
 from django.utils import timezone
@@ -103,6 +105,20 @@ class GenerationPortfolioAPI(APIView):
         model = self.get_model(energy_type)
         instance = get_object_or_404(model, pk=pk)
         serializer_class = self.get_serializer_class(energy_type)
+
+        # Handle Base64-encoded file
+        file_data = request.data.get("hourly_data")
+        if file_data:
+            try:
+                # Decode Base64 file
+                decoded_file = base64.b64decode(file_data)
+                # Define a file name (customize as needed)
+                file_name = f"hourly_data_{pk}.xlsx"  # Assuming the file is an Excel file
+                # Wrap the decoded file into ContentFile
+                request.data["hourly_data"] = ContentFile(decoded_file, name=file_name)
+            except Exception as e:
+                return Response({"error": f"Invalid Base64 file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = serializer_class(instance, data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -175,13 +191,28 @@ class MonthlyConsumptionDataAPI(APIView):
 
     def get(self, request, pk):
         # Fetch energy profiles
-        data = MonthlyConsumptionData.objects.filter(requirement__user=pk)
+        data = MonthlyConsumptionData.objects.filter(requirement=pk)
         serializer = MonthlyConsumptionDataSerializer(data, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+
+        # Extract the serialized data
+        serialized_data = serializer.data
+
+        # Sort the data by the month field (assuming full month names)
+        try:
+            sorted_data = sorted(
+                serialized_data, 
+                key=lambda x: datetime.strptime(x['month'], '%B')
+            )
+        except KeyError:
+            return Response({"error": "Missing 'month' key in data"}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError:
+            return Response({"error": "Invalid month format in data"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        return Response(sorted_data, status=status.HTTP_200_OK)
 
     def post(self, request):
         # Add a new energy profile
-        serializer = MonthlyConsumptionDataSerializer(data=request.data)
+        serializer = MonthlyConsumptionDataSerializer(data=request.data, many=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -531,7 +562,7 @@ class OptimizeCapacityAPI(APIView):
 
                         input_data[generator.username]["Solar"][solar.project] = {
                             "profile": profile_data,
-                            "max_capacity": solar.capacity,
+                            "max_capacity": solar.available_capacity,
                             "marginal_cost": solar.marginal_cost,
                             "capital_cost": solar.capital_cost,
                         }
@@ -548,7 +579,7 @@ class OptimizeCapacityAPI(APIView):
 
                         input_data[generator.username]["Wind"][wind.project] = {
                             "profile": profile_data,
-                            "max_capacity": solar.capacity,
+                            "max_capacity": wind.available_capacity,
                             "marginal_cost": wind.marginal_cost,
                             "capital_cost": wind.capital_cost,
                         }
@@ -567,7 +598,7 @@ class OptimizeCapacityAPI(APIView):
                             "capital_cost": ess.capital_cost,
                         }
 
-            # print(input_data)
+            print(input_data)
             # Extract generator name and project lists
             # gen = next(iter(input_data.keys()))
             # solar_projects = list(input_data[gen]['Solar'].keys())
@@ -602,54 +633,123 @@ class OptimizeCapacityAPI(APIView):
                     consumer_demand_path = consumer_demand.bulk_file.path
                     response_data = optimization_model(input_data, consumer_demand_path=consumer_demand_path, re_replacement=re_replacement)
                 
+                if response_data == 'The demand cannot be met by the IPPs' and optimize_capacity_user=='consumer':
+                    return Response({"response": "The demand cannot be met by the IPPs."}, status=status.HTTP_200_OK)
+                if response_data == 'The demand cannot be met by the IPPs' and optimize_capacity_user=='generator':
+                    return Response({"response": "The demand cannot be made by your projects."}, status=status.HTTP_200_OK)
 
                 updated_response = {}
 
                 for combination_key, details in response_data.items():
                 # Extract user and components from combination_key
                     components = combination_key.split('-')
-                    username = components[0]  # Example: 'IPP585'
-                    solar_component = components[1]  # Example: 'Solar_1'
-                    wind_component = components[2]  # Example: 'Wind_1'
-                    ess_component = components[3]  # Example: 'ESS_1'
+
+                    # Safely extract components, ensuring that we have enough elements
+                    username = components[0] if len(components) > 0 else None  # Example: 'IPP241'
+                    component_1 = components[1] if len(components) > 1 else None  # Example: 'Solar_1' (if present)
+                    component_2 = components[2] if len(components) > 2 else None  # Example: 'Wind_1' (if present)
+                    component_3 = components[3] if len(components) > 3 else None  # Example: 'ESS_1' (if present)
 
                     generator = User.objects.get(username=username)
 
-                    # Find maximum capacities and corresponding states
-                    solar = SolarPortfolio.objects.get(user__username=username, project=solar_component)
-                    wind = WindPortfolio.objects.get(user__username=username, project=wind_component)
-                    ess = ESSPortfolio.objects.get(user__username=username, project=ess_component)
+                    solar = wind = ess = None
 
-                    if solar.capacity > wind.capacity and solar.capacity > ess.capacity:
+                    # Helper function to fetch the component and its COD
+                    def get_component_and_cod(component_name, generator, portfolio_model):
+                        try:
+                            portfolio = portfolio_model.objects.get(user=generator, project=component_name)
+                            return portfolio, portfolio.cod
+                        except portfolio_model.DoesNotExist:
+                            return None, None
+
+                    # Fetch solar, wind, and ESS components and their CODs
+                    if component_1:
+                        if 'Solar' in component_1:
+                            solar, solar_cod = get_component_and_cod(component_1, generator, SolarPortfolio)
+                        elif 'Wind' in component_1:
+                            wind, wind_cod = get_component_and_cod(component_1, generator, WindPortfolio)
+                        elif 'ESS' in component_1:
+                            ess, ess_cod = get_component_and_cod(component_1, generator, ESSPortfolio)
+
+                    if component_2:
+                        if 'Wind' in component_2:
+                            wind, wind_cod = get_component_and_cod(component_2, generator, WindPortfolio)
+                        elif 'ESS' in component_2:
+                            ess, ess_cod = get_component_and_cod(component_2, generator, ESSPortfolio)
+
+                    if component_3:
+                        if 'ESS' in component_3:
+                            ess, ess_cod = get_component_and_cod(component_3, generator, ESSPortfolio)
+
+                    # Determine the greatest COD
+                    cod_dates = [solar_cod if solar else None, wind_cod if wind else None, ess_cod if ess else None]
+                    cod_dates = [date for date in cod_dates if date is not None]
+                    greatest_cod = max(cod_dates) if cod_dates else None
+
+                    if solar and wind and ess:
+                        if solar.available_capacity > wind.available_capacity and solar.available_capacity > ess.available_capacity:
+                            state = solar.state
+                        elif wind.available_capacity > solar.available_capacity and wind.available_capacity > ess.available_capacity:
+                            state = wind.state
+                        elif ess.available_capacity > solar.available_capacity and ess.available_capacity > wind.available_capacity:
+                            state = ess.state
+                    elif solar and wind:
+                        state = solar.state if solar.available_capacity > wind.available_capacity else wind.state
+                    elif wind and ess:
+                        state = wind.state if wind.available_capacity > ess.available_capacity else ess.state
+                    elif solar and ess:
+                        state = solar.state if solar.available_capacity > ess.available_capacity else ess.state
+                    elif solar:
                         state = solar.state
-                    elif wind.capacity > solar.capacity and wind.capacity > ess.capacity:
+                    elif wind:
                         state = wind.state
-                    elif ess.capacity > solar.capacity and ess.capacity > wind.capacity:
+                    elif ess:
                         state = ess.state
-
-
-                    # Save to Combination table
-                    Combination.objects.create(
-                        requirement=consumer_requirement,
-                        generator=generator,
-                        combination=combination_key,
-                        state=state,
-                        optimal_solar_capacity=details["Optimal Solar Capacity (MW)"],
-                        optimal_wind_capacity=details["Optimal Wind Capacity (MW)"],
-                        optimal_battery_capacity=details["Optimal Battery Capacity (MW)"],
-                        per_unit_cost=details["Per Unit Cost"],
-                        final_cost=details["Final Cost"],
-                        annual_demand_offset=details["Annual Demand Offset"],
-                        annual_curtailment=details["Annual Curtailment:"]
-                    )
+                    
+                    terms_sheet_sent = True
+                    combo = Combination.objects.filter(combination=combination_key).first()
+                    if combo:
+                        terms_sheet_sent = combo.terms_sheet_sent
+                        print('terms_sheet_sent====')
+                        print('terms_sheet_sent====')
+                    else:
+                        # Save to Combination table
+                        Combination.objects.get_or_create(
+                            requirement=consumer_requirement,
+                            generator=generator,
+                            combination=combination_key,
+                            state=state,
+                            optimal_solar_capacity=details["Optimal Solar Capacity (MW)"],
+                            optimal_wind_capacity=details["Optimal Wind Capacity (MW)"],
+                            optimal_battery_capacity=details["Optimal Battery Capacity (MW)"],
+                            per_unit_cost=details["Per Unit Cost"],
+                            final_cost=details["Final Cost"],
+                            annual_demand_offset=details["Annual Demand Offset"],
+                            annual_curtailment=details["Annual Curtailment:"]
+                        )
 
                     # Update response dictionary
                     updated_response[combination_key] = {
                         **details,
-                        "state": state
+                        "state": state,
+                        "greatest_cod": greatest_cod,
+                        "terms_sheet_sent": terms_sheet_sent
                     }
+                    print(updated_response)
+                    # Extract top 3 records with the smallest "Per Unit Cost"
+                    top_three_records = sorted(updated_response.items(), key=lambda x: x[1]['Per Unit Cost'])[:3]
 
-                return Response(updated_response, status=status.HTTP_200_OK)
+                    # Function to round values to 2 decimal places
+                    def round_values(record):
+                        return {key: round(value, 2) if isinstance(value, (int, float)) else value for key, value in record.items()}
+
+                    # Round the values for the top 3 records
+                    top_three_records_rounded = {
+                        key: round_values(value) for key, value in top_three_records
+                    }   
+                    print(top_three_records_rounded)
+
+                return Response(top_three_records_rounded, status=status.HTTP_200_OK)
             else:
                 return Response({"response": "No IPPs matched"}, status=status.HTTP_200_OK)
 
@@ -668,7 +768,7 @@ class ConsumptionPatternAPI(APIView):
         try:
             
             # Fetch MonthlyConsumptionData for the consumer
-            consumption_data = MonthlyConsumptionData.objects.filter(user=pk).values('month', 'monthly_consumption')
+            consumption_data = MonthlyConsumptionData.objects.filter(requirement=pk).values('month', 'monthly_consumption')
 
             # Check if consumption data exists
             if not consumption_data.exists():
@@ -676,18 +776,19 @@ class ConsumptionPatternAPI(APIView):
                     {"error": "No consumption data found for the consumer."},
                     status=status.HTTP_404_NOT_FOUND
                 )
+            # Convert the month data to sorted month names (e.g., "Jan", "Feb", "Mar", ...)
+            sorted_data = sorted(consumption_data, key=lambda x: datetime.strptime(x['month'], '%B'))
 
-            # Create a response with the monthly consumption data
+            # Prepare response with the sorted monthly consumption data
             response_data = {
                 "monthly_consumption": [
                     {
-                        "month": entry["month"], 
+                        "month": datetime.strptime(entry["month"], '%B').strftime('%b'),  # Convert to short month name (e.g., Jan, Feb)
                         "consumption": entry["monthly_consumption"]
-                    } 
-                    for entry in consumption_data
+                    }
+                    for entry in sorted_data
                 ]
             }
-
 
             return Response(response_data, status=status.HTTP_200_OK)
 
@@ -698,30 +799,91 @@ class ConsumptionPatternAPI(APIView):
             )
         
 class StandardTermsSheetAPI(APIView):
-    def get(self, request, pk=None):
-        if pk:
+
+    def get(self, request, pk, from_whom):
+        if pk and from_whom:
+            user = User.objects.get(id=pk)
             try:
-                record = StandardTermsSheet.objects.filter(consumer=pk).first() or StandardTermsSheet.objects.filter(combination__generator=pk).first()
+                if user.user_category == 'Consumer':
+                    if from_whom == 'Consumer':
+                        record = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Consumer').first()
+                    else:
+                        record = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Generator').first()
+                else:
+                    if request.data.get('from_whom') == 'Consumer':
+                        record = StandardTermsSheet.objects.filter(combination__generator=user, from_whom ='Consumer').first()
+                    else:
+                        record = StandardTermsSheet.objects.filter(combination__generator=user, from_whom ='Generator').first()
+                        
                 if record is None:
                     return Response({"error": "Record not found."}, status=status.HTTP_404_NOT_FOUND)
+
                 serializer = StandardTermsSheetSerializer(record)
                 return Response(serializer.data, status=status.HTTP_200_OK)
+
             except StandardTermsSheet.DoesNotExist:
                 return Response({"error": "Record not found."}, status=status.HTTP_404_NOT_FOUND)
-        records = StandardTermsSheet.objects.all()
-        serializer = StandardTermsSheetSerializer(records, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+
+        return Response({"error": "Please send valid values of user id and category."}, status=status.HTTP_404_NOT_FOUND)
 
     def post(self, request):
-        serializer = StandardTermsSheetSerializer(data=request.data)
+        # Extract requirement_id from the request data
+        requirement_id = request.data.get("requirement_id")
+        from_whom = request.data.get("from_whom")
+
+        if from_whom not in ['Consumer', 'Generator']:
+            return Response({"error": "Invalid value for 'from_whom'."}, status=status.HTTP_400_BAD_REQUEST)
+
+
+        if not requirement_id:
+            return Response({"error": "requirement_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        requirement = ConsumerRequirements.objects.get(id=requirement_id)
+
+        if StandardTermsSheet.objects.filter(combination__requirement=requirement, combination__combination=request.data.get('combination')):
+            return Response({"error": "The term sheet is already sent to the consumer for this combination."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Add consumer and combination to the request data
+        request_data = request.data.copy()
+        request_data["consumer"] = requirement.user.id  # Set consumer ID
+
+        c = Combination.objects.filter(combination=request.data.get('combination')).order_by('-id').first()
+        request_data["combination"] = c.id
+
+
+        serializer = StandardTermsSheetSerializer(data=request_data)
         if serializer.is_valid():
-            serializer.save()
+            # Save the termsheet
+            termsheet = serializer.save()
+            c.terms_sheet_sent = True
+            c.save()
+
+            if from_whom == "Consumer":
+                Notifications.objects.get_or_create(user=termsheet.combination.generator, message=f'The consumer {termsheet.consumer.username} has sent you a terms sheet.')
+            elif from_whom == "Generator":
+                Notifications.objects.get_or_create(user=termsheet.consumer, message=f'The generator {termsheet.combination.generator.username} has sent you a terms sheet.')
+            else:
+                return Response({"error": "Invalid value for 'from_whom'."}, status=status.HTTP_400_BAD_REQUEST)
+
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def put(self, request, pk):
+    def put(self, request, user_id, pk):
         try:
+            user = User.objects.get(id=user_id)
             record = StandardTermsSheet.objects.get(id=pk)
+            action = request.data.get("action")  # Check for an 'action' key in the request payload
+
+            if action in ['Accepted', 'Rejected']:
+                record.consumer_status = action
+                record.generator_status = action
+
+                record.save()
+                return Response(
+                    {"message": f"Terms sheet {action.lower()}ed successfully.", "record": StandardTermsSheetSerializer(record).data},
+                    status=status.HTTP_200_OK,
+                )
 
             # Check if the update limit has been reached
             if record.count >= 4:
@@ -767,6 +929,14 @@ class StandardTermsSheetAPI(APIView):
                         {"error": "Update limit reached, but Tariff creation failed.", "details": tariffs_serializer.errors},
                         status=status.HTTP_400_BAD_REQUEST,
                     )
+
+            # Determine if the user is the consumer or generator
+            if user == record.consumer:
+                record.consumer_status = 'Pending'
+                record.generator_status = 'Negotiated'
+            else:  # Assuming the other user is a generator
+                record.consumer_status = 'Negotiated'
+                record.generator_status = 'Pending'
 
             # Proceed with updating the StandardTermsSheet record
             serializer = StandardTermsSheetSerializer(record, data=request.data, partial=True)
@@ -1070,3 +1240,29 @@ class NegotiationWindowStatusView(APIView):
             "message": "No notification found for the user.",
         }, status=status.HTTP_404_NOT_FOUND)
     
+
+class AnnualSavingsView(APIView):
+    def post(self, request):
+        re = 3.67  # Fixed RE value for calculationgenera
+        requirement_id = request.data.get('requirement_id')
+        generator_id = request.data.get('generator_id')
+        try:
+            requirement = ConsumerRequirements.objects.get(id=requirement_id)
+            master_record = MasterTable.objects.get(state=requirement.state)
+
+            # Fetch Grid cost from GridTariff (Assuming tariff_category is fixed or dynamic)
+            grid_tariff = GridTariff.objects.get(state=requirement.state, tariff_category=requirement.tariff_category)
+            
+            if grid_tariff is None:
+                return Response({"error": "No grid cost data available for the state"}, status=status.HTTP_404_NOT_FOUND)
+            
+            # Calculate annual savings
+            annual_savings = grid_tariff.cost - (re + master_record.ISTS_charges + master_record.state_charges)
+            
+            return Response({
+                "re_replacement": 65,
+                "annual_savings": annual_savings
+            }, status=status.HTTP_200_OK)
+        
+        except MasterTable.DoesNotExist:
+            return Response({"error": f"No data available for the state: {requirement.state}"}, status=status.HTTP_404_NOT_FOUND)

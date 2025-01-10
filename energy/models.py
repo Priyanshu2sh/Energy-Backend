@@ -153,6 +153,7 @@ class Combination(models.Model):
     annual_demand_offset = models.FloatField()
     annual_curtailment = models.FloatField()
     request_sent = models.BooleanField(default=False)
+    terms_sheet_sent = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.combination}"
@@ -160,8 +161,14 @@ class Combination(models.Model):
 class StandardTermsSheet(models.Model):
     STATUS_CHOICES = [
         ('Pending', 'Pending'),
+        ('Negotiated', 'Negotiated'),
         ('Accepted', 'Accepted'),
         ('Rejected', 'Rejected'),
+    ]
+
+    USER_CHOICES = [
+        ('Consumer', 'Consumer'),
+        ('Generator', 'Generator')
     ]
 
     consumer = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Consumer'}, related_name='consumer_terms_sheets')  # Unique related_name for consumer
@@ -174,7 +181,9 @@ class StandardTermsSheet(models.Model):
     payment_security_day = models.PositiveIntegerField(help_text="Payment security duration in days")
     payment_security_type = models.CharField(max_length=100, null=True, blank=True, help_text="Type of payment security")
     count = models.IntegerField(help_text="Used for counting iterations, only 4 iterations are valid", default=0)
-    status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Pending',help_text="Status of the terms sheet (Pending, Accepted, or Rejected)")
+    consumer_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Pending', help_text="Status from the consumer's perspective")
+    generator_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Pending', help_text="Status from the generator's perspective")
+    from_whom = models.CharField(max_length=200, choices=USER_CHOICES, null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if not self.pk:  # If the object is new
@@ -247,6 +256,8 @@ class GeneratorOffer(models.Model):
     tariff = models.ForeignKey(Tariffs, on_delete=models.CASCADE)
     updated_tariff = models.FloatField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
+    is_accepted = models.BooleanField(default=False)
+    accepted_by = models.ForeignKey('accounts.User', on_delete=models.SET_NULL, null=True, blank=True, limit_choices_to={'user_category': 'Generator'}, related_name='accepted_offers')
 
     def __str__(self):
         return f"Offer by {self.generator.username} for Terms Sheet {self.tariff}"
@@ -260,7 +271,7 @@ class NegotiationWindow(models.Model):
         return self.start_time <= now() <= self.end_time
 
 
-class MatserTable(models.Model):
+class MasterTable(models.Model):
     state = models.CharField(max_length=200)
     ISTS_charges = models.FloatField()
     state_charges = models.FloatField()

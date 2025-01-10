@@ -86,9 +86,9 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                         Battery_marginalCost, sell_curtailment_percentage, curtailment_selling_price, DO, DoD, annual_curtailment_limit,ess_name)
                         analyze_network_results(network, sell_curtailment_percentage, curtailment_selling_price,solar_profile,wind_profile,results_dict,OA_cost, ess_name=ess_name, solar_name=solar_name, wind_name=wind_name, ipp_name=ipp)
 
-        elif solar_projects and wind_projects:
+        elif solar_projects and wind_projects and not ess_projects:
 
-            for solar_project in solar_projects and not ess_projects:
+            for solar_project in solar_projects:
                 # Access Solar parameters
                 solar_profile = solar_projects[solar_project]['profile']
                 solar_profile = solar_profile.groupby(solar_profile.index // 2).mean()
@@ -124,7 +124,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                                         Solar_maxCapacity=Solar_maxCapacity, Wind_maxCapacity=Wind_maxCapacity, Solar_captialCost=Solar_captialCost,
                                         Wind_captialCost=Wind_captialCost, Solar_marginalCost=Solar_marginalCost, Wind_marginalCost=Wind_marginalCost,
                                         sell_curtailment_percentage=sell_curtailment_percentage, curtailment_selling_price=curtailment_selling_price,
-                                        DO=DO, annual_curtailment_limit=annual_curtailment_limit, ess_name=ess_name)
+                                        DO=DO, annual_curtailment_limit=annual_curtailment_limit)
 
 
                     analyze_network_results(network=network, sell_curtailment_percentage=sell_curtailment_percentage,

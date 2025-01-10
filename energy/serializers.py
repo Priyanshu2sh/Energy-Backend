@@ -3,13 +3,14 @@ from rest_framework import serializers
 from accounts.models import User
 from .models import SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs
 from django.utils.timezone import timedelta, now
+from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 
 class SolarPortfolioSerializer(serializers.ModelSerializer):
     user = serializers.SlugRelatedField(
         queryset=User.objects.all(),
         slug_field='id'  # Map the user field to the email field
     )
-    hourly_data = serializers.FileField(required=False)
+    # hourly_data = serializers.FileField(required=False)
 
     class Meta:
         model = SolarPortfolio
@@ -40,7 +41,8 @@ class WindPortfolioSerializer(serializers.ModelSerializer):
         queryset=User.objects.all(),
         slug_field='id'  # Map the user field to the email field
     )
-    hourly_data = serializers.FileField(required=False)
+    # hourly_data = serializers.FileField(required=False)
+
     class Meta:
         model = WindPortfolio
         fields = ['id', 'user', 'state', 'connectivity', 'available_capacity', 'cod',

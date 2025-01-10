@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.urls import path
+from django.conf import settings
+from django.conf.urls.static import static
 from . import views
 
 urlpatterns = [
@@ -15,7 +17,8 @@ urlpatterns = [
     path('optimize-capactiy', views.OptimizeCapacityAPI.as_view(), name='optimize_capactiy'),
     path('consumption-pattern/<int:pk>', views.ConsumptionPatternAPI.as_view(), name='consumption_pattern'),
     path('terms-sheet', views.StandardTermsSheetAPI.as_view(), name='terms-sheet-list'),
-    path('terms-sheet/<int:pk>', views.StandardTermsSheetAPI.as_view(), name='terms-sheet-detail'),
+    path('terms-sheet/<int:pk>/<str:from_whom>', views.StandardTermsSheetAPI.as_view(), name='terms-sheet-detail'),
+    path('terms-sheet/<int:user_id>/<int:pk>', views.StandardTermsSheetAPI.as_view(), name='terms-sheet-detail'),
     path('subscription-plans/<str:user_type>', views.SubscriptionTypeAPIView.as_view(), name='subscription_plans'),
     path('subscriptions', views.SubscriptionEnrolledAPIView.as_view(), name='subscriptions'),
     path('subscriptions/<int:pk>', views.SubscriptionEnrolledAPIView.as_view(), name='subscriptions'),
@@ -23,4 +26,5 @@ urlpatterns = [
     path('negotiate-tariff-view/<int:terms_sheet_id>', views.NegotiateTariffView.as_view(), name='negotiate_tariff_view'),
     path('negotiate-tariff-view', views.NegotiateTariffView.as_view(), name='negotiate_tariff_view'),
     path('negotiate-window/<int:user_id>', views.NegotiationWindowStatusView.as_view(), name='negotiate_window'),
-]
+    path('annual-saving', views.AnnualSavingsView.as_view(), name='annual_saving'),
+]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
