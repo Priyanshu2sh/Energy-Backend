@@ -76,7 +76,7 @@ CORS_ALLOW_HEADERS = [
     'access-control-allow-origin',
 ]
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', ' 192.168.1.36', '*']
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', ' 192.168.1.46', '*']
 
 ROOT_URLCONF = 'energy_transition.urls'
 

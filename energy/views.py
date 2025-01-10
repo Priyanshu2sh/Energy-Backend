@@ -494,9 +494,10 @@ class OptimizeCapacityAPI(APIView):
         
 
          # Check optimize_capacity value
-        if optimize_capacity_user == "consumer":
-            generator_id = data.get("generator_id")  # Expecting a list of emails
-        elif optimize_capacity_user == "generator":
+        if optimize_capacity_user == "Consumer":
+            matching_ipps = MatchingIPP.objects.get(requirement=id)
+            generator_id = matching_ipps.generator_ids
+        elif optimize_capacity_user == "Generator":
             generator_id = data.get("generator_id")  # Expecting a single email
             generator_id = [generator_id]  # Normalize to a list for consistent processing
         else:
@@ -633,10 +634,10 @@ class OptimizeCapacityAPI(APIView):
                     consumer_demand_path = consumer_demand.bulk_file.path
                     response_data = optimization_model(input_data, consumer_demand_path=consumer_demand_path, re_replacement=re_replacement)
                 
-                if response_data == 'The demand cannot be met by the IPPs' and optimize_capacity_user=='consumer':
-                    return Response({"response": "The demand cannot be met by the IPPs."}, status=status.HTTP_200_OK)
-                if response_data == 'The demand cannot be met by the IPPs' and optimize_capacity_user=='generator':
-                    return Response({"response": "The demand cannot be made by your projects."}, status=status.HTTP_200_OK)
+                if response_data == 'The demand cannot be met by the IPPs' and optimize_capacity_user=='Consumer':
+                    return Response({"error": "The demand cannot be met by the IPPs."}, status=status.HTTP_200_OK)
+                if response_data == 'The demand cannot be met by the IPPs' and optimize_capacity_user=='Generator':
+                    return Response({"error": "The demand cannot be made by your projects."}, status=status.HTTP_200_OK)
 
                 updated_response = {}
 
@@ -806,20 +807,41 @@ class StandardTermsSheetAPI(APIView):
             try:
                 if user.user_category == 'Consumer':
                     if from_whom == 'Consumer':
-                        record = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Consumer').first()
+                        records = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Consumer')
                     else:
-                        record = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Generator').first()
+                        records = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Generator')
                 else:
-                    if request.data.get('from_whom') == 'Consumer':
-                        record = StandardTermsSheet.objects.filter(combination__generator=user, from_whom ='Consumer').first()
+                    if from_whom == 'Consumer':
+                        records = StandardTermsSheet.objects.filter(combination__generator=user, from_whom ='Consumer')
                     else:
-                        record = StandardTermsSheet.objects.filter(combination__generator=user, from_whom ='Generator').first()
+                        records = StandardTermsSheet.objects.filter(combination__generator=user, from_whom ='Generator')
                         
-                if record is None:
-                    return Response({"error": "Record not found."}, status=status.HTTP_404_NOT_FOUND)
+                if not records.exists():
+                    return Response({"error": "No Record found."}, status=status.HTTP_404_NOT_FOUND)
 
-                serializer = StandardTermsSheetSerializer(record)
-                return Response(serializer.data, status=status.HTTP_200_OK)
+                # Serialize all records
+                data = []
+                for record in records:
+                    serialized_record = StandardTermsSheetSerializer(record).data
+                    serialized_record['requirement'] = []
+
+                    # Check if combination and requirement exist
+                    if hasattr(record, 'combination') and hasattr(record.combination, 'requirement'):
+                        req = record.combination.requirement
+                        serialized_record['requirement'].append({
+                            "rq_id": req.id,
+                            "rq_state": req.state,
+                            "rq_industry": req.industry,
+                            "rq_contracted_demand": req.contracted_demand,
+                            "rq_tariff_category": req.tariff_category,
+                            "rq_voltage_level": req.voltage_level,
+                            "rq_procurement_date": req.procurement_date,
+                        })
+
+                    data.append(serialized_record)
+
+                
+                return Response(data, status=status.HTTP_200_OK)
 
             except StandardTermsSheet.DoesNotExist:
                 return Response({"error": "Record not found."}, status=status.HTTP_404_NOT_FOUND)

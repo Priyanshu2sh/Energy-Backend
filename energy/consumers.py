@@ -5,12 +5,14 @@ from channels.db import database_sync_to_async
 from .models import GeneratorOffer, Tariffs
 from urllib.parse import parse_qs
 from django.contrib.auth import get_user_model
+from asgiref.sync import async_to_sync
+from django.core.cache import cache
 
 User = get_user_model()
 
 class NegotiationWindowConsumer(AsyncWebsocketConsumer):
     ALLOWED_START_TIME = time(11, 0)  # 10:00 AM
-    ALLOWED_END_TIME = time(13, 0)   # 11:00 AM
+    ALLOWED_END_TIME = time(23, 0)   # 11:00 AM    
 
     async def connect(self):
         # Check if current time is within the allowed window
@@ -31,6 +33,9 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
         self.room_name = f"negotiation_{self.tariff_id}"  # Room specific to tariff_id
         self.room_group_name = self.room_name
 
+        # Store channel_name in cache
+        cache.set(f"user_channel_{self.user_id}", self.channel_name, timeout=None)
+
         # Join the WebSocket group based on tariff_id
         await self.channel_layer.group_add(
             self.room_group_name,
@@ -39,11 +44,18 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
     async def disconnect(self, close_code):
+        # Remove channel_name from cache
+        cache.delete(f"user_channel_{self.user_id}")
+
         # Leave the WebSocket group when the user disconnects
         await self.channel_layer.group_discard(
             self.room_group_name,
             self.channel_name
         )
+
+    async def close_connection(self, event):
+        # Close the WebSocket connection
+        await self.close()
 
     async def receive(self, text_data):
         # Check if the negotiation window is still open
@@ -57,8 +69,6 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
             return
         
         # Parse the incoming message
-        text_data_json = json.loads(text_data)
-
         text_data_json = json.loads(text_data)
         action = text_data_json.get('action')
 
@@ -138,13 +148,15 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
         }
 
     async def send_final_messages(self, tariff, selected_generator_id):
-        selected_offer = await self.get_generator_offer(tariff, selected_generator_id)
-        consumer = await self.get_user(selected_offer.accepted_by_id)
+        accepted_by_id = await self.get_accepted_by_id(tariff, selected_generator_id)
+        selected_offer_updated_tariff = await self.get_updated_tariff(tariff, selected_generator_id)
+        consumer = await self.get_user(accepted_by_id)
+       
 
         generator_offers = await self.get_generator_offers(tariff)
 
         for offer in generator_offers:
-            group_name = f"negotiation_{self.tariff_id}_{offer.generator_id}"
+            group_name = f"negotiation_{self.tariff_id}"
             message = {
                 'type': 'negotiation_finalized',
                 'message': {
@@ -154,15 +166,34 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
                     'consumer_id': consumer.id,
                 }
             }
+            generator = await self.get_generator(offer)
+            generator_channel_name = cache.get(f"user_channel_{generator.id}")
 
-            if offer.generator_id == int(selected_generator_id):
-                message['message']['is_selected'] = True
-                message['message']['message'] = "Your offer has been accepted!"  # Specific message for selected generator
+            if generator_channel_name:
+                if generator.id == selected_generator_id:
+                    message['message']['is_selected'] = True
+                    message['message']['message'] = "Your offer has been accepted!"  # Specific message for selected generator
+                else:
+                    message['message']['is_selected'] = False
+                    message['message']['message'] = "Another generator's offer has been accepted. Thank you for participating."
+                
+                # Send message directly to the generator's channel
+                await self.channel_layer.send(generator_channel_name, message)
             else:
-                message['message']['is_selected'] = False
-                message['message']['message'] = f"Another generator's offer has been accepted. Thank you for participating."  # Message for others
+                print(f"No channel name found for generator {generator.id}")
+        
+        # Disconnect all group members
+        await self.channel_layer.group_send(
+            group_name,
+            {
+                'type': 'close_connection',
+                'message': 'The negotiation group is being closed.',
+            }
+        )
 
-            await self.channel_layer.group_send(group_name, message)
+        # Remove the current WebSocket connection from the group
+        await self.channel_layer.group_discard(group_name, self.channel_name)
+
 
         # Send message to consumer
         consumer_message = {
@@ -171,12 +202,17 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
                 'tariff_id': self.tariff_id,
                 'selected_generator_id': selected_generator_id,
                 'selected_generator_username': (await self.get_user(selected_generator_id)).username,
-                'updated_tariff': selected_offer.updated_tariff,
+                'updated_tariff': selected_offer_updated_tariff,
                 'consumer_username': consumer.username,
                 'consumer_id': consumer.id,
             }
         }
         await self.send(text_data=json.dumps(consumer_message['message']))
+        await self.close()
+
+    @database_sync_to_async
+    def get_generator(self, offer):
+        return offer.generator
 
     @database_sync_to_async
     def get_generator_username(self, generator_id):
@@ -187,9 +223,18 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
             return None
 
     @database_sync_to_async
-    def get_generator_offer(self, tariff, generator_id):
+    def get_accepted_by_id(self, tariff, generator_id):
         try:
-            return GeneratorOffer.objects.get(tariff=tariff, generator_id=generator_id)
+            selected = GeneratorOffer.objects.get(tariff=tariff, generator_id=generator_id)
+            return selected.accepted_by.id
+        except GeneratorOffer.DoesNotExist:
+            return None  # Return None if not found
+
+    @database_sync_to_async
+    def get_updated_tariff(self, tariff, generator_id):
+        try:
+            selected = GeneratorOffer.objects.get(tariff=tariff, generator_id=generator_id)
+            return selected.updated_tariff
         except GeneratorOffer.DoesNotExist:
             return None  # Return None if not found
 
@@ -210,9 +255,9 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def finalize_negotiation(self, tariff, selected_generator_id, consumer_id):
         try:
-            selected_offer = GeneratorOffer.objects.get(tariff=tariff, generator_id=selected_generator_id)
+            selected_offer = GeneratorOffer.objects.get(tariff=tariff, generator__id=selected_generator_id)
             selected_offer.is_accepted = True
-            selected_offer.accepted_by_id = consumer_id # Set the consumer
+            selected_offer.accepted_by__id = consumer_id # Set the consumer
             selected_offer.save()
 
             # Optionally, you might want to mark other offers for this tariff as rejected:
@@ -244,3 +289,15 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def save_generator_offer(self, generator_offer):
         generator_offer.save()
+
+# Store channel name in Redis
+async def store_channel_name(user_id, channel_name):
+    cache.set(f"user_channel_{user_id}", channel_name, timeout=None)
+
+# Retrieve channel name from Redis
+async def get_channel_name(user_id):
+    return cache.get(f"user_channel_{user_id}")
+
+# Remove channel name from Redis
+async def remove_channel_name(user_id):
+    cache.delete(f"user_channel_{user_id}")

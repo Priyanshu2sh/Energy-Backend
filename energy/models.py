@@ -141,7 +141,7 @@ class HourlyDemand(models.Model):
         self.hourly_demand = ','.join(map(str, data_list))
 
 class Combination(models.Model):
-    requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE)
+    requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE, related_name='combinations')
     generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'}, related_name='generator_combinations') # Restrict to users with user_category='Generator'
     combination = models.CharField(max_length=200)
     state = models.CharField(max_length=100, blank=True, null=True)
@@ -257,7 +257,7 @@ class GeneratorOffer(models.Model):
     updated_tariff = models.FloatField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
     is_accepted = models.BooleanField(default=False)
-    accepted_by = models.ForeignKey('accounts.User', on_delete=models.SET_NULL, null=True, blank=True, limit_choices_to={'user_category': 'Generator'}, related_name='accepted_offers')
+    accepted_by = models.ForeignKey('accounts.User', on_delete=models.SET_NULL, null=True, blank=True, limit_choices_to={'user_category': 'Consumer'}, related_name='accepted_offers')
 
     def __str__(self):
         return f"Offer by {self.generator.username} for Terms Sheet {self.tariff}"
