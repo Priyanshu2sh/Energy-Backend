@@ -184,7 +184,9 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
                   "Optimal Battery Capacity (MW)": ess_capacity,
                   "Per Unit Cost": per_unit_cost,
                   "Final Cost": Final_cost,
+                  "Total Cost": total_cost,
                   "Annual Demand Offset": annual_demand_offset,
+                  "Annual Demand Met": annual_demand_met,
                   "Annual Curtailment:": excess_percentage
 
               }

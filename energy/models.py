@@ -1,3 +1,4 @@
+import random
 from django.db import models
 from django.utils.timezone import now
 # Create your models here.
@@ -108,17 +109,26 @@ class ConsumerRequirements(models.Model):
     tariff_category = models.CharField(max_length=255)  # Select the tariff category applicable to your company (e.g., HT Commercial, LT Industrial).
     voltage_level = models.IntegerField()  # Select the voltage level of the electricity being supplied to your company.
     procurement_date = models.DateField()  # Select the date when the procurement of services or goods occurred (expected Date).
+    consumption_unit = models.CharField(max_length=255, blank=True, null=True) #sit name
 
     def __str__(self):
-        return f"Demand for {self.user} - {self.state} - {self.industry} - {self.contracted_demand} kWh"
+        return f"Demand for {self.user} - {self.state} - {self.industry} - {self.consumption_unit} - {self.contracted_demand} kWh"
+
+class ScadaFile(models.Model):
+    requirement = models.OneToOneField(ConsumerRequirements, on_delete=models.CASCADE, related_name="scada_file", unique=True)  # Ensures only one file per requirement
+    file = models.FileField(upload_to="scada_files/")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"SCADA File for {self.requirement}"
     
 class MonthlyConsumptionData(models.Model):
     requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE)
     month = models.CharField(max_length=255)
-    monthly_consumption = models.FloatField()
-    peak_consumption = models.FloatField()
-    off_peak_consumption = models.FloatField()
-    monthly_bill_amount = models.FloatField()
+    monthly_consumption = models.FloatField(null=True, blank=True)
+    peak_consumption = models.FloatField(null=True, blank=True)
+    off_peak_consumption = models.FloatField(null=True, blank=True)
+    monthly_bill_amount = models.FloatField(null=True, blank=True)
     bill = models.FileField(upload_to='bills/', blank=True, null=True)
 
     def __str__(self):
@@ -144,13 +154,14 @@ class Combination(models.Model):
     requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE, related_name='combinations')
     generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'}, related_name='generator_combinations') # Restrict to users with user_category='Generator'
     combination = models.CharField(max_length=200)
-    state = models.CharField(max_length=100, blank=True, null=True)
+    state = models.CharField(max_length=255, blank=True, null=True)
     optimal_solar_capacity = models.FloatField()
     optimal_wind_capacity = models.FloatField()
     optimal_battery_capacity = models.FloatField()
     per_unit_cost = models.FloatField()
     final_cost = models.FloatField()
     annual_demand_offset = models.FloatField()
+    annual_demand_met = models.FloatField(blank=True, null=True)
     annual_curtailment = models.FloatField()
     request_sent = models.BooleanField(default=False)
     terms_sheet_sent = models.BooleanField(default=False)
@@ -184,6 +195,7 @@ class StandardTermsSheet(models.Model):
     consumer_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Pending', help_text="Status from the consumer's perspective")
     generator_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Pending', help_text="Status from the generator's perspective")
     from_whom = models.CharField(max_length=200, choices=USER_CHOICES, null=True, blank=True)
+    offer_tariff = models.FloatField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if not self.pk:  # If the object is new
@@ -263,13 +275,29 @@ class GeneratorOffer(models.Model):
         return f"Offer by {self.generator.username} for Terms Sheet {self.tariff}"
 
 class NegotiationWindow(models.Model):
+    name = models.CharField(max_length=255, blank=True)
     terms_sheet = models.ForeignKey(StandardTermsSheet, on_delete=models.CASCADE)
     start_time = models.DateTimeField(default=now)
     end_time = models.DateTimeField()
 
+    def save(self, *args, **kwargs):
+        if not self.name:
+            # Generate a unique name with a random 3-digit number
+            while True:
+                random_number = random.randint(100, 999)  # Generate random 3-digit number
+                potential_name = f"Transaction {random_number}"
+                if not NegotiationWindow.objects.filter(name=potential_name).exists():
+                    self.name = potential_name
+                    break
+        super().save(*args, **kwargs)
+
     def is_active(self):
         return self.start_time <= now() <= self.end_time
 
+class NegotiationInvitation(models.Model):
+    negotiation_window = models.ForeignKey(NegotiationWindow, on_delete=models.CASCADE, related_name='invitations')
+    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)
+    invited_at = models.DateTimeField(auto_now_add=True)
 
 class MasterTable(models.Model):
     state = models.CharField(max_length=200)

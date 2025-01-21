@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from accounts.models import User
-from .models import SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs
+from .models import ScadaFile, SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs
 from django.utils.timezone import timedelta, now
 from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 
@@ -103,12 +103,18 @@ class ConsumerRequirementsSerializer(serializers.ModelSerializer):
     )
     class Meta:
         model = ConsumerRequirements
-        fields = ['id', 'user', 'state', 'industry', 'contracted_demand', 'tariff_category', 'voltage_level', 'procurement_date']
+        fields = ['id', 'user', 'state', 'industry', 'contracted_demand', 'tariff_category', 'voltage_level', 'procurement_date', 'consumption_unit']
 
     def validate_user(self, user):
         if user.user_category != 'Consumer':
             raise serializers.ValidationError("Only users with user_category='Consumer' are allowed.")
         return user
+    
+class ScadaFileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ScadaFile
+        fields = ['id', 'requirement', 'file', 'uploaded_at']
+        read_only_fields = ['uploaded_at']
 
 class MonthlyConsumptionDataSerializer(serializers.ModelSerializer):
     requirement = serializers.SlugRelatedField(

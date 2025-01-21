@@ -11,7 +11,7 @@ from django.core.cache import cache
 User = get_user_model()
 
 class NegotiationWindowConsumer(AsyncWebsocketConsumer):
-    ALLOWED_START_TIME = time(11, 0)  # 10:00 AM
+    ALLOWED_START_TIME = time(9, 0)  # 10:00 AM
     ALLOWED_END_TIME = time(23, 0)   # 11:00 AM    
 
     async def connect(self):
@@ -41,7 +41,44 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
             self.room_group_name,
             self.channel_name
         )
+
         await self.accept()
+        
+        # Send previous offers to the user
+        previous_offers = await self.get_previous_offers(self.tariff_id)
+        print(previous_offers) 
+        await self.send_previous_offers(previous_offers)
+
+
+    async def send_previous_offers(self, offers):
+        message = {
+            'type': 'previous_offers',
+            'offers': offers
+        }
+        print(message)
+        await self.send(text_data=json.dumps(message))
+
+    @database_sync_to_async
+    def get_previous_offers(self, tariff_id):
+        # Retrieve all previous offers for the given tariff
+        offers = GeneratorOffer.objects.filter(tariff_id=tariff_id).values( 
+        'generator__username', # Assuming you want the generator's username
+        'updated_tariff', 
+        'updated_at',
+        )
+
+        # Convert QuerySet to list and format datetime
+        formatted_offers = []
+        for offer in offers:
+            formatted_offer = {
+                'generator_username': offer['generator__username'],
+                'updated_tariff': offer['updated_tariff'],
+                'updated_at': offer['updated_at'].strftime('%Y-%m-%d %H:%M:%S'),  # Format datetime
+            }
+            formatted_offers.append(formatted_offer)
+
+        # return formatted_offers
+        return list(formatted_offers)
 
     async def disconnect(self, close_code):
         # Remove channel_name from cache
@@ -240,7 +277,7 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def get_generator_offers(self, tariff):
-        return list(GeneratorOffer.objects.filter(tariff=tariff))
+        return list(GeneratorOffer.objects.filter(tariff=tariff).order_by('-updated_at'))
 
     @database_sync_to_async
     def get_user(self, user_id):
@@ -255,10 +292,13 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def finalize_negotiation(self, tariff, selected_generator_id, consumer_id):
         try:
+            print(consumer_id)
+            consumer = User.objects.get(id=consumer_id)
             selected_offer = GeneratorOffer.objects.get(tariff=tariff, generator__id=selected_generator_id)
             selected_offer.is_accepted = True
-            selected_offer.accepted_by__id = consumer_id # Set the consumer
+            selected_offer.accepted_by = consumer # Set the consumer
             selected_offer.save()
+            print(selected_offer.accepted_by)
 
             # Optionally, you might want to mark other offers for this tariff as rejected:
             GeneratorOffer.objects.filter(tariff=tariff).exclude(id=selected_offer.id).update(is_accepted=False)

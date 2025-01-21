@@ -52,7 +52,7 @@ class RegisterUser(APIView):
 
         # Send OTP via SMS
         # try:
-        print('111111111111111')
+      
         message = client.messages.create(
             body=f'Your OTP for registration is {otp}',
             from_='+17084773632',
@@ -64,6 +64,7 @@ class RegisterUser(APIView):
 
     def post(self, request):
         data = request.data
+        print(data)
         email = data.get('email')
         user_category = data.get('user_category')
         serializer = UserSerializer(data=data)
@@ -96,7 +97,7 @@ class RegisterUser(APIView):
                     [existing_user.email],
                     fail_silently=False,
                 )
-                return Response({'message': 'OTP resent to your email and mobile.'}, status=status.HTTP_200_OK)
+                return Response({'message': 'OTP resent to your email and mobile.', 'user_id': existing_user.id}, status=status.HTTP_200_OK)
             else:
                 # If the user is verified, inform the user they cannot register again
                 return Response({'error': 'Email is already registered and verified. Please log in.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -123,29 +124,28 @@ class RegisterUser(APIView):
                 )
 
                 # Send OTP via SMS using Twilio
-                self.send_sms_otp(existing_user.mobile, mobile_otp)
+                self.send_sms_otp(user.mobile, mobile_otp)
 
-                return Response({'message': 'OTP sent to your email'}, status=status.HTTP_200_OK)
+                return Response({'message': 'OTP sent to your email', 'user_id': user.id}, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class VerifyOTP(APIView):
     def post(self, request):
+        user_id = request.data.get('user_id')
         email_otp = request.data.get('email_otp')
         mobile_otp = request.data.get('mobile_otp')
-
-        # Fetch email from session
-        email = request.session.get('email')
+        
 
         try:
-            user = User.objects.get(email=email, email_otp=email_otp, mobile_otp=mobile_otp, verified_at__isnull=True)
+            user = User.objects.get(id=user_id, email_otp=email_otp, mobile_otp=mobile_otp, verified_at__isnull=True)
             user.verified_at = now()  # Set the verified timestamp
             user.email_otp = None  # Clear the OTP field
             user.save()
             return Response({'message': 'User verified successfully'}, status=status.HTTP_200_OK)
         except User.DoesNotExist:
-            return Response({'error': 'Invalid email or OTP, or user already verified'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Invalid OTP, or user already verified'}, status=status.HTTP_400_BAD_REQUEST)
 
 class ForgotPasswordOTP(APIView):
     def post(self, request):
@@ -181,13 +181,20 @@ class LoginUser(APIView):
     def post(self, request):
         email = request.data.get('email')
         password = request.data.get('password')
+        user_type = request.data.get('user_type')
 
         # Validate email and password fields
-        if not email or not password:
-            return Response({'error': 'Email and password are required'}, status=status.HTTP_400_BAD_REQUEST)
+        if not email:
+            return Response({'error': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        elif not password:
+            return Response({'error': 'Password is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not user_type:
+            return Response({'error': 'User Type is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             user = User.objects.get(email=email)
+            if user.user_category != user_type:
+                return Response({'error': f'You have not registered as {user_type}.'}, status=status.HTTP_400_BAD_REQUEST)
         except User.DoesNotExist:
             return Response({'error': f'Email ({email}) not found.'}, status=status.HTTP_400_BAD_REQUEST)
 
