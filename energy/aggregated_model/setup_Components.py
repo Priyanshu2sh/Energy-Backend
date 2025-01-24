@@ -74,7 +74,7 @@ def setup_network(demand_data=None, solar_profile=None, wind_profile=None, Solar
                         marginal_cost=Battery_marginalCost,                   # Operational cost per MWh (e.g., degradation cost)
                         efficiency_store=Battery_Eff_store,              # Charging efficiency
                         efficiency_dispatch=Battery_Eff_dispatch,           # Discharging efficiency
-                        #state_of_charge_min=0.2,           # Minimum state of charge (1 - DoD), for DoD = 0.8
+                        # DoD=0.2,           # Minimum state of charge (1 - DoD), for DoD = 0.8
             )
 
     # Add generator for unmet demand

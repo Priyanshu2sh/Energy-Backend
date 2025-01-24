@@ -173,3 +173,6 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'prushaltech@gmail.com'
 EMAIL_HOST_PASSWORD = 'gufirwicaactesmp'
 DEFAULT_FROM_EMAIL = 'prushaltech@gmail.com'
+
+RAZORPAY_KEY_ID = 'rzp_test_bVfC0PJsvP9OUR'
+RAZORPAY_KEY_SECRET = 'RpLynvKL2OW5BNRuvrC00lB4'

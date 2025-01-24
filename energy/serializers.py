@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from accounts.models import User
-from .models import ScadaFile, SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs
+from .models import HourlyDemand, PaymentTransaction, ScadaFile, SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs
 from django.utils.timezone import timedelta, now
 from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 
@@ -103,7 +103,7 @@ class ConsumerRequirementsSerializer(serializers.ModelSerializer):
     )
     class Meta:
         model = ConsumerRequirements
-        fields = ['id', 'user', 'state', 'industry', 'contracted_demand', 'tariff_category', 'voltage_level', 'procurement_date', 'consumption_unit']
+        fields = ['id', 'user', 'state', 'industry', 'contracted_demand', 'tariff_category', 'voltage_level', 'procurement_date', 'consumption_unit', 'annual_electricity_consumption']
 
     def validate_user(self, user):
         if user.user_category != 'Consumer':
@@ -115,6 +115,16 @@ class ScadaFileSerializer(serializers.ModelSerializer):
         model = ScadaFile
         fields = ['id', 'requirement', 'file', 'uploaded_at']
         read_only_fields = ['uploaded_at']
+
+class CSVFileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = HourlyDemand
+        fields = ['id', 'requirement', 'hourly_demand', 'csv_file']
+
+        extra_kwargs = {
+            'hourly_demand': {'required': False}
+        }
+        
 
 class MonthlyConsumptionDataSerializer(serializers.ModelSerializer):
     requirement = serializers.SlugRelatedField(
@@ -182,3 +192,14 @@ class TariffsSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tariffs
         fields = '__all__'
+
+class CreateOrderSerializer(serializers.Serializer):
+    amount = serializers.IntegerField()
+    currency = serializers.CharField()
+
+class PaymentTransactionSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = PaymentTransaction
+        fields = ["payment_id", "order_id", "signature", "amount"]
+        

@@ -48,14 +48,14 @@ class RegisterUser(APIView):
         print('otp sent')
         print(mobile_number)
         # Twilio Client initialization
-        client = Client('AC3630d520a873fc8cb05fc3dac8529dfd', '7c83f127d3dc8b7caf5e432b1a494887')
+        client = Client('AC8b2868ffb82672e1a4a89496bbdc9435', '9a7fcff685b71da5085f40d87174397b')
 
         # Send OTP via SMS
         # try:
       
         message = client.messages.create(
             body=f'Your OTP for registration is {otp}',
-            from_='+17084773632',
+            from_='+15737734302',
             to=f'+91{mobile_number}'
         )
         print(f"Message SID: {message.sid}")
@@ -150,12 +150,11 @@ class VerifyOTP(APIView):
 class ForgotPasswordOTP(APIView):
     def post(self, request):
         email_otp = request.data.get('email_otp')
+        user_id = request.data.get('user_id')
 
-        # Fetch email from session
-        email = request.session.get('email')
 
         try:
-            user = User.objects.get(email=email, email_otp=email_otp)
+            user = User.objects.get(id=user_id, email_otp=email_otp)
             user.email_otp = None  # Clear the OTP field
             user.save()
             return Response({'message': 'User verified successfully'}, status=status.HTTP_200_OK)
@@ -232,8 +231,6 @@ class LoginUser(APIView):
             user.email_otp = email_otp
             user.save()
 
-            # Save email to session
-            request.session['email'] = user.email
             # Send OTP via SMS using Twilio
             RegisterUser.send_sms_otp(user.mobile, otp=email_otp)
             # Resend OTP
@@ -244,7 +241,7 @@ class LoginUser(APIView):
                 [user.email],
                 fail_silently=False,
             )
-            return Response({'message': 'OTP sent to your email.'}, status=status.HTTP_200_OK)
+            return Response({'message': 'OTP sent to your email.', 'user_id': user.id}, status=status.HTTP_200_OK)
         else:
             # If the user is verified, inform the user they cannot register again
             return Response({'error': 'Email not found.'}, status=status.HTTP_400_BAD_REQUEST)

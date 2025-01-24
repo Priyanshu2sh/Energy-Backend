@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs,GeneratorOffer, NegotiationWindow, MasterTable, GridTariff, ScadaFile
+from .models import PaymentTransaction, SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs,GeneratorOffer, NegotiationWindow, MasterTable, GridTariff, ScadaFile, RETariffMasterTable
 
 # Register your models here.
 admin.site.register(SolarPortfolio)
@@ -20,3 +20,5 @@ admin.site.register(NegotiationWindow)
 admin.site.register(MasterTable)
 admin.site.register(GridTariff)
 admin.site.register(ScadaFile)
+admin.site.register(PaymentTransaction)
+admin.site.register(RETariffMasterTable)

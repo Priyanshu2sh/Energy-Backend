@@ -3,12 +3,63 @@ from django.db import models
 from django.utils.timezone import now
 # Create your models here.
 
-# class State(models.Model):
-#     name = models.CharField(max_length=255)
-#     state_code = models.CharField(max_length=10)
+class State(models.Model):
+    STATE_CHOICES = [
+        ('Andhra Pradesh', 'Andhra Pradesh'),
+        ("Arunachal Pradesh", "Arunachal Pradesh"),
+        ("Assam", "Assam"),
+        ("Bihar", "Bihar"),
+        ("Chhattisgarh", "Chhattisgarh"),
+        ("Goa", "Goa"),
+        ("Gujarat", "Gujarat"),
+        ("Haryana", "Haryana"),
+        ("Himachal Pradesh", "Himachal Pradesh"),
+        ("Jharkhand", "Jharkhand"),
+        ("Karnataka", "Karnataka"),
+        ("Kerala", "Kerala"),
+        ("Madhya Pradesh", "Madhya Pradesh"),
+        ("Maharashtra", "Maharashtra"),
+        ("Manipur", "Manipur"),
+        ("Meghalaya", "Meghalaya"),
+        ("Mizoram", "Mizoram"),
+        ("Nagaland", "Nagaland"),
+        ("Odisha", "Odisha"),
+        ("Punjab", "Punjab"),
+        ("Rajasthan", "Rajasthan"),
+        ("Sikkim", "Sikkim"),
+        ("Tamil Nadu", "Tamil Nadu"),
+        ("Telangana", "Telangana"),
+        ("Tripura", "Tripura"),
+        ("Uttar Pradesh", "Uttar Pradesh"),
+        ("Uttarakhand", "Uttarakhand"),
+        ("West Bengal", "West Bengal"),
+    ]
 
-#     def __str__(self):
-#         return self.name
+    name = models.CharField(max_length=255, choices=STATE_CHOICES)
+
+    def __str__(self):
+        return self.name
+
+class Industry(models.Model):
+    INDUSTRY_CHOICES = [
+        ("Retail", "Retail"),
+        ("Energy", "Energy"),
+        ("Materials", "Materials"),
+        ("Industrials", "Industrials"),
+        ("Consumer Discretionary", "Consumer Discretionary"),
+        ("Consumer Staples", "Consumer Staples"),
+        ("Health Care", "Health Care"),
+        ("Financials", "Financials"),
+        ("Information Technology", "Information Technology"),
+        ("Communication Services", "Communication Services"),
+        ("Utilities", "Utilities"),
+        ("Real Estate", "Real Estate")
+    ]
+
+    name = models.CharField(max_length=255)
+
+    def __str__(self):
+        return self.name
     
 
     
@@ -105,11 +156,12 @@ class ConsumerRequirements(models.Model):
     user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Consumer'}) # Restrict to users with user_category='Consumer'
     state = models.CharField(max_length=255)  # State/Location where the company is located
     industry = models.CharField(max_length=255)  # Industry your company is involved in (e.g., IT, Manufacturing)
-    contracted_demand = models.FloatField()  # Total energy requirement for the consumer (in kWh)
+    contracted_demand = models.FloatField()  # Total energy requirement for the consumer
     tariff_category = models.CharField(max_length=255)  # Select the tariff category applicable to your company (e.g., HT Commercial, LT Industrial).
     voltage_level = models.IntegerField()  # Select the voltage level of the electricity being supplied to your company.
     procurement_date = models.DateField()  # Select the date when the procurement of services or goods occurred (expected Date).
     consumption_unit = models.CharField(max_length=255, blank=True, null=True) #sit name
+    annual_electricity_consumption = models.FloatField(blank=True, null=True)
 
     def __str__(self):
         return f"Demand for {self.user} - {self.state} - {self.industry} - {self.consumption_unit} - {self.contracted_demand} kWh"
@@ -124,7 +176,7 @@ class ScadaFile(models.Model):
     
 class MonthlyConsumptionData(models.Model):
     requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE)
-    month = models.CharField(max_length=255)
+    month = models.CharField(max_length=255, null=True, blank=True)
     monthly_consumption = models.FloatField(null=True, blank=True)
     peak_consumption = models.FloatField(null=True, blank=True)
     off_peak_consumption = models.FloatField(null=True, blank=True)
@@ -137,7 +189,7 @@ class MonthlyConsumptionData(models.Model):
 class HourlyDemand(models.Model):
     requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE)
     hourly_demand = models.TextField(blank=True, null=True)  # Stores a single string of values
-    bulk_file = models.FileField(upload_to="bulk_file/", blank=True, null=True)  # File path
+    csv_file = models.FileField(upload_to="csv_files/", blank=True, null=True)  # CSV File
 
     def __str__(self):
         return f"{self.requirement}"
@@ -213,14 +265,21 @@ class SubscriptionType(models.Model):
         ('Consumer', 'Consumer'),
         ('Generator', 'Generator'),
     ]
+
+    SUBSCRIPTION_CHOICES = [
+        ('FREE', 'FREE'),
+        ('LITE', 'LITE'),
+        ('PRO', 'PRO'),
+    ]
+
     user_type = models.CharField(max_length=50, choices=USER_TYPE_CHOICES, default='Consumer',)  # Specifies if the plan is for consumers or generators
-    name = models.CharField(max_length=255)  # Subscription plan name (e.g., Basic, Premium)
+    subscription_type = models.CharField(max_length=20, choices=SUBSCRIPTION_CHOICES)
     description = models.TextField(blank=True, null=True)  # Optional description of the plan
     price = models.DecimalField(max_digits=10, decimal_places=2)  # Price of the subscription
     duration_in_days = models.PositiveIntegerField()  # Duration of the plan in days
 
     def __str__(self):
-        return f"{self.name} ({self.user_type})"
+        return f"{self.subscription_type} ({self.user_type})"
 
 # Model to store user subscriptions
 class SubscriptionEnrolled(models.Model):
@@ -304,41 +363,58 @@ class MasterTable(models.Model):
     ISTS_charges = models.FloatField()
     state_charges = models.FloatField()
 
+class RETariffMasterTable(models.Model):
+    INDUSTRY_CHOICES = [
+        ("Retail", "Retail"),
+        ("Energy", "Energy"),
+        ("Materials", "Materials"),
+        ("Industrials", "Industrials"),
+        ("Consumer Discretionary", "Consumer Discretionary"),
+        ("Consumer Staples", "Consumer Staples"),
+        ("Health Care", "Health Care"),
+        ("Financials", "Financials"),
+        ("Information Technology", "Information Technology"),
+        ("Communication Services", "Communication Services"),
+        ("Utilities", "Utilities"),
+        ("Real Estate", "Real Estate"),
+
+    ]
+    industry = models.CharField(max_length=255, choices=INDUSTRY_CHOICES)
+    re_tariff = models.FloatField()
+    average_savings = models.FloatField()
+
 class GridTariff(models.Model):
     state = models.CharField(max_length=200)    
     tariff_category = models.CharField(max_length=200)    
     cost = models.FloatField()
 
-# class Recommendations(models.Model):
-#     # Foreign key to EnergyDemands to link the recommendation to a specific demand
-#     demand = models.ForeignKey('ConsumerRequirements', on_delete=models.CASCADE)  # Assuming EnergyDemands is in the same app
-#     allocation_details = models.TextField()  # Details about how the energy is allocated
-#     total_cost = models.FloatField()  # Total cost of the recommendation (e.g., cost for procuring energy)
-#     environmental_impact = models.TextField()  # Description of the environmental impact of the recommendation
+class ProformaInvoice(models.Model):
+    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)
+    invoice_number = models.CharField(max_length=20, unique=True, verbose_name="Invoice Number")
+    company_name = models.CharField(max_length=255, verbose_name="Company Name")
+    company_address = models.TextField(verbose_name="Company Address")
+    gst_number = models.CharField(max_length=50, verbose_name="GST Number", blank=True, null=True)
+    gst_state = models.CharField(max_length=50, verbose_name="GST State", blank=True, null=True)
+    gst_type = models.CharField(max_length=50, verbose_name="GST Type", blank=True, null=True)
+    subscription = models.ForeignKey(SubscriptionType, on_delete=models.CASCADE)
+    issue_date = models.DateField(auto_now_add=True, verbose_name="Issue Date")
+    due_date = models.DateField(verbose_name="Due Date")
+    invoice_file = models.FileField(upload_to='performa_invoices/', verbose_name="Invoice File", blank=True, null=True)
 
-#     def __str__(self):
-#         return f"Recommendation for {self.demand}"
+    def __str__(self):
+        return f"Proforma Invoice {self.invoice_number} - {self.company_name}"
 
+    class Meta:
+        verbose_name = "Proforma Invoice"
+        verbose_name_plural = "Proforma Invoices"
+        ordering = ['-issue_date']
 
-    
+class PaymentTransaction(models.Model):
+    payment_id = models.CharField(max_length=100, verbose_name="Payment ID")
+    order_id = models.CharField(max_length=100, verbose_name="Order ID")
+    signature = models.CharField(max_length=100, verbose_name="signature")
+    amount = models.IntegerField(verbose_name="Amount")
+    datetime = models.DateTimeField(auto_now_add=True)
 
-# class Contracts(models.Model):
-#     # Foreign key to link ConsumerID and GeneratorID to users or other entities
-#     consumer = models.ForeignKey('accounts.User', related_name='consumer_contracts', on_delete=models.CASCADE)  # Assuming Consumer is a User
-#     generator = models.ForeignKey('accounts.User', related_name='generator_contracts', on_delete=models.CASCADE)  # Assuming Generator is a User
-#     allocation_details = models.TextField()  # Allocation details for the contract
-#     pricing = models.FloatField()  # Pricing for the contract
-#     duration = models.CharField(max_length=255)  # Duration of the contract (e.g., 1 year, 5 years)
-#     status = models.CharField(max_length=255, choices=[('active', 'Active'), ('inactive', 'Inactive')])  # Status of the contract
-
-#     def __str__(self):
-#         return f"Contract between {self.consumer} and {self.generator}"
-
-# class Analytics(models.Model):
-#     # Foreign key to link the analytics data to a specific user
-#     user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)  # Assuming User model is in the 'accounts' app
-#     data = models.TextField()  # Analytics data in text format (could be JSON or other data)
-#     generated_date = models.DateField()  # Date when the analytics data was generated
-
-#     def __str__(self):
-#         return f"Analytics for {self.user} - {self.generated_date}"
+    def __str__(self):
+        return str(self.id)

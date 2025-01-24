@@ -31,4 +31,11 @@ urlpatterns = [
     path('negotiate-window/<int:user_id>/<int:window_id>', views.NegotiationWindowStatusView.as_view(), name='negotiate_window'),
     path('annual-saving', views.AnnualSavingsView.as_view(), name='annual_saving'),
     path('what-we-offer', views.WhatWeOfferAPI.as_view(), name='what_we_offer'),
+    path('last-visited-page', views.LastVisitedPageAPI.as_view(), name='last_visited_page'),
+    path('check-subscription/<int:user_id>', views.CheckSubscriptionAPI.as_view(), name='check_subscription'),
+    path('csv-file', views.CSVFileAPI.as_view(), name='csv_file'),
+    path('consumer-dashboard/<int:user_id>', views.ConsumerDashboardAPI.as_view(), name='consumer_dashboard'),
+    path('create-order', views.CreateOrderAPI.as_view(), name='create_order'),
+    path('payment-transaction-complete', views.PaymentTransactionAPI.as_view(), name='payment_transaction_complete'),
+    
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
