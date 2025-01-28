@@ -6,7 +6,7 @@ import random
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'user_category', 'email', 'mobile', 'company', 'company_representative', 'cin_number', 'designation', 'password', 'verified_at', 'is_new_user']
+        fields = ['id', 'user_category', 'email', 'mobile', 'company', 'company_representative', 'cin_number', 'designation', 'password', 'verified_at', 'is_new_user', 'solar_template_downloaded', 'wind_template_downloaded']
         extra_kwargs = {'cin_number': {'required': False}, 'password': {'write_only': True}, 'otp': {'read_only': True}, 'verified_at': {'read_only': True}}
 
     def generate_username(self, user_category):

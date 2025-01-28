@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from accounts.models import User
-from .models import HourlyDemand, PaymentTransaction, ScadaFile, SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs
+from .models import HourlyDemand, PaymentTransaction, PerformaInvoice, ScadaFile, SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs
 from django.utils.timezone import timedelta, now
 from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 
@@ -202,4 +202,9 @@ class PaymentTransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentTransaction
         fields = ["payment_id", "order_id", "signature", "amount"]
+        
+class PerformaInvoiceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PerformaInvoice
+        fields = ['user', 'company_name', 'company_address', 'gst_number', 'subscription', 'due_date']
         

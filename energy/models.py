@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 import random
 from django.db import models
 from django.utils.timezone import now
@@ -56,7 +57,7 @@ class Industry(models.Model):
         ("Real Estate", "Real Estate")
     ]
 
-    name = models.CharField(max_length=255)
+    name = models.CharField(max_length=255, choices=INDUSTRY_CHOICES)
 
     def __str__(self):
         return self.name
@@ -176,6 +177,7 @@ class ScadaFile(models.Model):
     
 class MonthlyConsumptionData(models.Model):
     requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE)
+    year = models.CharField(max_length=255, null=True, blank=True)
     month = models.CharField(max_length=255, null=True, blank=True)
     monthly_consumption = models.FloatField(null=True, blank=True)
     peak_consumption = models.FloatField(null=True, blank=True)
@@ -184,7 +186,7 @@ class MonthlyConsumptionData(models.Model):
     bill = models.FileField(upload_to='bills/', blank=True, null=True)
 
     def __str__(self):
-        return f"Monthly Consumption for {self.requirement} - {self.month}"
+        return f"Monthly Consumption for {self.requirement} - {self.year} - {self.month}"
     
 class HourlyDemand(models.Model):
     requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE)
@@ -388,7 +390,7 @@ class GridTariff(models.Model):
     tariff_category = models.CharField(max_length=200)    
     cost = models.FloatField()
 
-class ProformaInvoice(models.Model):
+class PerformaInvoice(models.Model):
     user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)
     invoice_number = models.CharField(max_length=20, unique=True, verbose_name="Invoice Number")
     company_name = models.CharField(max_length=255, verbose_name="Company Name")
@@ -398,8 +400,7 @@ class ProformaInvoice(models.Model):
     gst_type = models.CharField(max_length=50, verbose_name="GST Type", blank=True, null=True)
     subscription = models.ForeignKey(SubscriptionType, on_delete=models.CASCADE)
     issue_date = models.DateField(auto_now_add=True, verbose_name="Issue Date")
-    due_date = models.DateField(verbose_name="Due Date")
-    invoice_file = models.FileField(upload_to='performa_invoices/', verbose_name="Invoice File", blank=True, null=True)
+    due_date = models.DateField(verbose_name="Due Date", default=date.today() + timedelta(days=10))
 
     def __str__(self):
         return f"Proforma Invoice {self.invoice_number} - {self.company_name}"

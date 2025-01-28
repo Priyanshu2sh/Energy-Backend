@@ -10,4 +10,6 @@ urlpatterns = [
     path('verify-forgot-password-otp', views.ForgotPasswordOTP.as_view(), name='verify_forgot_password_otp'),
     path('set-new-password', views.SetNewPassword.as_view(), name='set_new_password'),
     path('update-profile/<int:pk>', views.UpdateProfileAPI.as_view(), name='update-profile'),
+    path('add-sub-user/<int:user_id>', views.AddSubUser.as_view(), name='add_sub_user'),
+    path('set-password/<str:token>', views.SetPassword.as_view(), name='set_password'),
 ]

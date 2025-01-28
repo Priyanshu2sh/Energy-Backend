@@ -5,6 +5,8 @@ from django.conf.urls.static import static
 from . import views
 
 urlpatterns = [
+    path('state-list', views.StateListAPI.as_view(), name='state_list'),
+    path('industry-list', views.IndustryListAPI.as_view(), name='industry_list'),
     path('generation-portfolio', views.GenerationPortfolioAPI.as_view(), name='generation_portfolio'),
     path('generation-portfolio/<int:pk>', views.GenerationPortfolioAPI.as_view(), name='update_generation_portfolio'),
     path('consumer-requirements', views.ConsumerRequirementsAPI.as_view(), name='consumer_requirements'),
@@ -20,7 +22,7 @@ urlpatterns = [
     path('consumption-pattern/<int:pk>', views.ConsumptionPatternAPI.as_view(), name='consumption_pattern'),
     path('terms-sheet', views.StandardTermsSheetAPI.as_view(), name='terms-sheet-list'),
     path('terms-sheet/<int:user_id>/<int:pk>', views.StandardTermsSheetAPI.as_view(), name='terms-sheet-detail'),
-    path('terms-sheet/<int:pk>/<str:from_whom>', views.StandardTermsSheetAPI.as_view(), name='terms-sheet-detail'),
+    path('terms-sheet/<int:pk>', views.StandardTermsSheetAPI.as_view(), name='terms-sheet-detail'),
     path('subscription-plans/<str:user_type>', views.SubscriptionTypeAPIView.as_view(), name='subscription_plans'),
     path('subscriptions', views.SubscriptionEnrolledAPIView.as_view(), name='subscriptions'),
     path('subscriptions/<int:pk>', views.SubscriptionEnrolledAPIView.as_view(), name='subscriptions'),
@@ -37,5 +39,8 @@ urlpatterns = [
     path('consumer-dashboard/<int:user_id>', views.ConsumerDashboardAPI.as_view(), name='consumer_dashboard'),
     path('create-order', views.CreateOrderAPI.as_view(), name='create_order'),
     path('payment-transaction-complete', views.PaymentTransactionAPI.as_view(), name='payment_transaction_complete'),
+    path('performa-invoice/<int:user_id>', views.PerformaInvoiceAPI.as_view(), name='performa_invoice'),
+    path('generator-dashboard/<int:user_id>', views.GeneratorDashboardAPI.as_view(), name='generator_dashboard'),
+    path('template-downloaded', views.TemplateDownloadedAPI.as_view(), name='template_downloaded'),
     
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

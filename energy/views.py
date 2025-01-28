@@ -2,13 +2,14 @@ import base64
 import calendar
 from calendar import monthrange
 import csv
+import io
 from itertools import chain
 import re
 from django.shortcuts import get_object_or_404
 import pytz
 from accounts.models import User
 from accounts.views import JWTAuthentication
-from .models import GeneratorOffer, GridTariff, NegotiationInvitation, ScadaFile, SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable
+from .models import GeneratorOffer, GridTariff, Industry, NegotiationInvitation, ScadaFile, SolarPortfolio, State, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -16,7 +17,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework import status
 from rest_framework.serializers import ValidationError
-from .serializers import CSVFileSerializer, CreateOrderSerializer, PaymentTransactionSerializer, ScadaFileSerializer, SolarPortfolioSerializer, WindPortfolioSerializer, ESSPortfolioSerializer, ConsumerRequirementsSerializer, MonthlyConsumptionDataSerializer, StandardTermsSheetSerializer, SubscriptionTypeSerializer, SubscriptionEnrolledSerializer, NotificationsSerializer, TariffsSerializer
+from .serializers import CSVFileSerializer, CreateOrderSerializer, PaymentTransactionSerializer, PerformaInvoiceSerializer, ScadaFileSerializer, SolarPortfolioSerializer, WindPortfolioSerializer, ESSPortfolioSerializer, ConsumerRequirementsSerializer, MonthlyConsumptionDataSerializer, StandardTermsSheetSerializer, SubscriptionTypeSerializer, SubscriptionEnrolledSerializer, NotificationsSerializer, TariffsSerializer
 from django.core.mail import send_mail
 import random
 from django.contrib.auth.hashers import check_password
@@ -35,6 +36,26 @@ from django.conf import settings
 client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 # Create your views here.
+
+# Get the logged-in user
+def get_admin_user(user_id):
+        logged_in_user = User.objects.get(id=user_id)
+        # Determine the admin user for the logged-in user
+        admin_user_id = logged_in_user.parent if logged_in_user.parent else logged_in_user
+        # admin_user = User.objects.get(id=admin_user_id)
+
+        return admin_user_id
+
+class StateListAPI(APIView):
+    def get(self, request):
+        names = list(State.objects.values_list('name', flat=True))
+        return Response(names)
+        
+class IndustryListAPI(APIView):
+    def get(self, request):
+        names = list(Industry.objects.values_list('name', flat=True))
+        return Response(names)
+    
 class GenerationPortfolioAPI(APIView):
     def get_serializer_class(self, energy_type):
         """Return the appropriate serializer class based on the energy type."""
@@ -70,6 +91,8 @@ class GenerationPortfolioAPI(APIView):
                 "Solar": SolarPortfolioSerializer(solar_data, many=True).data,
                 "Wind": WindPortfolioSerializer(wind_data, many=True).data,
                 "ESS": ESSPortfolioSerializer(ess_data, many=True).data,
+                "solar_template_downloaded": user.solar_template_downloaded,
+                "wind_template_downloaded": user.wind_template_downloaded
             }
 
             return Response(response_data, status=status.HTTP_200_OK)
@@ -121,9 +144,35 @@ class GenerationPortfolioAPI(APIView):
                 # Define a file name (customize as needed)
                 file_name = f"hourly_data_{pk}.xlsx"  # Assuming the file is an Excel file
                 # Wrap the decoded file into ContentFile
-                request.data["hourly_data"] = ContentFile(decoded_file, name=file_name)
+                file_content = ContentFile(decoded_file, name=file_name)
+                # Validate the file content
+                with io.BytesIO(decoded_file) as file_stream:
+                    try:
+                        # Read the Excel file into a DataFrame
+                        df = pd.read_excel(file_stream)
+                    except Exception as e:
+                        return Response({"error": f"Invalid file format: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+                    # Check for the required number of rows
+                    current_year = datetime.now().year
+                    is_leap_year = (current_year % 4 == 0 and current_year % 100 != 0) or (current_year % 400 == 0)
+                    required_rows = 8784 if is_leap_year else 8760
+
+                    # Verify row count
+                    if df.shape[0] != required_rows:
+                        return Response(
+                            {
+                                "error": f"Invalid data rows: Expected {required_rows} rows, but got {df.shape[0]}"
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                # Add the validated file to the request data
+                request.data["hourly_data"] = file_content
+
             except Exception as e:
-                return Response({"error": f"Invalid Base64 file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": f"{str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
 
         serializer = serializer_class(instance, data=request.data)
         if serializer.is_valid():
@@ -398,9 +447,8 @@ class CSVFileAPI(APIView):
                 monthly_consumption.monthly_bill_amount=float(row['Monthly Bill Amount'])
                 monthly_consumption.save()
                 
-
             return Response(
-                {"message": "Data saved successfully."},
+                monthly_consumption,
                 status=status.HTTP_201_CREATED,
             )
 
@@ -636,33 +684,28 @@ class OptimizeCapacityAPI(APIView):
     @staticmethod
     def extract_profile_data(file_path, sheet):
                 
-        df=pd.read_excel(file_path, sheet_name=sheet)
+        # Read the specified sheet from the Excel file
+        df = pd.read_excel(file_path, sheet_name=sheet)
 
-        df_cleaned = df.drop(df.columns[0], axis=1)
+        # Select only the relevant column (B) and start from the 4th row (index 3)
+        df_cleaned = df.iloc[3:, 1].reset_index(drop=True)  # Column B corresponds to index 1
 
-        df_cleaned=df_cleaned[2:].reset_index(drop=True)
-
-
-        # Set the first row as the column header for solar_df_cleaned
-        df_cleaned.columns = df_cleaned.iloc[0]
-        df_cleaned = df_cleaned[1:]  # Remove the first row (now the header)
-
-        df_cleaned = df_cleaned.reset_index(drop=True)
-        for column in df_cleaned.columns:
-            profile = df_cleaned[column].fillna(0).reset_index(drop=True)  # Series of hourly data
+        # Fill NaN values with 0
+        profile = df_cleaned.fillna(0).reset_index(drop=True)
                 
         return profile
     
 
     @staticmethod
-    def calculate_hourly_demand(consumer_requirement, state="MP"):
+    def calculate_hourly_demand(consumer_requirement, state="Madhya Pradesh"):
         consumer_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
 
         # Define the state-specific hours
         state_hours = {
-            "MP": {
-                "peak_hours": (10, 14),  # 10 AM to 2 PM
-                "off_peak_hours": (20, 24),  # 8 PM to 12 AM
+            "Madhya Pradesh": {
+                "peak_hours_1": (6, 9),  # 6 AM to 9 AM
+                "peak_hours_2": (17, 22),  # 5 PM to 10 PM
+                "off_peak_hours": (22, 6),  # 10 PM to 6 AM
             }
         }
 
@@ -670,10 +713,15 @@ class OptimizeCapacityAPI(APIView):
 
         # Get state-specific hours
         hours = state_hours[state]
-        peak_hours = hours["peak_hours"]
+        peak_hours_1 = hours["peak_hours_1"]
+        peak_hours_2 = hours["peak_hours_2"]
         off_peak_hours = hours["off_peak_hours"]
         total_hours = 24
-        normal_hours = total_hours - (peak_hours[1] - peak_hours[0]) - (off_peak_hours[1] - off_peak_hours[0])
+
+        # Calculate total hours for all ranges
+        peak_hours_total = (peak_hours_1[1] - peak_hours_1[0]) + (peak_hours_2[1] - peak_hours_2[0])
+        off_peak_hours_total = off_peak_hours[1] - off_peak_hours[0]
+        normal_hours = total_hours - peak_hours_total - off_peak_hours_total
 
         # Initialize a list to store hourly data
         all_hourly_data = []
@@ -692,14 +740,14 @@ class OptimizeCapacityAPI(APIView):
             normal_consumption = month_data.monthly_consumption - (
                 month_data.peak_consumption + month_data.off_peak_consumption
             )
-            normal_hour_value = normal_consumption / (normal_hours * days_in_month)
-            peak_hour_value = month_data.peak_consumption / ((peak_hours[1] - peak_hours[0]) * days_in_month)
-            off_peak_hour_value = month_data.off_peak_consumption / ((off_peak_hours[1] - off_peak_hours[0]) * days_in_month)
+            normal_hour_value = round(normal_consumption / (normal_hours * days_in_month), 3)
+            peak_hour_value = round(month_data.peak_consumption / ((peak_hours_total) * days_in_month), 3)
+            off_peak_hour_value = round(month_data.off_peak_consumption / ((off_peak_hours_total) * days_in_month), 3)
 
             # Distribute values across the hours of each day
             for day in range(1, days_in_month + 1):
                 for hour in range(24):
-                    if peak_hours[0] <= hour < peak_hours[1]:
+                    if peak_hours_1[0] <= hour < peak_hours_1[1] or peak_hours_2[0] <= hour < peak_hours_2[1]:
                         all_hourly_data.append(peak_hour_value)
                     elif off_peak_hours[0] <= hour < off_peak_hours[1]:
                         all_hourly_data.append(off_peak_hour_value)
@@ -733,8 +781,7 @@ class OptimizeCapacityAPI(APIView):
             matching_ipps = MatchingIPP.objects.get(requirement=id)
             generator_id = matching_ipps.generator_ids
         elif optimize_capacity_user == "Generator":
-            generator_id = data.get("generator_id")  # Expecting a single email
-            generator_id = [generator_id]  # Normalize to a list for consistent processing
+            generator_id = [user_id]  # Normalize to a list for consistent processing
         else:
             return Response(
                 {"error": "Invalid value for 'optimize_capacity'. Must be 'consumer' or 'generator'."},
@@ -757,6 +804,7 @@ class OptimizeCapacityAPI(APIView):
                 new_list = []
             
                 for id in generator_id:
+                    print(id)
                     generator = User.objects.get(id=id)
 
                     if optimize_capacity_user == "consumer":
@@ -869,28 +917,12 @@ class OptimizeCapacityAPI(APIView):
 
                 if new_list != generator_id:
 
-                    try:
-                        consumer_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
-                    except HourlyDemand.DoesNotExist:
-                        consumer_demand = None
-
-                    if consumer_demand is None:
-                        return Response({"error": "Hourly demand is not present."}, status=status.HTTP_204_NO_CONTENT)
-
-                    print(consumer_demand)
-                    print(consumer_demand.csv_file)
+                    HourlyDemand.objects.get_or_create(requirement=consumer_requirement)
 
                     # monthly data conversion in hourly data
-                    if not consumer_demand.csv_file:
-                        print('yyyyy')
-                        hourly_demand = self.calculate_hourly_demand(consumer_requirement)
-                        response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement)
-                    else:
-                        print('nnnn')
-                        consumer_demand_path = consumer_demand.csv_file.path
-                        response_data = optimization_model(input_data, consumer_demand_path=consumer_demand_path, re_replacement=re_replacement)
-
-                    updated_response = {}
+                    hourly_demand = self.calculate_hourly_demand(consumer_requirement)
+                    
+                    response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement)
 
                     if response_data != 'The demand cannot be met by the IPPs':
                         for combination_key, details in response_data.items():
@@ -1031,8 +1063,8 @@ class OptimizeCapacityAPI(APIView):
             return Response(top_three_records_rounded, status=status.HTTP_200_OK)
 
 
-        except User.DoesNotExist:
-            return Response({"error": "Consumer or generator not found."}, status=status.HTTP_404_NOT_FOUND)
+        # except User.DoesNotExist:
+        #     return Response({"error": "Consumer or generator not found."}, status=status.HTTP_404_NOT_FOUND)
 
         except ConsumerRequirements.DoesNotExist:
             return Response({"error": "Consumer requirements not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -1080,27 +1112,27 @@ class ConsumptionPatternAPI(APIView):
         
 class StandardTermsSheetAPI(APIView):
 
-    def get(self, request, pk, from_whom):
-        if pk and from_whom:
+    def get(self, request, pk):
+        if pk:
             user = User.objects.get(id=pk)
             try:
                 if user.user_category == 'Consumer':
-                    if from_whom == 'Consumer':
-                        records = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Consumer')
-                    else:
-                        records = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Generator')
+                    records_from_consumer = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Consumer')
+                    records_from_generator = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Generator')
                 else:
-                    if from_whom == 'Consumer':
-                        records = StandardTermsSheet.objects.filter(combination__generator=user, from_whom ='Consumer')
-                    else:
-                        records = StandardTermsSheet.objects.filter(combination__generator=user, from_whom ='Generator')
+                    records_from_consumer = StandardTermsSheet.objects.filter(combination__generator=user, from_whom ='Consumer')
+                    records_from_generator = StandardTermsSheet.objects.filter(combination__generator=user, from_whom ='Generator')
                         
-                if not records.exists():
+                # Combine the two record sets
+                all_records = records_from_consumer | records_from_generator
+
+                if not all_records.exists():
                     return Response({"error": "No Record found."}, status=status.HTTP_404_NOT_FOUND)
+
 
                 # Serialize all records
                 data = []
-                for record in records:
+                for record in all_records:
                     serialized_record = StandardTermsSheetSerializer(record).data
                     serialized_record['requirement'] = []
 
@@ -1110,6 +1142,7 @@ class StandardTermsSheetAPI(APIView):
                         serialized_record['requirement'].append({
                             "rq_id": req.id,
                             "rq_state": req.state,
+                            "rq_site": req.consumption_unit,
                             "rq_industry": req.industry,
                             "rq_contracted_demand": req.contracted_demand,
                             "rq_tariff_category": req.tariff_category,
@@ -1546,6 +1579,7 @@ class NegotiationWindowStatusView(APIView):
 
 class AnnualSavingsView(APIView):
     def post(self, request):
+        # Common logic for both POST (annual savings calculation) and GET (annual report download)
         re = 3.67  # Initially RE value will be taken from Master Table that is provided by the client.
         requirement_id = request.data.get('requirement_id')
         generator_id = request.data.get('generator_id')
@@ -1562,7 +1596,6 @@ class AnnualSavingsView(APIView):
                 average_per_unit_cost = combination.aggregate(Avg('per_unit_cost'))['per_unit_cost__avg']
                 re = average_per_unit_cost
             else:
-                record = RETariffMasterTable.objects.get(industry = requirement.industry)
                 re = record.re_tariff
 
             # Fetch Grid cost from GridTariff (Assuming tariff_category is fixed or dynamic)
@@ -1574,7 +1607,7 @@ class AnnualSavingsView(APIView):
             # Fetch the last 10 values (adjust the ordering field if needed)
             last_10_values = Combination.objects.filter(requirement__industry=requirement.industry).order_by('-id')[:10].values_list('annual_demand_offset', flat=True)
 
-            if last_10_values.count() >= 10:
+            if last_10_values.count() < 10:
                 re_replacement = 65
             else:
                 moving_average = sum(last_10_values) / len(last_10_values)
@@ -1582,15 +1615,44 @@ class AnnualSavingsView(APIView):
             
             # Calculate annual savings
             annual_savings = (grid_tariff.cost - (re + master_record.ISTS_charges + master_record.state_charges)) * requirement.contracted_demand * re_replacement * 24 * 365
+
+            # Prepare response data
+            response_data = {
+                "annual_savings": round(annual_savings, 2),
+                "average_savings": record.average_savings,
+                "re_replacement": re_replacement,
+                # For the report download, prepare the full report data
+                "consumer_company_name": requirement.user.company,
+                "consumption_unit_name": requirement.consumption_unit,
+                "connected_voltage": requirement.voltage_level,
+                "tariff_category": requirement.tariff_category,
+                "annual_electricity_consumption": round(requirement.annual_electricity_consumption, 2),
+                "contracted_demand": round(requirement.contracted_demand, 2),
+                "electricity_tariff": round(grid_tariff.cost, 2),
+                "potential_re_tariff": round(re, 2),
+                "ISTS_charges": round(master_record.ISTS_charges, 2),
+                "state_charges": round(master_record.state_charges, 2),
+                "per_unit_savings_potential": round(re - master_record.ISTS_charges - master_record.state_charges, 2),
+                "potential_re_replacement": round(re_replacement, 2),
+                "total_savings": round((re - master_record.ISTS_charges - master_record.state_charges) * re_replacement * requirement.annual_electricity_consumption * 1000 / 10000000, 2),
+            }
             
-            return Response({
-                "annual_savings": annual_savings,
-                "average_savings": record.average_savings, #final transactions signed will contain savings, their industry wise avergae is this and initially this is taken by the Master Table that is provided by the client.
-                "re_replacement": re_replacement
-            }, status=status.HTTP_200_OK)
+            return Response(response_data, status=status.HTTP_200_OK)
         
         except MasterTable.DoesNotExist:
             return Response({"error": f"No data available for the state: {requirement.state}"}, status=status.HTTP_404_NOT_FOUND)
+        
+        except ConsumerRequirements.DoesNotExist:
+            return Response({"error": "Requirement not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        except RETariffMasterTable.DoesNotExist:
+            return Response({"error": "Tariff record not found for the given industry"}, status=status.HTTP_404_NOT_FOUND)
+
+        except GridTariff.DoesNotExist:
+            return Response({"error": "Grid tariff data not found for the state"}, status=status.HTTP_404_NOT_FOUND)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
 class WhatWeOfferAPI(APIView):
     def get(self, request):
@@ -1681,12 +1743,16 @@ class CheckSubscriptionAPI(APIView):
         
 class ConsumerDashboardAPI(APIView):
     def get(self, request, user_id):
-        user = User.objects.get(id=user_id)
+        user = get_admin_user(user_id)
 
         total_demands = ConsumerRequirements.objects.filter(user=user).aggregate(total_demands=Sum('contracted_demand'))['total_demands'] or 0
+        consumption_units = ConsumerRequirements.objects.filter(user=user).count()
         unique_states_count = ConsumerRequirements.objects.filter(user=user).values('state').distinct().count()
         offers_sent = StandardTermsSheet.objects.filter(consumer=user, from_whom='Consumer').count()
-        offers_received = StandardTermsSheet.objects.filter(consumer=user, from_whom='Generator').count()
+        offers_received = StandardTermsSheet.objects.filter(consumer=user, from_whom='Generator')
+        total_received = 0
+        for offer in offers_received:
+            total_received += offer.combination.optimal_solar_capacity + offer.combination.optimal_wind_capacity + offer.combination.optimal_wind_capacity
 
         # Total number of portfolios
         total_solar_portfolios = SolarPortfolio.objects.count()
@@ -1709,14 +1775,61 @@ class ConsumerDashboardAPI(APIView):
 
         response = {
             'total_demands': total_demands,
+            'consumption_units': consumption_units,
             'unique_states_count': unique_states_count,
             'offers_sent': offers_sent,
-            'offers_received': offers_received,
-            'energy_purchased_from': 0,
+            'offers_received': total_received,
             'transactions_done': 0,
             'total_portfolios': total_portfolios,
             'total_available_capacity': total_available_capacity,
             'states_covered': states_covered,
+        }
+
+        return Response(response, status=status.HTTP_200_OK)
+
+class GeneratorDashboardAPI(APIView):
+    def get(self, request, user_id):
+        user = get_admin_user(user_id)
+
+        
+        energy_offered = StandardTermsSheet.objects.filter(combination__generator=user, from_whom='Generator')
+        total_solar_energy_offered = energy_offered.aggregate(total_solar_energy=Sum('combination__optimal_solar_capacity'))['total_solar_energy'] or 0
+        total_wind_energy_offered = energy_offered.aggregate(total_wind_energy=Sum('combination__optimal_wind_capacity'))['total_wind_energy'] or 0
+        total_ess_energy_offered = energy_offered.aggregate(total_ess_energy=Sum('combination__optimal_battery_capacity'))['total_ess_energy'] or 0
+        
+
+        offers_received = StandardTermsSheet.objects.filter(combination__generator=user, from_whom='Generator')
+        total_offer_received = offers_received.aggregate(total_contracted_demand=Sum('combination__requirement__contracted_demand'))['total_contracted_demand'] or 0
+
+        solar_portfolios = SolarPortfolio.objects.filter(user=user).count()
+        wind_portfolios = WindPortfolio.objects.filter(user=user).count()
+        ess_portfolios = ESSPortfolio.objects.filter(user=user).count()
+
+        consumer_count = User.objects.filter(user_category='Consumer').count()
+
+        total_contracted_demand = ConsumerRequirements.objects.aggregate(total_contracted_demand=Sum('contracted_demand'))['total_contracted_demand'] or 0
+        
+        # Count of unique states across all portfolios
+        solar_states = SolarPortfolio.objects.values_list('state', flat=True)
+        wind_states = WindPortfolio.objects.values_list('state', flat=True)
+        ess_states = ESSPortfolio.objects.values_list('state', flat=True)
+        unique_states = set(solar_states).union(set(wind_states), set(ess_states))
+        unique_state_count = len(unique_states)
+
+        response = {
+            'total_energy_sold': 0,
+            'total_solar_energy_offered': round(total_solar_energy_offered, 2),
+            'total_wind_energy_offered': round(total_wind_energy_offered, 2),
+            'total_ess_energy_offered': round(total_ess_energy_offered, 2),
+            'total_offer_received': round(total_offer_received, 2),
+            'transactions_done': 0,
+            'solar_portfolios': solar_portfolios,
+            'wind_portfolios': wind_portfolios,
+            'ess_portfolios': ess_portfolios,
+            'total_consumers': consumer_count,
+            'total_contracted_demand': total_contracted_demand,
+            'unique_state_count': unique_state_count,
+            
         }
 
         return Response(response, status=status.HTTP_200_OK)
@@ -1794,3 +1907,84 @@ class PaymentTransactionAPI(APIView):
                 "error": payment_transaction_serializer.errors
             }
             return Response(response, status=status.HTTP_400_BAD_REQUEST)
+
+class PerformaInvoiceAPI(APIView):
+    def get(self, request, user_id):
+        try:
+            instance = PerformaInvoice.objects.get(user=user_id)
+            serializer = PerformaInvoiceSerializer(instance)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except PerformaInvoice.DoesNotExist:
+            return Response({'message': 'Not Found'}, status=status.HTTP_404_NOT_FOUND)
+
+    def post(self, request, user_id):
+        try:
+            # Extract and validate data from the request
+            company_name = request.data.get('company_name')
+            company_address = request.data.get('company_address')
+            gst_number = request.data.get('gst_number')
+            subscription_id = request.data.get('subscription')
+
+            # Validate required fields
+            if not all([company_name, company_address, gst_number, subscription_id]):
+                return Response(
+                    {'error': 'Missing required fields'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Check if a PerformaInvoice already exists for the user
+            try:
+                instance = PerformaInvoice.objects.get(user_id=user_id)
+                # Update the existing instance
+                serializer = PerformaInvoiceSerializer(
+                    instance, 
+                    data={
+                        'user': user_id,
+                        'company_name': company_name,
+                        'company_address': company_address,
+                        'gst_number': gst_number,
+                        'subscription': subscription_id
+                    }, 
+                    partial=True
+                )
+                action = "updated"
+            except PerformaInvoice.DoesNotExist:
+                # Create a new instance if none exists
+                serializer = PerformaInvoiceSerializer(data={
+                    'user': user_id,
+                    'company_name': company_name,
+                    'company_address': company_address,
+                    'gst_number': gst_number,
+                    'subscription': subscription_id
+                })
+                action = "created"
+
+            # Validate and save the serializer
+            if serializer.is_valid():
+                performa_invoice = serializer.save()
+                return Response(
+                    {'message': f'Performa Invoice successfully {action}', 'data': serializer.data},
+                    status=status.HTTP_200_OK if action == "updated" else status.HTTP_201_CREATED
+                )
+            else:
+                print(serializer.errors)
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class TemplateDownloadedAPI(APIView):
+    def post(self, request):
+        user_id = request.data.get('user_id')
+        solar_template_downloaded = request.data.get('solar_template_downloaded')
+        wind_template_downloaded = request.data.get('wind_template_downloaded')
+
+        try:
+            user = User.objects.get(id=user_id)
+            user.solar_template_downloaded = solar_template_downloaded
+            user.wind_template_downloaded = wind_template_downloaded
+            user.save()
+        except User.DoesNotExist:
+            return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({'message': 'Success'}, status=status.HTTP_200_OK)

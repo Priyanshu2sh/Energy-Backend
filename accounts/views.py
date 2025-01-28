@@ -15,6 +15,7 @@ from django.utils.timezone import now
 from datetime import datetime, timedelta
 from rest_framework.permissions import IsAuthenticated
 from twilio.rest import Client
+from django.utils.crypto import get_random_string
 
 
 class JWTAuthentication(BaseAuthentication):
@@ -67,6 +68,11 @@ class RegisterUser(APIView):
         print(data)
         email = data.get('email')
         user_category = data.get('user_category')
+        domain = email.split('@')[-1] if email else None
+
+        if not domain:
+            return Response({'error': 'Invalid email format.'}, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = UserSerializer(data=data)
 
         try:
@@ -103,8 +109,20 @@ class RegisterUser(APIView):
                 return Response({'error': 'Email is already registered and verified. Please log in.'}, status=status.HTTP_400_BAD_REQUEST)
         except User.DoesNotExist:
             # If no existing user is found, proceed with registration
+
+            # Check if any existing user has the same email domain
+            existing_user_with_domain = User.objects.filter(email__icontains=f'@{domain}').first()
+            if existing_user_with_domain:
+                return Response(
+                    {'error': f"An admin for the domain '{domain}' already exists. Please contact them to add sub-users."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
             if serializer.is_valid():
                 user = serializer.save()
+                user.parent = None  # Root of the hierarchy
+
+                # Send OTP
                 email_otp = random.randint(100000, 999999)
                 mobile_otp = random.randint(100000, 999999)
                 user.email_otp = email_otp
@@ -259,3 +277,86 @@ class UpdateProfileAPI(APIView):
             return Response({"message": "Profile updated successfully", "data": serializer.data}, status=status.HTTP_200_OK)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class AddSubUser(APIView):
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
+    def post(self, request, user_id):
+        try:
+            admin = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'Invalid user id.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if admin.role != "Admin":
+            return Response({'error': 'Only admins can add sub-users.'}, status=status.HTTP_403_FORBIDDEN)
+
+        data = request.data
+        email = data.get('email')
+        role = data.get('role')
+
+        if not email or not role:
+            return Response({'error': 'Email and role are required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if a user with the given email already exists
+        if User.objects.filter(email=email).exists():
+            return Response({'error': 'A user with this email already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create a temporary user with a registration token
+        registration_token = get_random_string(64)
+        if admin.user_category == 'Consumer':
+            username = UserSerializer.generate_username(self, 'Consumer')
+            sub_user = User.objects.create(
+                email=email,
+                role=role,
+                parent=admin,  # Link sub-user to the admin
+                user_category="Consumer",  # Assuming all sub-users are consumers
+                username=username,
+                registration_token=registration_token,
+                is_active=False,  # User will be inactive until they set their password
+            )
+        else:
+            username = UserSerializer.generate_username(self, 'Generator')
+            sub_user = User.objects.create(
+                email=email,
+                role=role,
+                user_category="Generator",  # Assuming all sub-users are consumers
+                username=username,
+                registration_token=registration_token,
+                is_active=False,  # User will be inactive until they set their password
+            )
+
+        # Send email to sub-user with a registration link
+        registration_link = f"{request.scheme}://{request.get_host()}/api/accounts/set-password/{registration_token}"
+        send_mail(
+            'Complete Your Registration',
+            f'You have been added as a {role}. Please set your password using the following link: {registration_link}',
+            'noreply@example.com',
+            [email],
+            fail_silently=False,
+        )
+
+        return Response({'message': f'Sub-user {email} added successfully. An email has been sent to set their password.'}, status=status.HTTP_201_CREATED)
+
+class SetPassword(APIView):
+    def post(self, request, token):
+        data = request.data
+        password = data.get('password')
+
+        if not password:
+            return Response({'error': 'Password is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Find user by registration token
+        try:
+            user = User.objects.get(registration_token=token, is_active=False)
+        except User.DoesNotExist:
+            return Response({'error': 'Invalid or expired token.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Set password and activate user
+        user.set_password(password)
+        user.is_active = True
+        user.verified_at = now()  # Set the verified timestamp
+        user.registration_token = None  # Clear token
+        user.save()
+
+        return Response({'message': 'Password set successfully. You can now log in.'}, status=status.HTTP_200_OK)

@@ -37,10 +37,18 @@ class User(AbstractUser, PermissionsMixin):
     ("Consumer", "Consumer"),
     ("Generator", "Generator"),
     ]
+
+    role_choices = [
+        ("Admin", "Admin"),
+        ("Management", "Management"),
+        ("Edit", "Edit"),
+        ("View", "View"),
+    ]
     
     # Adding additional columns
     email = models.EmailField(max_length=254, unique=True)
     user_category = models.CharField(max_length=255, choices= user_category_choices, blank=True, null=True)
+    role = models.CharField(max_length=50, choices=role_choices, blank=True, null=True, default='Admin')  # Role within Consumer category
     company = models.CharField(max_length=255, blank=True, null=True)
     company_representative = models.CharField(max_length=255, blank=True, null=True)
     cin_number = models.CharField(max_length=255, blank=True, null=True)
@@ -52,6 +60,11 @@ class User(AbstractUser, PermissionsMixin):
     is_new_user = models.BooleanField(default=True)  # Assume user is new by default
     re_index = models.CharField(max_length=255, blank=True, null=True)
     last_visited_page = models.CharField(max_length=255, null=True, blank=True)
+    registration_token = models.CharField(max_length=64, blank=True, null=True)  # Token for password setup
+    # Self-referential field for hierarchical relationships
+    parent = models.ForeignKey("self", on_delete=models.SET_NULL, blank=True, null=True, related_name="children")
+    solar_template_downloaded = models.BooleanField(default=False)
+    wind_template_downloaded = models.BooleanField(default=False)
 
     # Define custom related names for groups and user_permissions
     groups = models.ManyToManyField(Group, related_name='custom_user_set', blank=True)
@@ -65,4 +78,3 @@ class User(AbstractUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
-    
