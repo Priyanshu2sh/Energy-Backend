@@ -208,6 +208,7 @@ class Combination(models.Model):
     requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE, related_name='combinations')
     generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'}, related_name='generator_combinations') # Restrict to users with user_category='Generator'
     combination = models.CharField(max_length=200)
+    re_replacement = models.IntegerField(blank=True, null=True)
     state = models.CharField(max_length=255, blank=True, null=True)
     optimal_solar_capacity = models.FloatField()
     optimal_wind_capacity = models.FloatField()
@@ -299,7 +300,7 @@ class SubscriptionEnrolled(models.Model):
     )
 
     def __str__(self):
-        return f"{self.subscription.name} for {self.user} ({self.subscription.user_type})"
+        return f"{self.subscription.subscription_type} for {self.user} ({self.subscription.user_type})"
     
 class MatchingIPP(models.Model):
     requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE)
@@ -328,7 +329,7 @@ class GeneratorOffer(models.Model):
     generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'})
     tariff = models.ForeignKey(Tariffs, on_delete=models.CASCADE)
     updated_tariff = models.FloatField(default=0)
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at = models.DateTimeField(auto_now_add=True)
     is_accepted = models.BooleanField(default=False)
     accepted_by = models.ForeignKey('accounts.User', on_delete=models.SET_NULL, null=True, blank=True, limit_choices_to={'user_category': 'Consumer'}, related_name='accepted_offers')
 
@@ -392,7 +393,7 @@ class GridTariff(models.Model):
 
 class PerformaInvoice(models.Model):
     user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)
-    invoice_number = models.CharField(max_length=20, unique=True, verbose_name="Invoice Number")
+    invoice_number = models.CharField(max_length=20, unique=True, blank=True, null=True, verbose_name="Invoice Number")
     company_name = models.CharField(max_length=255, verbose_name="Company Name")
     company_address = models.TextField(verbose_name="Company Address")
     gst_number = models.CharField(max_length=50, verbose_name="GST Number", blank=True, null=True)
@@ -411,6 +412,7 @@ class PerformaInvoice(models.Model):
         ordering = ['-issue_date']
 
 class PaymentTransaction(models.Model):
+    user = models.ForeignKey('accounts.user', on_delete=models.CASCADE)
     payment_id = models.CharField(max_length=100, verbose_name="Payment ID")
     order_id = models.CharField(max_length=100, verbose_name="Order ID")
     signature = models.CharField(max_length=100, verbose_name="signature")
@@ -418,4 +420,4 @@ class PaymentTransaction(models.Model):
     datetime = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return str(self.id)
+        return f"({self.user}) -({self.order_id})" 

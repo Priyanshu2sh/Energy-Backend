@@ -148,7 +148,7 @@ class StandardTermsSheetSerializer(serializers.ModelSerializer):
 class SubscriptionTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = SubscriptionType
-        fields = ['id', 'user_type', 'name', 'description', 'price', 'duration_in_days']
+        fields = ['id', 'user_type', 'subscription_type', 'description', 'price', 'duration_in_days']
 
 class SubscriptionEnrolledSerializer(serializers.ModelSerializer):
     class Meta:
@@ -201,10 +201,10 @@ class PaymentTransactionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PaymentTransaction
-        fields = ["payment_id", "order_id", "signature", "amount"]
+        fields = ["user", "payment_id", "order_id", "signature", "amount"]
         
 class PerformaInvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = PerformaInvoice
-        fields = ['user', 'company_name', 'company_address', 'gst_number', 'subscription', 'due_date']
+        fields = ['user', 'company_name', 'company_address', 'gst_number', 'subscription']
         

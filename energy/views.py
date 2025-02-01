@@ -1,3 +1,4 @@
+import ast
 import base64
 import calendar
 from calendar import monthrange
@@ -7,6 +8,7 @@ from itertools import chain
 import re
 from django.shortcuts import get_object_or_404
 import pytz
+import requests
 from accounts.models import User
 from accounts.views import JWTAuthentication
 from .models import GeneratorOffer, GridTariff, Industry, NegotiationInvitation, ScadaFile, SolarPortfolio, State, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice
@@ -32,10 +34,12 @@ from itertools import product
 from django.utils import timezone
 import razorpay
 from django.db.models import Avg
+from django.utils.timezone import localtime
 from django.conf import settings
-client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 # Create your views here.
+
+client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 # Get the logged-in user
 def get_admin_user(user_id):
@@ -851,6 +855,9 @@ class OptimizeCapacityAPI(APIView):
 
                             solar_project.append(solar.project)
 
+                            if not solar.hourly_data:
+                                continue
+
                             # Extract profile data from file
                             profile_data = self.extract_profile_data(solar.hourly_data.path, 'Solar')
 
@@ -867,6 +874,9 @@ class OptimizeCapacityAPI(APIView):
                         for wind in wind_data:
 
                             wind_project.append(wind.project)
+
+                            if not wind.hourly_data:
+                                continue
 
                             # Extract profile data from file
                             profile_data = self.extract_profile_data(wind.hourly_data.path, 'Wind')
@@ -994,6 +1004,7 @@ class OptimizeCapacityAPI(APIView):
                                 combo = Combination.objects.get_or_create(
                                     requirement=consumer_requirement,
                                     generator=generator,
+                                    re_replacement=re_replacement if re_replacement else 65,
                                     combination=combination_key,
                                     state=state,
                                     optimal_solar_capacity=details["Optimal Solar Capacity (MW)"],
@@ -1134,12 +1145,11 @@ class StandardTermsSheetAPI(APIView):
                 data = []
                 for record in all_records:
                     serialized_record = StandardTermsSheetSerializer(record).data
-                    serialized_record['requirement'] = []
 
                     # Check if combination and requirement exist
                     if hasattr(record, 'combination') and hasattr(record.combination, 'requirement'):
                         req = record.combination.requirement
-                        serialized_record['requirement'].append({
+                        serialized_record['requirement'] = {
                             "rq_id": req.id,
                             "rq_state": req.state,
                             "rq_site": req.consumption_unit,
@@ -1148,7 +1158,22 @@ class StandardTermsSheetAPI(APIView):
                             "rq_tariff_category": req.tariff_category,
                             "rq_voltage_level": req.voltage_level,
                             "rq_procurement_date": req.procurement_date,
-                        })
+                        }
+
+                    # Add combination details manually
+                    if hasattr(record, 'combination') and record.combination:
+                        serialized_record['combination'] = {
+                            "combination": record.combination.combination,
+                            "re_replacement": record.combination.re_replacement,
+                            "state": ast.literal_eval(record.combination.state),
+                            "optimal_solar_capacity": round(record.combination.optimal_solar_capacity, 2),
+                            "optimal_wind_capacity": round(record.combination.optimal_wind_capacity, 2),
+                            "optimal_battery_capacity": round(record.combination.optimal_battery_capacity, 2),
+                            "optimal_battery_capacity": round(record.combination.optimal_battery_capacity, 2),
+                            "per_unit_cost": round(record.combination.per_unit_cost, 2),
+                            "final_cost": round(record.combination.final_cost, 2),
+                            # Add more fields as required
+                        }
 
                     data.append(serialized_record)
 
@@ -1184,13 +1209,13 @@ class StandardTermsSheetAPI(APIView):
 
        
 
-
-
         # Check if a term sheet for the same requirement and combination already exists
-        existing_termsheet = StandardTermsSheet.objects.filter(combination=combination).exists()
+        existing_termsheet = StandardTermsSheet.objects.filter(combination=combination).first()
 
-        if existing_termsheet:
+        if existing_termsheet and existing_termsheet.from_whom == 'Generator' :
             return Response({"error": "The term sheet is already sent to the consumer for this combination."}, status=status.HTTP_400_BAD_REQUEST)
+        elif existing_termsheet and existing_termsheet.from_whom == 'Consumer' :
+            return Response({"error": "The term sheet is already sent to the generator for this combination."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Add consumer and combination to the request data
         request_data = request.data.copy()
@@ -1288,7 +1313,7 @@ class StandardTermsSheetAPI(APIView):
                 record.generator_status = 'Pending'
 
             # Proceed with updating the StandardTermsSheet record
-            serializer = StandardTermsSheetSerializer(record, data=request.data)
+            serializer = StandardTermsSheetSerializer(record, data=request.data, partial=True)
             if serializer.is_valid():
                 serializer.save()
                 record.count += 1  # Increment the count on successful update
@@ -1312,47 +1337,32 @@ class SubscriptionTypeAPIView(APIView):
         
 class SubscriptionEnrolledAPIView(APIView):
     def get(self, request, pk):
-        subscriptions = SubscriptionEnrolled.objects.filter(user=pk)
-        serializer = SubscriptionEnrolledSerializer(subscriptions, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        try:
+            subscription = SubscriptionEnrolled.objects.get(user=pk)
+            data = {
+                "id": subscription.id,
+                "user": subscription.user.id,
+                "subscription_type": subscription.subscription.subscription_type,
+                "start_date": subscription.start_date,
+                "end_date": subscription.end_date,
+                "status": subscription.status,
+            }
+            return Response(data, status=status.HTTP_200_OK)
+        except SubscriptionEnrolled.DoesNotExist:
+            return Response({"message": "No subscription found for this user."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 
     def post(self, request):
         user = request.data.get('user')
-        subscription_id = request.data.get('subscription')
-        start_date_str = request.data.get('start_date')
-
-        # Convert start_date to a datetime.date object
-        try:
-            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-        except ValueError:
-            return Response(
-                {"detail": "Invalid start_date format. Expected YYYY-MM-DD."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
 
         # Check if the user is already enrolled in this subscription
-        existing_subscription = SubscriptionEnrolled.objects.filter(user=user, subscription_id=subscription_id).first()
-
-        if existing_subscription:
-            if existing_subscription.end_date >= now().date():
-                return Response(
-                    {"detail": "You have already taken this subscription and it is still active."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            else:
-                # Update the expired subscription
-                existing_subscription.start_date = start_date
-                subscription = existing_subscription.subscription
-                existing_subscription.end_date = start_date + timedelta(days=subscription.duration_in_days)
-                existing_subscription.status = 'active'
-                existing_subscription.save()
-                return Response(
-                    {"detail": "Your subscription has been renewed successfully."},
-                    status=status.HTTP_200_OK
-                )
+        existing_subscription = SubscriptionEnrolled.objects.filter(user=user, status='active').first()
 
         # If no existing subscription or it has expired, create a new subscription
-        serializer = SubscriptionEnrolledSerializer(data=request.data)
+        serializer = SubscriptionEnrolledSerializer(instance=existing_subscription, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -1409,12 +1419,15 @@ class NegotiateTariffView(APIView):
 
         # Get current time in timezone-aware format
         now_time = timezone.now()
+        print(now_time)
         # Calculate the negotiation window start time (tomorrow at 10:00 AM)
         next_day_date = (now_time + timedelta(days=1)).date()
         next_day_10_am = datetime.combine(next_day_date, time(10, 0))
         next_day_10_am_aware = timezone.make_aware(next_day_10_am, timezone=timezone.get_current_timezone())
         # Define the end time for the negotiation window (e.g., 1 hour after start time)
         end_time = next_day_10_am_aware + timedelta(hours=1)
+        print(next_day_10_am_aware)
+        print(end_time)
         
         # Only consumers can initiate the negotiation
         if user.user_category == 'Generator':
@@ -1432,6 +1445,7 @@ class NegotiateTariffView(APIView):
 
                 # Notify recipients
                 for recipient in matching_ipps:
+                    print(recipient, "recipient")
                     try:
                         recipient_user = User.objects.get(id=recipient['user'])
                         Notifications.objects.create(
@@ -1453,9 +1467,10 @@ class NegotiateTariffView(APIView):
                         continue
 
                 
-                updated_tariff = request.data.get("updated_tariff")
-                tariff = Tariffs.objects.get(terms_sheet=terms_sheet)
-                GeneratorOffer.objects.get_or_create(generator=user, tariff=tariff, updated_tariff=updated_tariff)
+                # updated_tariff = request.data.get("updated_tariff")
+                Tariffs.objects.get_or_create(terms_sheet=terms_sheet_id, offer_tariff=terms_sheet.offer_tariff)
+                tariff = Tariffs.objects.get(terms_sheet=terms_sheet_id)
+                GeneratorOffer.objects.get_or_create(generator=user, tariff=tariff)
 
                 consumer = terms_sheet.consumer
                 Notifications.objects.create(
@@ -1465,21 +1480,25 @@ class NegotiateTariffView(APIView):
                         f"The offer tariff being provided is {terms_sheet.combination.per_unit_cost}."
                     )
                 )
+
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
             return Response({"message": "Notification sent to the consumer linked to the terms sheet and also initiated the negotiation window."}, status=200)
         else:
+            
             # Notify all matching IPPs and the current generator
             matching_ipps = MatchingIPP.objects.get(requirement=terms_sheet.combination.requirement)
             recipients = matching_ipps.generator_ids
 
             # Create the negotiation window record with date and time
-            NegotiationWindow.objects.create(
+            negotiation_window = NegotiationWindow.objects.create(
                 terms_sheet=terms_sheet,
                 start_time=next_day_10_am_aware,
                 end_time=end_time
             )
+
+            NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=user)
 
             # Notify recipients
             for recipient in recipients:
@@ -1511,31 +1530,48 @@ class NegotiationWindowListAPI(APIView):
         if not user:
             return Response({"message": "no user found"}, status=status.HTTP_404_NOT_FOUND)
 
-        if user.user_category == 'Consumer':
-            negotiation_windows = NegotiationWindow.objects.filter(terms_sheet__consumer = user)
-        elif user.user_category == 'Generator':
-            negotiation_windows = NegotiationWindow.objects.filter(terms_sheet__combination__generator = user)
+        # Check if the user has any invitations
+        invitations = NegotiationInvitation.objects.filter(user=user)
+
+        if not invitations.exists():
+            return Response({"message": "No invitations found for this user."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Get the associated negotiation windows from the invitations
+        negotiation_windows = NegotiationWindow.objects.filter(id__in=invitations.values_list('negotiation_window_id', flat=True))
+
 
         # Prepare the response data
         response_data = []
         for window in negotiation_windows:
+            tariff = Tariffs.objects.get(terms_sheet=window.terms_sheet.id)
             response_data.append({
                 "window_id": window.id,
                 "window_name": window.name,
                 "terms_sheet_id": window.terms_sheet.id,
-                "start_time": window.start_time.strftime('%Y-%m-%d %H:%M:%S'),
-                "end_time": window.end_time.strftime('%Y-%m-%d %H:%M:%S'),
+                "tariff_id": tariff.id,
+                "start_time": localtime(window.start_time).strftime('%Y-%m-%d %H:%M:%S'),
+                "end_time": localtime(window.end_time).strftime('%Y-%m-%d %H:%M:%S'),
+                "t_consumer": window.terms_sheet.consumer.id,
+                "t_combination": window.terms_sheet.combination.id,
+                "t_term_of_ppa": window.terms_sheet.term_of_ppa,
+                "t_lock_in_period": window.terms_sheet.lock_in_period,
+                "t_commencement_of_supply": window.terms_sheet.commencement_of_supply,
+                "t_contracted_energy": window.terms_sheet.contracted_energy,
+                "t_minimum_supply_obligation": window.terms_sheet.minimum_supply_obligation,
+                "t_payment_security_day": window.terms_sheet.payment_security_day,
+                "t_payment_security_type": window.terms_sheet.payment_security_type,
+                "rq_state": window.terms_sheet.combination.requirement.state,
+                "rq_industry": window.terms_sheet.combination.requirement.industry,
+                "rq_contracted_demand": window.terms_sheet.combination.requirement.contracted_demand,
+                "rq_tariff_category": window.terms_sheet.combination.requirement.tariff_category,
+                "rq_voltage_level": window.terms_sheet.combination.requirement.voltage_level,
+                "rq_procurement_date": window.terms_sheet.combination.requirement.procurement_date,
+                "rq_consumption_unit": window.terms_sheet.combination.requirement.consumption_unit,
+                "rq_annual_electricity_consumption": window.terms_sheet.combination.requirement.annual_electricity_consumption,
             })
 
-        if not response_data:
-            return Response({
-                "message": "No negotiation windows found for this user."
-            }, status=status.HTTP_404_NOT_FOUND)
 
-        return Response({
-            "status": "success",
-            "negotiation_windows": response_data
-        }, status=status.HTTP_200_OK)
+        return Response(response_data, status=status.HTTP_200_OK)
 
         
 class NegotiationWindowStatusView(APIView):
@@ -1557,7 +1593,7 @@ class NegotiationWindowStatusView(APIView):
             if current_time < negotiation_window.start_time:
                 return Response({
                     "status": "error",
-                    "message": f"The negotiation window is not yet open. It will open on {negotiation_window.start_time.strftime('%Y-%m-%d at %I:%M %p')}."
+                    "message": f"The negotiation window is not yet open. It will open on {localtime(negotiation_window.start_time).strftime('%Y-%m-%d at %I:%M %p')}."
                 }, status=status.HTTP_403_FORBIDDEN)
             elif current_time > negotiation_window.end_time:
                 return Response({
@@ -1888,6 +1924,8 @@ class CreateOrderAPI(APIView):
         
 class PaymentTransactionAPI(APIView):
     def post(self, request):
+        subscription = request.data['subscription']
+        user = request.data['user']
         payment_transaction_serializer = PaymentTransactionSerializer(
             data = request.data
         )
@@ -1898,10 +1936,37 @@ class PaymentTransactionAPI(APIView):
                 razorpay_signature=payment_transaction_serializer.validated_data.get("signature")
             )
             payment_transaction_serializer.save()
-            response = {
-                "message": "Transaction Created"
+            # Call Subscription API to create a subscription
+            subscription_data = {
+                "user": user,
+                "subscription": subscription,
+                "start_date": str(datetime.today().date())
             }
-            return Response(response, status=status.HTTP_201_CREATED)
+            
+            subscription_response = requests.post(
+                "http://192.168.1.47:8001/api/energy/subscriptions",
+                json=subscription_data
+            )
+
+            if subscription_response.status_code == 201:
+                return Response(
+                    {"message": "Transaction and Subscription Created"},
+                    status=status.HTTP_201_CREATED
+                )
+            else:
+                # Debugging: Print response status and content
+                print(f"Response Status Code: {subscription_response.status_code}")
+                print(f"Response Content: {subscription_response.text}")
+                try:
+                    response_json = subscription_response.json()
+                except requests.exceptions.JSONDecodeError:
+                    response_json = {"error": "Invalid JSON response", "content": subscription_response.text}
+
+                return Response(
+                    {"message": "Transaction Created but Subscription Failed", "error": response_json},
+                    status=400
+                )
+            
         else:
             response = {
                 "error": payment_transaction_serializer.errors
@@ -1976,8 +2041,8 @@ class PerformaInvoiceAPI(APIView):
 class TemplateDownloadedAPI(APIView):
     def post(self, request):
         user_id = request.data.get('user_id')
-        solar_template_downloaded = request.data.get('solar_template_downloaded')
-        wind_template_downloaded = request.data.get('wind_template_downloaded')
+        solar_template_downloaded = request.data.get('solar_template_downloaded') or False
+        wind_template_downloaded = request.data.get('wind_template_downloaded') or False
 
         try:
             user = User.objects.get(id=user_id)

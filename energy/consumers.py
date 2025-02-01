@@ -7,6 +7,7 @@ from urllib.parse import parse_qs
 from django.contrib.auth import get_user_model
 from asgiref.sync import async_to_sync
 from django.core.cache import cache
+from django.utils.timezone import localtime
 
 User = get_user_model()
 
@@ -65,20 +66,21 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
         'generator__username', # Assuming you want the generator's username
         'updated_tariff', 
         'updated_at',
+        'generator_id'
         )
 
         # Convert QuerySet to list and format datetime
-        formatted_offers = []
+        formatted_offers = {}
         for offer in offers:
-            formatted_offer = {
+            formatted_offers[str(offer['generator_id'])] = {
                 'generator_username': offer['generator__username'],
                 'updated_tariff': offer['updated_tariff'],
-                'updated_at': offer['updated_at'].strftime('%Y-%m-%d %H:%M:%S'),  # Format datetime
+                'timestamp': localtime(offer['updated_at']).strftime('%Y-%m-%d %H:%M:%S'),  # Format datetime
             }
-            formatted_offers.append(formatted_offer)
+            # formatted_offers.append(formatted_offer)
 
         # return formatted_offers
-        return list(formatted_offers)
+        return formatted_offers
 
     async def disconnect(self, close_code):
         # Remove channel_name from cache
@@ -175,12 +177,12 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
         return {
             'type': 'offer_update',
             'message': {
-                'status': 'success',
-                'generator_id': generator_offer.generator_id,
-                'generator_username': generator_username,
-                'tariff_id': generator_offer.tariff_id,
-                'updated_tariff': generator_offer.updated_tariff,
-                'timestamp': generator_offer.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
+                str(generator_offer.generator_id): {
+                    'generator_username': generator_username,
+                    'tariff_id': generator_offer.tariff_id,
+                    'updated_tariff': generator_offer.updated_tariff,
+                    'timestamp': localtime(generator_offer.updated_at).strftime('%Y-%m-%d %H:%M:%S'),
+                }
             }
         }
 
