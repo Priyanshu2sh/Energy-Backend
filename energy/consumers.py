@@ -7,6 +7,7 @@ from urllib.parse import parse_qs
 from django.contrib.auth import get_user_model
 from asgiref.sync import async_to_sync
 from django.core.cache import cache
+from django.utils import timezone
 from django.utils.timezone import localtime
 
 User = get_user_model()
@@ -63,6 +64,7 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
     def get_previous_offers(self, tariff_id):
         # Retrieve all previous offers for the given tariff
         offers = GeneratorOffer.objects.filter(tariff_id=tariff_id).values( 
+        'generator__id',
         'generator__username', # Assuming you want the generator's username
         'updated_tariff', 
         'updated_at',
@@ -73,6 +75,7 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
         formatted_offers = {}
         for offer in offers:
             formatted_offers[str(offer['generator_id'])] = {
+                'generator_id': offer['generator__id'],
                 'generator_username': offer['generator__username'],
                 'updated_tariff': offer['updated_tariff'],
                 'timestamp': localtime(offer['updated_at']).strftime('%Y-%m-%d %H:%M:%S'),  # Format datetime
@@ -111,6 +114,16 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
         text_data_json = json.loads(text_data)
         action = text_data_json.get('action')
 
+        if action == 'reject':  # New action for closing connection
+            await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'group_close',
+                'message': 'Connection closed by consumer'
+            }
+            )
+            return
+
         if action == 'select_generator':
             selected_generator_id = text_data_json.get('selected_generator_id')
             consumer_id = self.user_id # Get the consumer id
@@ -148,6 +161,7 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
                 tariff = await self.get_tariff(self.tariff_id)
                 generator_offer, created = await self.get_or_create_generator_offer(self.user_id, tariff)
                 generator_offer.updated_tariff = updated_tariff
+                generator_offer.updated_at = timezone.now()  # Update the updated_at field
                 await self.save_generator_offer(generator_offer)
 
                 # Send confirmation message (Corrected):
@@ -178,6 +192,7 @@ class NegotiationWindowConsumer(AsyncWebsocketConsumer):
             'type': 'offer_update',
             'message': {
                 str(generator_offer.generator_id): {
+                    'generator_id': generator_offer.generator_id,
                     'generator_username': generator_username,
                     'tariff_id': generator_offer.tariff_id,
                     'updated_tariff': generator_offer.updated_tariff,

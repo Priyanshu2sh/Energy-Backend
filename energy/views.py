@@ -451,10 +451,7 @@ class CSVFileAPI(APIView):
                 monthly_consumption.monthly_bill_amount=float(row['Monthly Bill Amount'])
                 monthly_consumption.save()
                 
-            return Response(
-                monthly_consumption,
-                status=status.HTTP_201_CREATED,
-            )
+            return Response({'message': 'Success'}, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             print(str(e))
