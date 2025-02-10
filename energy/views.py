@@ -89,6 +89,7 @@ class GenerationPortfolioAPI(APIView):
     def get(self, request, pk):
         try:
             user = User.objects.get(id=pk)
+            user = get_admin_user(pk)
             # Query all portfolio models
             solar_data = SolarPortfolio.objects.filter(user=user)
             wind_data = WindPortfolio.objects.filter(user=user)
@@ -116,6 +117,10 @@ class GenerationPortfolioAPI(APIView):
         energy_type = request.data.get("energy_type")
         if not energy_type:
             return Response({"error": "Energy type is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user_id = request.data.get("user")
+        user = get_admin_user(user_id)
+        request.data['user'] = user.id
         
         serializer_class = self.get_serializer_class(energy_type)
         serializer = serializer_class(data=request.data)
@@ -126,6 +131,7 @@ class GenerationPortfolioAPI(APIView):
             user_id = request.data.get('user')  # Assuming user is passed in the request body
             if user_id:
                 user = get_object_or_404(User, id=user_id)  # Get the user object
+                user = get_admin_user(user_id)
 
                 # Update the user's `is_new_user` field to False after saving the data
                 user.is_new_user = False
@@ -213,12 +219,17 @@ class ConsumerRequirementsAPI(APIView):
     def get(self, request, pk):
         # Fetch energy profiles
         user = User.objects.get(id=pk)
+        user = get_admin_user(pk)
         profiles = ConsumerRequirements.objects.filter(user=user)
         serializer = ConsumerRequirementsSerializer(profiles, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
         # Add a new energy profile
+        user_id = request.data.get("user")
+        user = get_admin_user(user_id)
+        request.data["user"] = user.id
+        
         serializer = ConsumerRequirementsSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -628,6 +639,7 @@ class MatchingConsumerAPI(APIView):
     
     def get(self, request, pk):
         user = User.objects.get(id=pk)
+        user = get_admin_user(pk)
 
         try:
             # Get all GenerationPortfolio records for the user
@@ -727,6 +739,8 @@ class PortfolioUpdateStatusView(APIView):
 
     def get(self, request, user_id):
         try:
+            user = get_admin_user(user_id)
+            user_id = user.id
             # Fetch records for the given user in all three models
             solar_records = SolarPortfolio.objects.filter(user_id=user_id)
             wind_records = WindPortfolio.objects.filter(user_id=user_id)
@@ -1200,6 +1214,7 @@ class StandardTermsSheetAPI(APIView):
     def get(self, request, pk):
         if pk:
             user = User.objects.get(id=pk)
+            user = get_admin_user(pk)
             try:
                 if user.user_category == 'Consumer':
                     records_from_consumer = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Consumer')
@@ -1336,6 +1351,7 @@ class StandardTermsSheetAPI(APIView):
     def put(self, request, user_id, pk):
         try:
             user = User.objects.get(id=user_id)
+            user = get_admin_user(user_id)
             record = StandardTermsSheet.objects.get(id=pk)
             action = request.data.get("action")  # Check for an 'action' key in the request payload
 
@@ -1428,6 +1444,8 @@ class SubscriptionTypeAPIView(APIView):
 class SubscriptionEnrolledAPIView(APIView):
     def get(self, request, pk):
         try:
+            user = get_admin_user(pk)
+            pk = user.id
             subscription = SubscriptionEnrolled.objects.get(user=pk)
             data = {
                 "id": subscription.id,
@@ -1447,6 +1465,8 @@ class SubscriptionEnrolledAPIView(APIView):
 
     def post(self, request):
         user = request.data.get('user')
+        user = get_admin_user(user)
+        user = user.id
 
         # Check if the user is already enrolled in this subscription
         existing_subscription = SubscriptionEnrolled.objects.filter(user=user, status='active').first()
@@ -1462,6 +1482,8 @@ class NotificationsAPI(APIView):
     
     def get(self, request, user_id):
         try:
+            user = get_admin_user(user_id)
+            user_id = user.id
             # Fetch notifications based on user_id
             notifications = Notifications.objects.filter(user_id=user_id).order_by('-timestamp')
             
@@ -1500,6 +1522,7 @@ class NegotiateTariffView(APIView):
 
         try:
             user = User.objects.get(id=user_id)
+            user = get_admin_user(user_id)
         except User.DoesNotExist:
             return Response({"error": "User not found."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1624,6 +1647,8 @@ class NegotiateTariffView(APIView):
 
 class NegotiationWindowListAPI(APIView):
     def get(self, request, user_id):
+        user = get_admin_user(user_id)
+        user_id = user.id
         user = User.objects.filter(id=user_id).first()
         if not user:
             return Response({"message": "no user found"}, status=status.HTTP_404_NOT_FOUND)
@@ -1674,6 +1699,8 @@ class NegotiationWindowListAPI(APIView):
         
 class NegotiationWindowStatusView(APIView):
     def get(self, request, user_id, window_id):
+        user = get_admin_user(user_id)
+        user_id = user.id
         user = User.objects.filter(id=user_id).first()
         if not user:
             return Response({"message": "no user found"}, status=status.HTTP_404_NOT_FOUND)
@@ -1874,6 +1901,8 @@ class LastVisitedPageAPI(APIView):
 class CheckSubscriptionAPI(APIView):
     def get(self, request, user_id):
         try:
+            user = get_admin_user(user_id)
+            user_id = user.id
             subscription = SubscriptionEnrolled.objects.filter(user=user_id).exists()
             return Response(subscription, status=status.HTTP_200_OK)
         except Exception as e:
@@ -2083,6 +2112,8 @@ class PaymentTransactionAPI(APIView):
 class PerformaInvoiceAPI(APIView):
     def get(self, request, user_id):
         try:
+            user = get_admin_user(user_id)
+            user_id = user.id
             instance = PerformaInvoice.objects.get(user=user_id)
             serializer = PerformaInvoiceSerializer(instance)
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -2106,6 +2137,8 @@ class PerformaInvoiceAPI(APIView):
             
             # Check if a PerformaInvoice already exists for the user
             try:
+                user = get_admin_user(user_id)
+                user_id = user.id
                 instance = PerformaInvoice.objects.get(user_id=user_id)
                 # Update the existing instance
                 serializer = PerformaInvoiceCreateSerializer(
@@ -2155,6 +2188,8 @@ class TemplateDownloadedAPI(APIView):
         wind_template_downloaded = request.data.get('wind_template_downloaded') or False
 
         try:
+            user = get_admin_user(user_id)
+            user_id = user.id
             user = User.objects.get(id=user_id)
             user.solar_template_downloaded = solar_template_downloaded
             user.wind_template_downloaded = wind_template_downloaded
@@ -2164,6 +2199,3 @@ class TemplateDownloadedAPI(APIView):
 
         return Response({'message': 'Success'}, status=status.HTTP_200_OK)
     
-class DownloadTransctionTrailAPI(APIView):
-    def get(self, request):
-        pass
