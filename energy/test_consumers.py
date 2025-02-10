@@ -16,8 +16,8 @@ User = get_user_model()
 
 
 class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
-    ALLOWED_START_TIME = time(9, 0)
-    ALLOWED_END_TIME = time(23, 0)
+    ALLOWED_START_TIME = time(20, 0)
+    ALLOWED_END_TIME = time(20, 39)
 
     async def connect(self):
         """Handles WebSocket connection.
@@ -26,6 +26,8 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
         - Adds the channel to a WebSocket group.
         - Sends previous offers to the user.
         """
+        current_time = datetime.now().time()
+        
         self.user_id = self.get_query_param('user_id')
         self.tariff_id = self.get_query_param('tariff_id')
 
@@ -33,11 +35,7 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
         
-        status = self.check_window_status(self.tariff_id)
-        if status == 'Rejected':
-            await self.close()
-            return
-
+        user = await self.get_user(self.user_id)
 
         self.room_name = f"negotiation_{self.tariff_id}"
         self.room_group_name = self.room_name
@@ -46,6 +44,43 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
         cache.set(f"user_channel_{self.user_id}", self.channel_name, timeout=None)
 
         await self.accept()
+        if current_time <self.ALLOWED_START_TIME:
+            message = {'message': 'This window is not opened yet.'}
+            await self.send(text_data=json.dumps(message))
+            await self.close()
+            return
+        
+        if current_time >= self.ALLOWED_END_TIME:
+            if user.user_category == 'Generator':
+                message = {'message': 'This window is closed.'}
+                await self.send(text_data=json.dumps(message))
+                await self.close()
+                return
+
+        status = await self.check_window_status(self.tariff_id)
+        if status == 'Rejected':
+            if user.user_category == 'Generator':
+                message = {'message': 'This window is rejected by the consumer.'}
+                await self.send(text_data=json.dumps(message))
+                await self.close()
+                return
+            elif user.user_category == 'Consumer':
+                message = {'message': 'This window is rejected by you.'}
+                await self.send(text_data=json.dumps(message))
+                await self.close()
+                return
+        elif status == 'Accepted':
+            if user.user_category == 'Generator':
+                message = {'message': 'This window is closed.'}
+                await self.send(text_data=json.dumps(message))
+                await self.close()
+                return
+            elif user.user_category == 'Consumer':
+                message = {'message': 'This window is already accepted by you.'}
+                await self.send(text_data=json.dumps(message))
+                await self.close()
+                return
+
         await self.send_previous_offers(await self.get_previous_offers(self.tariff_id))
 
     async def disconnect(self, close_code):
@@ -59,9 +94,7 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
         action = data.get('action')
 
         if action == 'reject':
-            print('ttttttttt')
             await self.handle_rejection()
-            print('qqqqqq')
         elif action == 'select_generator':
             await self.handle_generator_selection(data.get('selected_generator_id'))
         elif data.get('updated_tariff') is not None:
@@ -72,9 +105,7 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
     async def handle_rejection(self):
         """Handles the rejection action."""
         try:
-            print('cccccccc')
-            print(f"Tariff ID: {self.tariff_id}")  # Debug print
-            await self.update_tariff_status(self.tariff_id)  # Mark offer as rejected
+            await self.update_window_status(self.tariff_id, status='Rejected')  # Mark offer as rejected
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {'type': 'close_connection', 'message': 'Connection closed by consumer'}
@@ -90,6 +121,7 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
             consumer_id = self.user_id
             await self.finalize_negotiation(tariff, selected_generator_id, consumer_id)
             await self.send_final_messages(tariff, selected_generator_id)
+            await self.update_window_status(self.tariff_id, status='Accepted')
             await self.close()
         except Tariffs.DoesNotExist:
             await self.send_error('Tariff not found')
@@ -102,6 +134,7 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
         """Handles tariff update logic."""
         if not self.is_within_allowed_time(datetime.now().time()):
             await self.send_error('Negotiation window is closed.')
+            await self.update_window_status(self.tariff_id, status='Closed')
             await self.close()
             return
         
@@ -225,8 +258,11 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
     
     @database_sync_to_async
     def check_window_status(self, tariff_id):
-        window_status = Tariffs.objects.get(id=tariff_id)
-        return window_status.window_status
+        try:
+            tariff = Tariffs.objects.get(id=tariff_id)
+            return tariff.window_status
+        except Tariffs.DoesNotExist:
+            raise Tariffs.DoesNotExist("Tariff not found.")
 
     async def send_error(self, message):
         """Sends an error message to the client."""
@@ -264,13 +300,11 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
         return Tariffs.objects.get(id=tariff_id)
     
     @database_sync_to_async
-    def update_tariff_status(self, tariff_id):
+    def update_window_status(self, tariff_id, status):
         """update window status."""
         try:
-            print('aaaaaaaaaa')
             tariff = Tariffs.objects.get(id=tariff_id)
-            tariff.window_status = 'Rejected'  # negotiation window status to Rejected
-            print(tariff.window_status)
+            tariff.window_status = status  # negotiation window status to Rejected
             tariff.save()
         except Tariffs.DoesNotExist:
             raise Tariffs.DoesNotExist(
