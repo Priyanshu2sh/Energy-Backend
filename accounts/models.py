@@ -60,11 +60,12 @@ class User(AbstractUser, PermissionsMixin):
     is_new_user = models.BooleanField(default=True)  # Assume user is new by default
     re_index = models.CharField(max_length=255, blank=True, null=True)
     last_visited_page = models.CharField(max_length=255, null=True, blank=True)
+    selected_requirement_id = models.IntegerField(null=True, blank=True)
     registration_token = models.CharField(max_length=64, blank=True, null=True)  # Token for password setup
     # Self-referential field for hierarchical relationships
     parent = models.ForeignKey("self", on_delete=models.SET_NULL, blank=True, null=True, related_name="children")
-    solar_template_downloaded = models.BooleanField(default=False)
-    wind_template_downloaded = models.BooleanField(default=False)
+    solar_template_downloaded = models.BooleanField(default=True)
+    wind_template_downloaded = models.BooleanField(default=True)
 
     # Define custom related names for groups and user_permissions
     groups = models.ManyToManyField(Group, related_name='custom_user_set', blank=True)

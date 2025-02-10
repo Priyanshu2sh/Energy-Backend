@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'accounts',
     'energy',
+    'powerx',
     
     'rest_framework',
     'rest_framework_simplejwt',

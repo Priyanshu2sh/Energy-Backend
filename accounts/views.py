@@ -293,9 +293,11 @@ class AddSubUser(APIView):
 
         data = request.data
         email = data.get('email')
+        company_representative = data.get('company_representative')
+        designation = data.get('designation')
         role = data.get('role')
 
-        if not email or not role:
+        if not email or not email or not designation or not role :
             return Response({'error': 'Email and role are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Check if a user with the given email already exists
@@ -308,6 +310,8 @@ class AddSubUser(APIView):
             username = UserSerializer.generate_username(self, 'Consumer')
             sub_user = User.objects.create(
                 email=email,
+                company_representative=company_representative,
+                designation=designation,
                 role=role,
                 parent=admin,  # Link sub-user to the admin
                 user_category="Consumer",  # Assuming all sub-users are consumers
@@ -327,7 +331,7 @@ class AddSubUser(APIView):
             )
 
         # Send email to sub-user with a registration link
-        registration_link = f"{request.scheme}://{request.get_host()}/api/accounts/set-password/{registration_token}"
+        registration_link = f"{request.scheme}://localhost:3001/email/{registration_token}"
         send_mail(
             'Complete Your Registration',
             f'You have been added as a {role}. Please set your password using the following link: {registration_link}',

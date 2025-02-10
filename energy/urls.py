@@ -42,5 +42,6 @@ urlpatterns = [
     path('performa-invoice/<int:user_id>', views.PerformaInvoiceAPI.as_view(), name='performa_invoice'),
     path('generator-dashboard/<int:user_id>', views.GeneratorDashboardAPI.as_view(), name='generator_dashboard'),
     path('template-downloaded', views.TemplateDownloadedAPI.as_view(), name='template_downloaded'),
+    path('states-time-slots', views.StateTimeSlotAPI.as_view(), name='states_time_slots'),
     
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

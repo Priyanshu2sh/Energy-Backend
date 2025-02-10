@@ -187,7 +187,7 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
                   "Total Cost": total_cost,
                   "Annual Demand Offset": annual_demand_offset,
                   "Annual Demand Met": annual_demand_met,
-                  "Annual Curtailment:": excess_percentage
+                  "Annual Curtailment": excess_percentage
 
               }
       results_df.to_excel(f"results_{key}.xlsx", index=False)

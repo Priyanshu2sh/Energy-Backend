@@ -62,6 +62,60 @@ class Industry(models.Model):
     def __str__(self):
         return self.name
     
+from django.db import models
+
+class State(models.Model):
+    STATE_CHOICES = [
+        ('Andhra Pradesh', 'Andhra Pradesh'),
+        ("Arunachal Pradesh", "Arunachal Pradesh"),
+        ("Assam", "Assam"),
+        ("Bihar", "Bihar"),
+        ("Chhattisgarh", "Chhattisgarh"),
+        ("Goa", "Goa"),
+        ("Gujarat", "Gujarat"),
+        ("Haryana", "Haryana"),
+        ("Himachal Pradesh", "Himachal Pradesh"),
+        ("Jharkhand", "Jharkhand"),
+        ("Karnataka", "Karnataka"),
+        ("Kerala", "Kerala"),
+        ("Madhya Pradesh", "Madhya Pradesh"),
+        ("Maharashtra", "Maharashtra"),
+        ("Manipur", "Manipur"),
+        ("Meghalaya", "Meghalaya"),
+        ("Mizoram", "Mizoram"),
+        ("Nagaland", "Nagaland"),
+        ("Odisha", "Odisha"),
+        ("Punjab", "Punjab"),
+        ("Rajasthan", "Rajasthan"),
+        ("Sikkim", "Sikkim"),
+        ("Tamil Nadu", "Tamil Nadu"),
+        ("Telangana", "Telangana"),
+        ("Tripura", "Tripura"),
+        ("Uttar Pradesh", "Uttar Pradesh"),
+        ("Uttarakhand", "Uttarakhand"),
+        ("West Bengal", "West Bengal"),
+    ]
+
+    name = models.CharField(max_length=255, choices=STATE_CHOICES, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
+class StateTimeSlot(models.Model):
+    state = models.OneToOneField(State, on_delete=models.CASCADE, related_name="time_slot")
+    peak_hours = models.JSONField(default=dict)  # Stores peak hours dynamically
+    off_peak_hours = models.JSONField(default=dict)  # Stores off-peak hours dynamically
+
+    def __str__(self):
+        return f"Time Slots for {self.state.name}"
+
+    def save(self, *args, **kwargs):
+        # Ensure at least 1 and at most 3 peak hour slots exist
+        if not (1 <= len(self.peak_hours) <= 3):
+            raise ValueError("Each state must have at least 1 and at most 3 peak hour slots.")
+
+        super().save(*args, **kwargs)
 
     
 # Generator models
@@ -319,8 +373,16 @@ class Notifications(models.Model):
         return f"Notification for {self.user}"
     
 class Tariffs(models.Model):
+    STATUS_CHOICES=[
+        ('Active','Active'),
+        ('Closed','Closed'),
+        ('Accepted','Accepted'),
+        ('Rejected','Rejected'),
+    ]
+
     terms_sheet = models.ForeignKey(StandardTermsSheet, on_delete=models.CASCADE)
-    offer_tariff = models.FloatField()
+    offer_tariff = models.FloatField(blank=True, null=True)
+    window_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Active')
 
     def __str__(self):
         return f"Tariff for {self.terms_sheet}"
@@ -392,16 +454,40 @@ class GridTariff(models.Model):
     cost = models.FloatField()
 
 class PerformaInvoice(models.Model):
+    STATUS = [
+        ('Pending', 'Pending'),
+        ('Paid', 'Paid'),
+        ('Collapsed', 'Collapsed'),
+    ]
     user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)
     invoice_number = models.CharField(max_length=20, unique=True, blank=True, null=True, verbose_name="Invoice Number")
     company_name = models.CharField(max_length=255, verbose_name="Company Name")
     company_address = models.TextField(verbose_name="Company Address")
     gst_number = models.CharField(max_length=50, verbose_name="GST Number", blank=True, null=True)
     gst_state = models.CharField(max_length=50, verbose_name="GST State", blank=True, null=True)
-    gst_type = models.CharField(max_length=50, verbose_name="GST Type", blank=True, null=True)
+    cgst = models.CharField(max_length=50, blank=True, null=True)
+    sgst = models.CharField(max_length=50, blank=True, null=True)
+    igst = models.CharField(max_length=50, blank=True, null=True)
     subscription = models.ForeignKey(SubscriptionType, on_delete=models.CASCADE)
+    total_amount = models.IntegerField(blank=True, null=True)
+    payment_status = models.CharField(max_length=50, choices=STATUS, default='Pending')
     issue_date = models.DateField(auto_now_add=True, verbose_name="Issue Date")
     due_date = models.DateField(verbose_name="Due Date", default=date.today() + timedelta(days=10))
+
+    def save(self, *args, **kwargs):
+        if not self.invoice_number:
+            today_str = date.today().strftime("%Y%m%d")
+            last_invoice = PerformaInvoice.objects.filter(invoice_number__startswith=f"INV{today_str}").order_by('-invoice_number').first()
+            
+            if last_invoice and last_invoice.invoice_number:
+                last_number = int(last_invoice.invoice_number[-3:])
+                new_number = f"{last_number + 1:03d}"
+            else:
+                new_number = "001"
+
+            self.invoice_number = f"INV{today_str}{new_number}"
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Proforma Invoice {self.invoice_number} - {self.company_name}"
@@ -412,7 +498,7 @@ class PerformaInvoice(models.Model):
         ordering = ['-issue_date']
 
 class PaymentTransaction(models.Model):
-    user = models.ForeignKey('accounts.user', on_delete=models.CASCADE)
+    invoice = models.ForeignKey(PerformaInvoice, on_delete=models.CASCADE)
     payment_id = models.CharField(max_length=100, verbose_name="Payment ID")
     order_id = models.CharField(max_length=100, verbose_name="Order ID")
     signature = models.CharField(max_length=100, verbose_name="signature")
@@ -420,4 +506,4 @@ class PaymentTransaction(models.Model):
     datetime = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"({self.user}) -({self.order_id})" 
+        return f"({self.invoice.user}) -({self.order_id})" 

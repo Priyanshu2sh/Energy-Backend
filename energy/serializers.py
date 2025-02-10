@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from accounts.models import User
-from .models import HourlyDemand, PaymentTransaction, PerformaInvoice, ScadaFile, SolarPortfolio, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs
+from .models import HourlyDemand, PaymentTransaction, PerformaInvoice, ScadaFile, SolarPortfolio, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs
 from django.utils.timezone import timedelta, now
 from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 
@@ -201,10 +201,30 @@ class PaymentTransactionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PaymentTransaction
-        fields = ["user", "payment_id", "order_id", "signature", "amount"]
+        fields = ["invoice", "payment_id", "order_id", "signature", "amount"]
         
 class PerformaInvoiceSerializer(serializers.ModelSerializer):
+    subscription = SubscriptionTypeSerializer()
     class Meta:
         model = PerformaInvoice
-        fields = ['user', 'company_name', 'company_address', 'gst_number', 'subscription']
+        fields = ['id', 'user', 'invoice_number', 'company_name', 'company_address', 'gst_number', 'cgst', 'sgst', 'igst', 'total_amount', 'subscription', 'payment_status', 'issue_date', 'due_date']
+        extra_kwargs = {
+            'issue_date': {'required': False},
+            'due_date': {'required': False}
+        }
+class PerformaInvoiceCreateSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = PerformaInvoice
+        fields = ['id', 'user', 'invoice_number', 'company_name', 'company_address', 'gst_number', 'cgst', 'sgst', 'igst', 'total_amount', 'subscription', 'payment_status', 'issue_date', 'due_date']
+        extra_kwargs = {
+            'issue_date': {'required': False},
+            'due_date': {'required': False}
+        }
         
+class StateTimeSlotSerializer(serializers.ModelSerializer):
+    state_name = serializers.CharField(source="state.name", read_only=True)
+
+    class Meta:
+        model = StateTimeSlot
+        fields = ["state_name", "peak_hours", "off_peak_hours"]
