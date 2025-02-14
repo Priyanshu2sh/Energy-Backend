@@ -6,7 +6,7 @@ from .createModel import optimize_network
 from .run_Optimizer import analyze_network_results
 import gurobipy as gp
 
-def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None, re_replacement=None):
+def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None, re_replacement=None, valid_combinations=None):
     
     if consumer_demand_path != None:
         demand_file = pd.read_excel(consumer_demand_path)
@@ -77,6 +77,9 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                         # Process combination of Solar, Wind, and Battery
                         print(f"IPP : {ipp} Combination of Solar: {solar_project}, Wind: {wind_project}, Battery: {ess_name}")
 
+                        # if f'{ipp}-{solar_project}-{wind_project}-{ess_name}' in valid_combinations:
+                        #     continue
+
                         network = setup_network(demand_data= demand_data, solar_profile= solar_profile, wind_profile =wind_profile, Solar_maxCapacity=Solar_maxCapacity, Solar_captialCost= Solar_captialCost, Solar_marginalCost= Solar_marginalCost,
                                       Wind_maxCapacity= Wind_maxCapacity, Wind_captialCost= Wind_captialCost, Wind_marginalCost = Wind_marginalCost,
                                       Battery_captialCost= Battery_captialCost, Battery_marginalCost= Battery_marginalCost, Battery_Eff_store= Battery_Eff_store, Battery_Eff_dispatch = Battery_Eff_dispatch,ess_name =ess_name, solar_name= solar_name, wind_name = wind_name)
@@ -111,6 +114,9 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
 
                         # Process combination of Solar, Wind, and Battery
                     print(f"IPP : {ipp} Combination of Solar: {solar_project}, Wind: {wind_project}")
+
+                    # if f'{ipp}-{solar_project}-{wind_project}' in valid_combinations:
+                    #         continue
 
                     network = setup_network(demand_data=demand_data, solar_profile=solar_profile, wind_profile=wind_profile,
                              Solar_maxCapacity=Solar_maxCapacity, Solar_captialCost=Solar_captialCost,
@@ -157,6 +163,9 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                         # Process combination of Solar, Wind, and Battery
                         print(f"IPP : {ipp} Combination of Solar: {solar_project}, Battery: {ess_name}")
 
+                        # if f'{ipp}-{solar_project}-{ess_name}' in valid_combinations:
+                        #     continue
+
                         network = setup_network(demand_data=demand_data, solar_profile=solar_profile, Solar_maxCapacity=Solar_maxCapacity,
                              Solar_captialCost=Solar_captialCost, Solar_marginalCost=Solar_marginalCost,
                              Battery_captialCost=Battery_captialCost, Battery_marginalCost=Battery_marginalCost,
@@ -201,6 +210,9 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                         # Process combination of Solar, Wind, and Battery
                         print(f"IPP : {ipp} Combination of Wind: {wind_project}, Battery: {ess_name}")
 
+                        # if f'{ipp}-{wind_project}-{ess_name}' in valid_combinations:
+                        #     continue
+
                         network = setup_network(demand_data=demand_data, wind_profile=wind_profile, Wind_maxCapacity=Wind_maxCapacity,
                              Wind_captialCost=Wind_captialCost, Wind_marginalCost=Wind_marginalCost,
                              Battery_captialCost=Battery_captialCost, Battery_marginalCost=Battery_marginalCost,
@@ -231,6 +243,9 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
 
                 print(f"IPP : {ipp} Combination of wind: {wind_project}")
 
+                # if f'{ipp}-{wind_project}' in valid_combinations:
+                #             continue
+
                 network = setup_network(demand_data=demand_data, wind_profile=wind_profile, Wind_maxCapacity=Wind_maxCapacity,
                              Wind_captialCost=Wind_captialCost, Wind_marginalCost=Wind_marginalCost,
                              wind_name=wind_name)
@@ -256,6 +271,9 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                 solar_name=solar_project
 
                 print(f"IPP : {ipp} Combination of Solar: {solar_project}")
+
+                # if f'{ipp}-{solar_project}' in valid_combinations:
+                #             continue
 
                 network = setup_network(
                   demand_data=demand_data,

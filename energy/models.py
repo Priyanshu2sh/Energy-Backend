@@ -280,8 +280,8 @@ class Combination(models.Model):
 
 class StandardTermsSheet(models.Model):
     STATUS_CHOICES = [
-        ('Pending', 'Pending'),
-        ('Negotiated', 'Negotiated'),
+        ('Counter Offer Sent', 'Counter Offer Sent'),
+        ('Counter Offer Received', 'Counter Offer Received'),
         ('Accepted', 'Accepted'),
         ('Rejected', 'Rejected'),
     ]
@@ -301,10 +301,9 @@ class StandardTermsSheet(models.Model):
     payment_security_day = models.PositiveIntegerField(help_text="Payment security duration in days")
     payment_security_type = models.CharField(max_length=100, null=True, blank=True, help_text="Type of payment security")
     count = models.IntegerField(help_text="Used for counting iterations, only 4 iterations are valid", default=0)
-    consumer_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Pending', help_text="Status from the consumer's perspective")
-    generator_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Pending', help_text="Status from the generator's perspective")
+    consumer_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Counter Offer Sent', help_text="Status from the consumer's perspective")
+    generator_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Counter Offer Sent', help_text="Status from the generator's perspective")
     from_whom = models.CharField(max_length=200, choices=USER_CHOICES, null=True, blank=True)
-    offer_tariff = models.FloatField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if not self.pk:  # If the object is new

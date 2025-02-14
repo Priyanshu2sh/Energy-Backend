@@ -190,7 +190,7 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
                   "Annual Curtailment": excess_percentage
 
               }
-      results_df.to_excel(f"results_{key}.xlsx", index=False)
+      # results_df.to_excel(f"results_{key}.xlsx", index=False)
       print(f"{key} - Optimization successful.")
       print(results_dict)
 

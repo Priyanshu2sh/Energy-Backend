@@ -305,23 +305,51 @@ class ScadaFileAPI(APIView):
 
         # Check if a file already exists
         scada_file, created = ScadaFile.objects.get_or_create(requirement=requirement)
-        if not created:
-            # File already exists; update it
-            scada_file.file.delete()  # Delete the old file to avoid duplicates
-            scada_file.file = scada_file_content
-            scada_file.save()
-            message = "SCADA file updated successfully."
-        else:
-            # File did not exist; save the new file
-            scada_file.file = scada_file_content
-            scada_file.save()
-            message = "SCADA file created successfully."
+        
+        # File did not exist; save the new file
+        scada_file.file = scada_file_content
+        scada_file.save()
 
-        serializer = ScadaFileSerializer(scada_file)
-        return Response(
-            {"message": message, "data": serializer.data},
-            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
-        )
+        # Process the Excel file
+        try:
+            df = pd.read_excel(scada_file.file, sheet_name="Logger 1", header=7)
+
+            # Extract the required column
+            column_name = "Active(I) Total [kWh]\n (1.0.1.29.0.255)"  # Ensure this matches exactly
+            if column_name not in df.columns:
+                return Response(
+                    {"error": "Required column not found in the sheet."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Convert 15-min interval data to hourly by summing every 4 rows
+            hourly_data = df[column_name].dropna().astype(float).groupby(df.index // 4).sum()
+
+            # Round values to 2 decimal places
+            hourly_data = hourly_data.round(2)
+
+            # Convert list of floats into a comma-separated string
+            hourly_demand_str = ','.join(map(str, hourly_data.tolist()))
+
+            # Save hourly demand in the model
+            hourly_demand, _ = HourlyDemand.objects.update_or_create(
+                requirement=requirement,
+            )
+            hourly_demand.hourly_demand = hourly_demand_str  # Store as a single string
+            hourly_demand.save()
+
+            serializer = ScadaFileSerializer(scada_file)
+            return Response(
+                {"data": serializer.data},
+                status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+            )
+        
+        except Exception as e:
+            return Response(
+                {"error": f"Error processing file: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
 
     def delete(self, request, requirement_id):
         try:
@@ -540,20 +568,22 @@ class MatchingIPPAPI(APIView):
             # Fetch the requirement
             requirement = ConsumerRequirements.objects.get(id=pk)
 
-            # Filter the data
-            # Query SolarPortfolio
             solar_data = SolarPortfolio.objects.filter(
-                Q(state=requirement.state) & Q(cod__lte=requirement.procurement_date)
+                cod__lte=requirement.procurement_date
+            ).filter(
+                Q(state=requirement.state) | Q(connectivity="CTU"),
             ).values("user", "user__username", "state", "available_capacity", "updated")
-        
-            # Query WindPortfolio
+
             wind_data = WindPortfolio.objects.filter(
-                Q(state=requirement.state) & Q(cod__lte=requirement.procurement_date)
+                cod__lte=requirement.procurement_date
+            ).filter(
+                Q(state=requirement.state) | Q(connectivity="CTU"),
             ).values("user", "user__username", "state", "available_capacity", "updated")
-        
-            # Query ESSPortfolio
+
             ess_data = ESSPortfolio.objects.filter(
-                Q(state=requirement.state) & Q(cod__lte=requirement.procurement_date)
+                cod__lte=requirement.procurement_date
+            ).filter(
+                Q(state=requirement.state) | Q(connectivity="CTU"),
             ).values("user", "user__username", "state", "available_capacity", "updated")
         
             print(solar_data)
@@ -631,6 +661,8 @@ class MatchingIPPAPI(APIView):
             # Return the top three matches as the response
             return Response(top_three_matches, status=status.HTTP_200_OK)
         except Exception as e:
+            print('error====')
+            print(e)
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class MatchingConsumerAPI(APIView):
@@ -844,7 +876,8 @@ class OptimizeCapacityAPI(APIView):
         # Update the HourlyDemand model
         consumer_demand.set_hourly_data_from_list(all_hourly_data)
         consumer_demand.save()
-
+        print('-----------all_hourly_data-----------')
+        print(all_hourly_data)
         # Return the data in the desired flat format
         return pd.Series(all_hourly_data)
 
@@ -905,23 +938,29 @@ class OptimizeCapacityAPI(APIView):
 
                     # Query generator's portfolios
                     solar_data = SolarPortfolio.objects.filter(
-                        user=generator,
-                        connectivity=connectivity,
-                        state=consumer_requirement.state,
-                        cod__lte=consumer_requirement.procurement_date,
+                        user=generator
+                    ).filter(
+                        Q(state=consumer_requirement.state) | Q(connectivity="CTU"),
+                        cod__lte=consumer_requirement.procurement_date
                     )
                     wind_data = WindPortfolio.objects.filter(
-                        user=generator,
-                        connectivity=connectivity,
-                        state=consumer_requirement.state,   
-                        cod__lte=consumer_requirement.procurement_date,
+                        user=generator
+                    ).filter(
+                        Q(state=consumer_requirement.state) | Q(connectivity="CTU"),
+                        cod__lte=consumer_requirement.procurement_date
                     )
                     ess_data = ESSPortfolio.objects.filter(
-                        user=generator,
-                        connectivity=connectivity,
-                        state=consumer_requirement.state,
-                        cod__lte=consumer_requirement.procurement_date,
+                        user=generator
+                    ).filter(
+                        Q(state=consumer_requirement.state) | Q(connectivity="CTU"),
+                        cod__lte=consumer_requirement.procurement_date
                     )
+
+
+                    # separating combinations based on connectivity 
+                    solar_data = solar_data.filter(connectivity=connectivity)
+                    wind_data = wind_data.filter(connectivity=connectivity)
+                    ess_data = ess_data.filter(connectivity=connectivity)
 
                     solar_project = []
                     wind_project = []
@@ -930,6 +969,7 @@ class OptimizeCapacityAPI(APIView):
                     print(solar_data)
                     print(wind_data)
                     print(ess_data)
+                    print('matched======')
 
                     # Initialize data for the current generator
                     input_data[generator.username] = {}
@@ -992,41 +1032,62 @@ class OptimizeCapacityAPI(APIView):
                 print(input_data)
                 # Extract generator name and project lists
                 # gen = next(iter(input_data.keys()))
-                # solar_projects = list(input_data[gen]['Solar'].keys())
-                # wind_projects = list(input_data[gen]['Wind'].keys())
-                # ess_projects = list(input_data[gen]['ESS'].keys())
-                # # Generate all combinations
+                # solar_projects = list(input_data[gen]['Solar'].keys()) if 'Solar' in input_data[gen] else []
+                # wind_projects = list(input_data[gen]['Wind'].keys()) if 'Wind' in input_data[gen] else []
+                # ess_projects = list(input_data[gen]['ESS'].keys()) if 'ESS' in input_data[gen] else []
+
+                # Ensure at least one valid project list is available
+                # if not (solar_projects or wind_projects or ess_projects):
+                #     return Response({"error": "No valid projects found in input data"}, status=status.HTTP_400_BAD_REQUEST)
+
+                # Handle missing project types by using ["None"] as a placeholder
                 # combinations = [
-                #     f"{gen}-{solar}-{wind}-{ess}"
-                #     for solar, wind, ess in product(solar_projects, wind_projects, ess_projects)
+                #     "-".join(filter(None, [gen, solar, wind, ess]))  # Removes empty parts
+                #     for solar, wind, ess in product(
+                #         solar_projects if solar_projects else [None], 
+                #         wind_projects if wind_projects else [None], 
+                #         ess_projects if ess_projects else [None]
+                #     )
                 # ]
-                # print(combinations)
+
+                # print('c ', combinations)
+                valid_combinations = []  
                 # for combo in combinations:
                 #     combination = Combination.objects.filter(requirement=consumer_requirement, combination=combo).first()
                 #     if combination is not None:
                 #         # combination = dict(combination)
-                #         print("combo= ", combo)
-                #         print(True)
-                #     else:
-                #         print("combo= ", combo)
-                #         print(False)
-                # return Response(combinations, status=status.HTTP_200_OK)
+                #         valid_combinations.append(combo)
 
                 if new_list != generator_id:
 
                     HourlyDemand.objects.get_or_create(requirement=consumer_requirement)
+                    hourly_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
 
-                    # monthly data conversion in hourly data
-                    hourly_demand = self.calculate_hourly_demand(consumer_requirement)
+                    if hourly_demand and hourly_demand.hourly_demand is not None:
+                        # Split the comma-separated string into a list of values
+                        hourly_demand_list = hourly_demand.hourly_demand.split(',')
+                        # Convert list to a Pandas Series (ensures it has an index)
+                        hourly_demand_series = pd.Series(hourly_demand_list)
+                        # Convert all values to numeric (float), coercing errors to NaN
+                        hourly_demand = pd.to_numeric(hourly_demand_series, errors='coerce')
+                        # Print the numeric Series with index numbers
+                        print(hourly_demand)
+                    else:
+                        # monthly data conversion in hourly data
+                        hourly_demand = self.calculate_hourly_demand(consumer_requirement)
+
                     print('hourly demand=========')
                     print(hourly_demand)
                     
-                    response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement)
+                    response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations)
 
                     if response_data != 'The demand cannot be met by the IPPs':
                         for combination_key, details in response_data.items():
                         # Extract user and components from combination_key
                             components = combination_key.split('-')
+                            print('components==========')
+                            print(components)
+                            print('components==========')
 
                             # Safely extract components, ensuring that we have enough elements
                             username = components[0] if len(components) > 0 else None  # Example: 'IPP241'
@@ -1139,13 +1200,67 @@ class OptimizeCapacityAPI(APIView):
                                 # Merge the details if combination already exists
                                 aggregated_response[combination_key].update(details)
                             print(aggregated_response[combination_key])
-                else:
-                    return Response({"response": "No IPPs matched"}, status=status.HTTP_200_OK)
+                    
+                    # Handle missing valid_combinations that are not in response_data
+            #         for combination_key in valid_combinations:
+            #             if combination_key not in aggregated_response:
+            #                 # Fetch data from the database
+            #                 combo = Combination.objects.filter(combination=combination_key, requirement=consumer_requirement).first()
+                            
+            #                 if combo:
+            #                     terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
+            #                     terms_sheet_sent = combo.terms_sheet_sent if combo else False
+            #                     sent_from_you = terms_sheet.from_whom == optimize_capacity_user if terms_sheet else False
+            #                     generator = combo.generator
+            #                     re_index = generator.re_index if generator.re_index is not None else 0
+                                
+            #                     aggregated_response[combination_key] = {
+            #                         "Optimal Solar Capacity (MW)": combo.optimal_solar_capacity,
+            #                         "Optimal Wind Capacity (MW)": combo.optimal_wind_capacity,
+            #                         "Optimal Battery Capacity (MW)": combo.optimal_battery_capacity,
+            #                         "Per Unit Cost": combo.per_unit_cost,
+            #                         "Final Cost": combo.final_cost,
+            #                         "Annual Demand Offset": combo.annual_demand_offset,
+            #                         "Annual Demand Met": combo.annual_demand_met,
+            #                         "Annual Curtailment": combo.annual_curtailment,
+            #                         "OA_cost": (combo.final_cost - combo.per_unit_cost),
+            #                         "state": combo.state,
+            #                         "greatest_cod": None,  # Since we don’t recalculate it here
+            #                         "terms_sheet_sent": terms_sheet_sent,
+            #                         "sent_from_you": sent_from_you,
+            #                         "connectivity": connectivity,
+            #                         "re_index": re_index,
+            #                     }
 
+            #         # Print the final aggregated response
+            #         print('rrrrrrrrrr')
+            #         print(aggregated_response)
+
+            #     else:
+            #         return Response({"response": "No IPPs matched"}, status=status.HTTP_200_OK)
+
+            # if not aggregated_response and len(valid_combinations) != 0:
+            #     if combination_key not in aggregated_response:
+            #         aggregated_response[combination_key] = {
+            #             **details,
+            #             'OA_cost': OA_cost,
+            #             "state": state,
+            #             "greatest_cod": greatest_cod,
+            #             "terms_sheet_sent": terms_sheet_sent,
+            #             "sent_from_you": sent_from_you,
+            #             "connectivity": connectivity,
+            #             "re_index": re_index,
+            #         }
+            #     else:
+            #         # Merge the details if combination already exists
+            #         aggregated_response[combination_key].update(details)
             if not aggregated_response and optimize_capacity_user=='Consumer':
                 return Response({"error": "The demand cannot be met by the IPPs."}, status=status.HTTP_200_OK)
             elif not aggregated_response and optimize_capacity_user=='Generator':
                 return Response({"error": "The demand cannot be made by your projects."}, status=status.HTTP_200_OK)
+            print('==============')
+            print(aggregated_response)
+            print('==============')
 
             # Extract top 3 records with the smallest "Per Unit Cost"
             top_three_records = sorted(aggregated_response.items(), key=lambda x: x[1]['Per Unit Cost'])[:3]
@@ -1234,7 +1349,8 @@ class StandardTermsSheetAPI(APIView):
                 data = []
                 for record in all_records:
                     serialized_record = StandardTermsSheetSerializer(record).data
-
+                    offer_tariff = Tariffs.objects.get(terms_sheet=record)
+                    serialized_record['offer_tariff'] = round(offer_tariff.offer_tariff, 2)
                     # Check if combination and requirement exist
                     if hasattr(record, 'combination') and hasattr(record.combination, 'requirement'):
                         req = record.combination.requirement
@@ -1324,9 +1440,9 @@ class StandardTermsSheetAPI(APIView):
         request_data["combination"] = combination.id
 
         if from_whom == 'Consumer':
-            request_data["generator_status"] = 'Negotiated'
+            request_data["generator_status"] = 'Counter Offer Received'
         elif from_whom == 'Generator':
-            request_data["consumer_status"] = 'Negotiated'
+            request_data["consumer_status"] = 'Counter Offer Received'
 
 
         serializer = StandardTermsSheetSerializer(data=request_data)
@@ -1412,11 +1528,11 @@ class StandardTermsSheetAPI(APIView):
 
             # Determine if the user is the consumer or generator
             if user == record.consumer:
-                record.consumer_status = 'Pending'
-                record.generator_status = 'Negotiated'
+                record.consumer_status = 'Counter Offer Sent'
+                record.generator_status = 'Counter Offer Received'
             else:  # Assuming the other user is a generator
-                record.consumer_status = 'Negotiated'
-                record.generator_status = 'Pending'
+                record.consumer_status = 'Counter Offer Received'
+                record.generator_status = 'Counter Offer Sent'
 
             # Proceed with updating the StandardTermsSheet record
             serializer = StandardTermsSheetSerializer(record, data=request.data, partial=True)
@@ -1446,7 +1562,7 @@ class SubscriptionEnrolledAPIView(APIView):
         try:
             user = get_admin_user(pk)
             pk = user.id
-            subscription = SubscriptionEnrolled.objects.get(user=pk)
+            subscription = SubscriptionEnrolled.objects.filter(user=pk).order_by('-start_date').first()
             data = {
                 "id": subscription.id,
                 "user": subscription.user.id,
@@ -1556,6 +1672,8 @@ class NegotiateTariffView(APIView):
                     start_time=next_day_10_am_aware,
                     end_time=end_time
                 )
+
+                NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=terms_sheet.consumer)
 
                 # Notify recipients
                 for recipient in matching_ipps:
@@ -1672,6 +1790,8 @@ class NegotiationWindowListAPI(APIView):
                 "window_name": window.name,
                 "terms_sheet_id": window.terms_sheet.id,
                 "tariff_id": tariff.id,
+                "offer_tariff": round(tariff.offer_tariff, 2),
+                "tariff_status": tariff.window_status,
                 "start_time": localtime(window.start_time).strftime('%Y-%m-%d %H:%M:%S'),
                 "end_time": localtime(window.end_time).strftime('%Y-%m-%d %H:%M:%S'),
                 "t_consumer": window.terms_sheet.consumer.id,
@@ -1777,7 +1897,7 @@ class AnnualSavingsView(APIView):
                 re_replacement = round(moving_average, 2)
             
             # Calculate annual savings
-            annual_savings = (grid_tariff.cost - (re + master_record.ISTS_charges + master_record.state_charges)) * requirement.contracted_demand * re_replacement * 24 * 365
+            annual_savings = (grid_tariff.cost - re - master_record.ISTS_charges - master_record.state_charges) * re_replacement * requirement.annual_electricity_consumption * 1000
 
             # Prepare response data
             response_data = {
@@ -1795,9 +1915,9 @@ class AnnualSavingsView(APIView):
                 "potential_re_tariff": round(re, 2),
                 "ISTS_charges": round(master_record.ISTS_charges, 2),
                 "state_charges": round(master_record.state_charges, 2),
-                "per_unit_savings_potential": round(re - master_record.ISTS_charges - master_record.state_charges, 2),
+                "per_unit_savings_potential": round(grid_tariff.cost - re - master_record.ISTS_charges - master_record.state_charges, 2),
                 "potential_re_replacement": round(re_replacement, 2),
-                "total_savings": round((re - master_record.ISTS_charges - master_record.state_charges) * re_replacement * requirement.annual_electricity_consumption * 1000 / 10000000, 2),
+                "total_savings": round(annual_savings / 10000000, 2),
             }
             
             return Response(response_data, status=status.HTTP_200_OK)
@@ -1815,6 +1935,7 @@ class AnnualSavingsView(APIView):
             return Response({"error": "Grid tariff data not found for the state"}, status=status.HTTP_404_NOT_FOUND)
 
         except Exception as e:
+            print(e)
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
 class WhatWeOfferAPI(APIView):
@@ -1843,10 +1964,9 @@ class WhatWeOfferAPI(APIView):
         unique_states = set(solar_states).union(set(wind_states), set(ess_states))
         unique_state_count = len(unique_states)
 
-        # Total amount consumers saved annually
-        re = 4  # Initially RE value will be taken from Master Table that is provided by the client.
         requirements = ConsumerRequirements.objects.all()
 
+        # Total amount consumers saved annually
         amount_saved_annually = 0
         for requirement in requirements:
             master_record = MasterTable.objects.filter(state=requirement.state).first()
@@ -1864,11 +1984,14 @@ class WhatWeOfferAPI(APIView):
             if grid_tariff is None or master_record is None:
                 continue
             
-            # Calculate annual savings
+            # Initially RE value will be taken from Master Table that is provided by the client.
             if record:
-                annual_savings = (grid_tariff.cost - (record.re_tariff + master_record.ISTS_charges + master_record.state_charges)) * requirement.contracted_demand * re_replacement * 24 * 365
+                re = record.re_tariff
             else:
-                annual_savings = (grid_tariff.cost - (re + master_record.ISTS_charges + master_record.state_charges)) * requirement.contracted_demand * re_replacement * 24 * 365
+                re = 4
+            
+            # Calculate annual savings
+            annual_savings = (re - master_record.ISTS_charges - master_record.state_charges) * re_replacement * requirement.annual_electricity_consumption * 1000
 
             amount_saved_annually += annual_savings
 
@@ -1939,6 +2062,7 @@ class ConsumerDashboardAPI(APIView):
         ess_states = ESSPortfolio.objects.values_list('state', flat=True)
         unique_states = set(solar_states).union(set(wind_states), set(ess_states))
         states_covered = len(unique_states)
+        states = unique_states
 
         response = {
             'total_demands': total_demands,
@@ -1950,6 +2074,7 @@ class ConsumerDashboardAPI(APIView):
             'total_portfolios': total_portfolios,
             'total_available_capacity': total_available_capacity,
             'states_covered': states_covered,
+            'states': states,
         }
 
         return Response(response, status=status.HTTP_200_OK)
@@ -1982,6 +2107,7 @@ class GeneratorDashboardAPI(APIView):
         ess_states = ESSPortfolio.objects.values_list('state', flat=True)
         unique_states = set(solar_states).union(set(wind_states), set(ess_states))
         unique_state_count = len(unique_states)
+        states = unique_states
 
         response = {
             'total_energy_sold': 0,
@@ -1996,6 +2122,7 @@ class GeneratorDashboardAPI(APIView):
             'total_consumers': consumer_count,
             'total_contracted_demand': total_contracted_demand,
             'unique_state_count': unique_state_count,
+            'states': states,
             
         }
 
@@ -2114,8 +2241,8 @@ class PerformaInvoiceAPI(APIView):
         try:
             user = get_admin_user(user_id)
             user_id = user.id
-            instance = PerformaInvoice.objects.get(user=user_id)
-            serializer = PerformaInvoiceSerializer(instance)
+            instance = PerformaInvoice.objects.filter(user=user_id)
+            serializer = PerformaInvoiceSerializer(instance, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except PerformaInvoice.DoesNotExist:
             return Response({'message': 'Not Found'}, status=status.HTTP_404_NOT_FOUND)
@@ -2136,25 +2263,22 @@ class PerformaInvoiceAPI(APIView):
                 )
             
             # Check if a PerformaInvoice already exists for the user
-            try:
-                user = get_admin_user(user_id)
-                user_id = user.id
-                instance = PerformaInvoice.objects.get(user_id=user_id)
-                # Update the existing instance
-                serializer = PerformaInvoiceCreateSerializer(
-                    instance,
-                    data={
-                        'user': user_id,
-                        'company_name': company_name,
-                        'company_address': company_address,
-                        'gst_number': gst_number,
-                        'subscription': subscription_id
-                    }, 
-                    partial=True
-                )
-                action = "updated"
-            except PerformaInvoice.DoesNotExist:
-                # Create a new instance if none exists
+            user = get_admin_user(user_id)
+            user_id = user.id
+
+            # Check if an invoice already exists for the same user and subscription
+            performa_invoice = PerformaInvoice.objects.filter(user=user_id, subscription=subscription_id).first()
+
+            if performa_invoice:
+                # Update the existing invoice
+                performa_invoice.company_name = company_name
+                performa_invoice.company_address = company_address
+                performa_invoice.gst_number = gst_number
+                performa_invoice.save()
+
+                message = "Performa Invoice updated successfully"
+            else:
+                # Create a new invoice if none exists
                 serializer = PerformaInvoiceCreateSerializer(data={
                     'user': user_id,
                     'company_name': company_name,
@@ -2162,21 +2286,21 @@ class PerformaInvoiceAPI(APIView):
                     'gst_number': gst_number,
                     'subscription': subscription_id
                 })
-                action = "created"
 
-            # Validate and save the serializer
-            if serializer.is_valid():
-                performa_invoice = serializer.save()
+                if serializer.is_valid():
+                    performa_invoice = serializer.save()
+                    message = "Performa Invoice created successfully"
+                else:
+                    print(serializer.errors)
+                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-                serializer = PerformaInvoiceSerializer(performa_invoice)
+            # Serialize the invoice (updated or newly created)
+            serializer = PerformaInvoiceSerializer(performa_invoice)
 
-                return Response(
-                    {'message': f'Performa Invoice successfully {action}', 'data': serializer.data},
-                    status=status.HTTP_200_OK if action == "updated" else status.HTTP_201_CREATED
-                )
-            else:
-                print(serializer.errors)
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'message': message, 'data': serializer.data},
+                status=status.HTTP_200_OK
+            )
 
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

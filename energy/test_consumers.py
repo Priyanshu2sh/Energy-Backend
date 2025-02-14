@@ -16,8 +16,8 @@ User = get_user_model()
 
 
 class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
-    ALLOWED_START_TIME = time(20, 0)
-    ALLOWED_END_TIME = time(20, 39)
+    ALLOWED_START_TIME = time(9, 0)
+    ALLOWED_END_TIME = time(20, 0)
 
     async def connect(self):
         """Handles WebSocket connection.
@@ -57,6 +57,8 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
                 await self.close()
                 return
 
+        print('self.tariff_id')
+        print(self.tariff_id)
         status = await self.check_window_status(self.tariff_id)
         if status == 'Rejected':
             if user.user_category == 'Generator':

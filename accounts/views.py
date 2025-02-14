@@ -165,35 +165,6 @@ class VerifyOTP(APIView):
         except User.DoesNotExist:
             return Response({'error': 'Invalid OTP, or user already verified'}, status=status.HTTP_400_BAD_REQUEST)
 
-class ForgotPasswordOTP(APIView):
-    def post(self, request):
-        email_otp = request.data.get('email_otp')
-        user_id = request.data.get('user_id')
-
-
-        try:
-            user = User.objects.get(id=user_id, email_otp=email_otp)
-            user.email_otp = None  # Clear the OTP field
-            user.save()
-            return Response({'message': 'User verified successfully'}, status=status.HTTP_200_OK)
-        except User.DoesNotExist:
-            return Response({'error': 'Invalid email or OTP, or user already verified'}, status=status.HTTP_400_BAD_REQUEST)
-
-class SetNewPassword(APIView):
-    def post(self, request):
-        password = request.data.get('password')
-
-        # Fetch email from session
-        email = request.session.get('email')
-
-        try:
-            user = User.objects.get(email=email)
-            user.set_password(password)
-            user.save()
-            return Response({'message': 'Password updated successfully'}, status=status.HTTP_200_OK)
-        except User.DoesNotExist:
-            return Response({'error': 'User not found.'}, status=status.HTTP_400_BAD_REQUEST)
-
 class LoginUser(APIView):
     def post(self, request):
         email = request.data.get('email')
@@ -243,23 +214,25 @@ class LoginUser(APIView):
     def get(self, request, email):
 
         user = User.objects.filter(email=email).first()
+        registration_token = get_random_string(64)
         if user and user.verified_at is not None:
             email_otp = random.randint(100000, 999999)
 
             user.email_otp = email_otp
+            user.registration_token = registration_token
             user.save()
 
-            # Send OTP via SMS using Twilio
-            RegisterUser.send_sms_otp(user.mobile, otp=email_otp)
-            # Resend OTP
+            # Send email to sub-user with a registration link
+            registration_link = f"{request.scheme}://localhost:3001/email/{registration_token}"
             send_mail(
-                'Verification Code',
-                f'Your OTP is {email_otp}',
+                'Set Up Your Account Password',
+                f'Please set your new password using the following link:\n\n{registration_link}\n\nIf you did not request this, please ignore this email.\n\nThank You',
                 'noreply@example.com',
-                [user.email],
+                [email],
                 fail_silently=False,
             )
-            return Response({'message': 'OTP sent to your email.', 'user_id': user.id}, status=status.HTTP_200_OK)
+
+            return Response({'message': 'Link sent on your email.', 'user_id': user.id}, status=status.HTTP_200_OK)
         else:
             # If the user is verified, inform the user they cannot register again
             return Response({'error': 'Email not found.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -352,7 +325,7 @@ class SetPassword(APIView):
 
         # Find user by registration token
         try:
-            user = User.objects.get(registration_token=token, is_active=False)
+            user = User.objects.get(registration_token=token)
         except User.DoesNotExist:
             return Response({'error': 'Invalid or expired token.'}, status=status.HTTP_400_BAD_REQUEST)
 
