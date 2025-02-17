@@ -6,12 +6,13 @@ import csv
 import io
 from itertools import chain
 import re
+import fitz
 from django.shortcuts import get_object_or_404
 import pytz
 import requests
 from accounts.models import User
 from accounts.views import JWTAuthentication
-from .models import GeneratorOffer, GridTariff, Industry, NegotiationInvitation, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice
+from .models import GeneratorOffer, GridTariff, Industry, NegotiationInvitation, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -56,10 +57,16 @@ class StateListAPI(APIView):
         names = list(State.objects.values_list('name', flat=True))
         return Response(names)
         
-class IndustryListAPI(APIView):
+class IndustryListAPI(APIView): 
     def get(self, request):
-        names = list(Industry.objects.values_list('name', flat=True))
-        return Response(names)
+        industries = Industry.objects.prefetch_related('sub_industries').all()
+        
+        industry_data = {
+            industry.name: {sub_industry.name for sub_industry in industry.sub_industries.all()}
+            for industry in industries
+        }
+
+        return Response(industry_data)
     
 class StateTimeSlotAPI(APIView):
     def get(self, request):
@@ -508,26 +515,52 @@ class CSVFileAPI(APIView):
 
 
 class UploadMonthlyConsumptionBillAPI(APIView):
+    def extract_required_data(self, pdf_path):
+        """Extract TOD 1, TOD 2, TOD 3, and Current Month Bill from PDF"""
+        extracted_text = ""
+        try:
+            doc = fitz.open(pdf_path)
+            for page in doc:
+                extracted_text += page.get_text("text") + "\n"
+
+            # Use regex to extract required values
+            tod1 = re.search(r"TOD1\s*:\s*([\d,.]+)", extracted_text)
+            tod2 = re.search(r"TOD2\s*:\s*([\d,.]+)", extracted_text)
+            tod3 = re.search(r"TOD3\s*:\s*([\d,.]+)", extracted_text)
+            current_bill = re.search(r"CURRENT MONTH BILL\s*([\d,.]+)", extracted_text)
+
+            return {
+                "TOD 1": tod1.group(1) if tod1 else "Not found",
+                "TOD 2": tod2.group(1) if tod2 else "Not found",
+                "TOD 3": tod3.group(1) if tod3 else "Not found",
+                "Current Month Bill": current_bill.group(1) if current_bill else "Not found"
+            }
+        except Exception as e:
+            return {"error": f"Error extracting text: {str(e)}"}
+        
     def post(self, request):
         # Extract data from the request
-        requirement = request.data.get("requirement")
+        requirement_id = request.data.get("requirement")
         month = request.data.get("month")
-        file_data = request.data.get("bill_file")  # Extract the file from the request
+        file_data = request.data.get("bill_file")
 
         # Validate requirement, month, and file presence
-        if not requirement or not month or not file_data:
+        if not requirement_id or not month or not file_data:
             return Response(
                 {"error": "All fields ('requirement', 'month', and 'bill_file') are required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        
-        # Handle Base64-encoded file
+
+        # Get the requirement instance
         try:
-            # Decode Base64 file
+            requirement = ConsumerRequirements.objects.get(id=requirement_id)
+        except ConsumerRequirements.DoesNotExist:
+            return Response({"error": "Invalid requirement ID."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Handle Base64-encoded file and save it in the model first
+        try:
             decoded_file = base64.b64decode(file_data)
-            # Define a file name (customize as needed)
-            file_name = f"bill_{requirement}_{month}.pdf"  # Assuming the file is a PDF
-            # Wrap the decoded file into a ContentFile
+            file_name = f"bill_{requirement_id}_{month}.pdf"
             bill_file = ContentFile(decoded_file, name=file_name)
         except Exception as e:
             return Response(
@@ -535,26 +568,33 @@ class UploadMonthlyConsumptionBillAPI(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Check if the record exists
-        instance = MonthlyConsumptionData.objects.filter(
-            requirement=requirement, month=month
-        ).first()
+        # Create or update a new record and save the bill file first
+        instance, created = MonthlyConsumptionData.objects.update_or_create(
+            requirement=requirement, month=month,
+            defaults={"bill": bill_file}  # Save only the bill file first
+        )
 
-        if instance:
-            # Update the existing record with the bill file
-            instance.bill = bill_file
+        # Extract required data from the saved file path
+        if instance.bill:
+            extracted_data = self.extract_required_data(instance.bill.path)
+
+            # Calculate required values
+            peak_consumption = round(float(extracted_data["TOD 1"]))  # TOD 1
+            off_peak_consumption = round(float(extracted_data["TOD 3"]))  # TOD 3
+            monthly_consumption = round(peak_consumption + round(float(extracted_data["TOD 2"])) + off_peak_consumption, 2)  # TOD 1 + TOD 2 + TOD 3
+            monthly_bill_amount = extracted_data["Current Month Bill"]  # Current Month Bill
+
+            # Update instance with extracted data
+            instance.peak_consumption = peak_consumption
+            instance.off_peak_consumption = off_peak_consumption
+            instance.monthly_consumption = monthly_consumption
+            instance.monthly_bill_amount = monthly_bill_amount
             instance.save()
-        else:
-            # Create a new record with the provided data and bill file
-            data = {"requirement": requirement, "month": month, "bill": bill_file}
-            serializer = MonthlyConsumptionDataSerializer(data=data)
-            if serializer.is_valid():
-                serializer.save()
-            else:
-                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(
-            {"message": "Bill file uploaded successfully."},
+            {
+                "message": "Bill file uploaded and processed successfully."
+            },
             status=status.HTTP_200_OK,
         )
 
@@ -1440,9 +1480,9 @@ class StandardTermsSheetAPI(APIView):
         request_data["combination"] = combination.id
 
         if from_whom == 'Consumer':
-            request_data["generator_status"] = 'Counter Offer Received'
+            request_data["generator_status"] = 'Offer Received'
         elif from_whom == 'Generator':
-            request_data["consumer_status"] = 'Counter Offer Received'
+            request_data["consumer_status"] = 'Offer Received'
 
 
         serializer = StandardTermsSheetSerializer(data=request_data)
@@ -1562,7 +1602,11 @@ class SubscriptionEnrolledAPIView(APIView):
         try:
             user = get_admin_user(pk)
             pk = user.id
-            subscription = SubscriptionEnrolled.objects.filter(user=pk).order_by('-start_date').first()
+            print(pk)
+            subscription = SubscriptionEnrolled.objects.filter(user=pk)
+            print(subscription)
+            subscription = SubscriptionEnrolled.objects.filter(user=pk).order_by('start_date').first()
+            print(subscription)
             data = {
                 "id": subscription.id,
                 "user": subscription.user.id,
@@ -1571,6 +1615,7 @@ class SubscriptionEnrolledAPIView(APIView):
                 "end_date": subscription.end_date,
                 "status": subscription.status,
             }
+            print(data)
             return Response(data, status=status.HTTP_200_OK)
         except SubscriptionEnrolled.DoesNotExist:
             return Response({"message": "No subscription found for this user."}, status=status.HTTP_404_NOT_FOUND)
@@ -1904,6 +1949,8 @@ class AnnualSavingsView(APIView):
                 "annual_savings": round(annual_savings, 2),
                 "average_savings": record.average_savings,
                 "re_replacement": re_replacement,
+                "state": requirement.state,
+                "procurement_date": requirement.procurement_date,
                 # For the report download, prepare the full report data
                 "consumer_company_name": requirement.user.company,
                 "consumption_unit_name": requirement.consumption_unit,
@@ -2207,7 +2254,7 @@ class PaymentTransactionAPI(APIView):
             }
             
             subscription_response = requests.post(
-                "http://192.168.1.35:8001/api/energy/subscriptions",
+                "http://192.168.1.34:8001/api/energy/subscriptions",
                 json=subscription_data
             )
 

@@ -43,7 +43,6 @@ class State(models.Model):
 
 class Industry(models.Model):
     INDUSTRY_CHOICES = [
-        ("Retail", "Retail"),
         ("Energy", "Energy"),
         ("Materials", "Materials"),
         ("Industrials", "Industrials"),
@@ -62,7 +61,15 @@ class Industry(models.Model):
     def __str__(self):
         return self.name
     
-from django.db import models
+class SubIndustry(models.Model):
+    industry = models.ForeignKey(Industry, on_delete=models.CASCADE, related_name="sub_industries")
+    name = models.CharField(max_length=255)
+
+    class Meta:
+        unique_together = ("industry", "name")  # Ensures a sub-industry name is unique within an industry
+
+    def __str__(self):
+        return f"{self.name} ({self.industry.name})"
 
 class State(models.Model):
     STATE_CHOICES = [
@@ -280,6 +287,8 @@ class Combination(models.Model):
 
 class StandardTermsSheet(models.Model):
     STATUS_CHOICES = [
+        ('Offer Sent', 'Offer Sent'),
+        ('Offer Received', 'Offer Received'),
         ('Counter Offer Sent', 'Counter Offer Sent'),
         ('Counter Offer Received', 'Counter Offer Received'),
         ('Accepted', 'Accepted'),
@@ -301,8 +310,8 @@ class StandardTermsSheet(models.Model):
     payment_security_day = models.PositiveIntegerField(help_text="Payment security duration in days")
     payment_security_type = models.CharField(max_length=100, null=True, blank=True, help_text="Type of payment security")
     count = models.IntegerField(help_text="Used for counting iterations, only 4 iterations are valid", default=0)
-    consumer_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Counter Offer Sent', help_text="Status from the consumer's perspective")
-    generator_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Counter Offer Sent', help_text="Status from the generator's perspective")
+    consumer_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Offer Sent', help_text="Status from the consumer's perspective")
+    generator_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Offer Sent', help_text="Status from the generator's perspective")
     from_whom = models.CharField(max_length=200, choices=USER_CHOICES, null=True, blank=True)
 
     def save(self, *args, **kwargs):
