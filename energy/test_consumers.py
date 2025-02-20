@@ -1,8 +1,9 @@
 import json
 from datetime import datetime, time
+import re
 from urllib.parse import parse_qs
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.contrib.auth import get_user_model
@@ -10,7 +11,7 @@ from django.core.cache import cache
 from django.utils import timezone
 from django.utils.timezone import localtime
 
-from .models import GeneratorOffer, Tariffs
+from .models import GeneratorOffer, Notifications, StandardTermsSheet, Tariffs
 
 User = get_user_model()
 
@@ -381,3 +382,168 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
             GeneratorOffer.objects.filter(tariff=tariff).exclude(id=selected_offer.id).update(is_accepted=False)
         except GeneratorOffer.DoesNotExist:
             raise
+
+
+# notifications live counting showing
+class NotificationConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.user_id = self.scope["url_route"]["kwargs"]["user_id"]
+        self.group_name = f"user_{self.user_id}"
+
+        # Join the user's notification group
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+
+        # Send current unread notification count on connection
+        unread_count = await self.get_unread_count()
+        await self.send(json.dumps({"unread_count": unread_count}))
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def send_notification(self, event):
+        """Send new notification update"""
+        await self.send(text_data=json.dumps({"unread_count": event["unread_count"]}))
+
+    async def mark_notifications_read(self, event):
+        """Clear unread count when user views notifications"""
+        await self.send(text_data=json.dumps({"unread_count": 0}))
+
+    @sync_to_async
+    def get_unread_count(self):
+        return Notifications.objects.filter(user_id=self.user_id, is_read=False).count()
+
+class TermsSheetConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.user_id = self.scope["url_route"]["kwargs"]["user_id"]
+        self.group_name = f"user_{self.user_id}"
+
+        # Join the user's terms sheet group
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+
+        # Send current unread terms sheets count on connection
+        unread_count = await self.get_unread_count()
+        await self.send(json.dumps({"unread_count": unread_count}))
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def send_terms_sheet(self, event):
+        """Send new terms sheet update"""
+        await self.send(text_data=json.dumps({"unread_count": event["unread_count"]}))
+
+    async def mark_terms_sheet_read(self, event):
+        """Clear unread count when user views terms sheets"""
+        await self.send(text_data=json.dumps({"unread_count": 0}))
+
+    @sync_to_async
+    def get_unread_count(self):
+        user = User.objects.get(id=self.user_id)
+        if user.user_category == 'Consumer':
+            return StandardTermsSheet.objects.filter(consumer=user.id, consumer_is_read=False).count()
+        else:
+            return StandardTermsSheet.objects.filter(combination__generator=user.id, generator_is_read=False).count()
+
+    @sync_to_async
+    def mark_all_as_read(self):
+        user = User.objects.get(id=self.user_id)
+        if user.user_category == 'Consumer':
+            StandardTermsSheet.objects.filter(consumer=user.id, consumer_is_read=False).update(consumer_is_read=True)
+        else:
+            StandardTermsSheet.objects.filter(combination__generator=user.id, generator_is_read=False).update(generator_is_read=True)
+
+    async def receive(self, text_data):
+        """Handle client requests (e.g., marking all as read)"""
+        data = json.loads(text_data)
+        if data.get("action") == "mark_as_read":
+            await self.mark_all_as_read()
+            await self.channel_layer.group_send(
+                self.group_name, {"type": "mark_terms_sheet_read"}
+            )
+
+class CountsConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.user_id = self.scope["url_route"]["kwargs"]["user_id"]
+        self.group_name = f"user_{self.user_id}"
+
+        # Join the user's group
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+
+        # Get initial counts
+        self.notification_count = await self.get_unread_notification_count()
+        self.terms_sheet_count = await self.get_unread_terms_sheet_count()
+
+        # Send initial counts
+        await self.send_counts()
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    async def send_counts(self):
+        """Send the latest counts to the client."""
+        await self.send(
+            text_data=json.dumps({
+                "unread_notifications": self.notification_count,
+                "unread_terms_sheets": self.terms_sheet_count
+            })
+        )
+
+    async def send_notification_update(self, event):
+        """Update notification count and send data to client."""
+        self.notification_count = event["unread_count"]
+        await self.send_counts()
+
+    async def send_terms_sheet_update(self, event):
+        """Update terms sheet count and send data to client."""
+        self.terms_sheet_count = event["unread_count"]
+        await self.send_counts()
+
+    async def mark_notifications_read(self, event):
+        """Mark notifications as read and reset count."""
+        self.notification_count = 0
+        await self.send_counts()
+
+    async def mark_terms_sheet_read(self, event):
+        """Mark terms sheets as read and reset count."""
+        self.terms_sheet_count = 0
+        await self.send_counts()
+
+    async def receive(self, text_data):
+        """Handle client requests (e.g., marking all as read)."""
+        data = json.loads(text_data)
+        if data.get("action") == "mark_notifications_read":
+            await self.mark_all_notifications_as_read()
+            await self.channel_layer.group_send(
+                self.group_name, {"type": "mark_notifications_read"}
+            )
+        elif data.get("action") == "mark_terms_sheet_read":
+            await self.mark_all_terms_sheets_as_read()
+            await self.channel_layer.group_send(
+                self.group_name, {"type": "mark_terms_sheet_read"}
+            )
+
+    @sync_to_async
+    def get_unread_notification_count(self):
+        return Notifications.objects.filter(user_id=self.user_id, is_read=False).count()
+
+    @sync_to_async
+    def get_unread_terms_sheet_count(self):
+        user = User.objects.get(id=self.user_id)
+        if user.user_category == 'Consumer':
+            return StandardTermsSheet.objects.filter(consumer=user.id, consumer_is_read=False).count()
+        else:
+            return StandardTermsSheet.objects.filter(combination__generator=user.id, generator_is_read=False).count()
+
+    @sync_to_async
+    def mark_all_notifications_as_read(self):
+        Notifications.objects.filter(user_id=self.user_id, is_read=False).update(is_read=True)
+
+    @sync_to_async
+    def mark_all_terms_sheets_as_read(self):
+        user = User.objects.get(id=self.user_id)
+        if user.user_category == 'Consumer':
+            StandardTermsSheet.objects.filter(consumer=user.id, consumer_is_read=False).update(consumer_is_read=True)
+        else:
+            StandardTermsSheet.objects.filter(combination__generator=user.id, generator_is_read=False).update(generator_is_read=True)

@@ -2,6 +2,13 @@ from datetime import date, timedelta
 import random
 from django.db import models
 from django.utils.timezone import now
+from django.db.models.signals import post_save, post_delete
+from django.dispatch import receiver
+from channels.layers import get_channel_layer
+import json
+import asyncio
+
+from accounts.models import User
 # Create your models here.
 
 class State(models.Model):
@@ -313,11 +320,44 @@ class StandardTermsSheet(models.Model):
     consumer_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Offer Sent', help_text="Status from the consumer's perspective")
     generator_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Offer Sent', help_text="Status from the generator's perspective")
     from_whom = models.CharField(max_length=200, choices=USER_CHOICES, null=True, blank=True)
+    consumer_is_read = models.BooleanField(default=False)
+    generator_is_read = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         if not self.pk:  # If the object is new
             self.count = 1  # Initialize count to 1
+
+        # Fetch existing record before saving
+        if self.pk:
+            previous = StandardTermsSheet.objects.get(pk=self.pk)
+
+            # If status changed and is_read is True, set it to False
+            if self.consumer_status != previous.consumer_status and previous.consumer_is_read:
+                self.consumer_is_read = False
+            
+            if self.generator_status != previous.generator_status and previous.generator_is_read:
+                self.generator_is_read = False
+
         super().save(*args, **kwargs)
+
+        # Trigger WebSocket update after save
+        from asgiref.sync import async_to_sync
+        from channels.layers import get_channel_layer
+
+        channel_layer = get_channel_layer()
+        unread_count = self.get_unread_terms_sheet_count(self.consumer.id if self.consumer else self.combination.generator.id)
+        async_to_sync(channel_layer.group_send)(
+            f"user_{self.consumer.id if self.consumer else self.combination.generator.id}",
+            {"type": "send_terms_sheet", "unread_count": unread_count},
+        )
+
+    @staticmethod
+    def get_unread_terms_sheet_count(user_id):
+        user = User.objects.get(id=user_id)
+        if user.user_category == 'Consumer':
+            return StandardTermsSheet.objects.filter(consumer=user.id, consumer_is_read=False).count()
+        else:
+            return StandardTermsSheet.objects.filter(combination__generator=user.id, generator_is_read=False).count()
 
     def __str__(self):
         return f"{self.consumer} - {self.combination.requirement}"
@@ -376,6 +416,7 @@ class Notifications(models.Model):
     user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)  # Assuming User model is in 'accounts' app
     message = models.TextField()  # The message to be sent to the user
     timestamp = models.DateTimeField(auto_now_add=True)  # Timestamp of when the notification was created
+    is_read = models.BooleanField(default=False)
 
     def __str__(self):
         return f"Notification for {self.user}"

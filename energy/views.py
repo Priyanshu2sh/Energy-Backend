@@ -32,6 +32,8 @@ from .aggregated_model.main import optimization_model
 from django.core.files.base import ContentFile
 import pandas as pd
 from itertools import product
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 from django.utils import timezone
 import razorpay
 from django.db.models import Avg
@@ -660,16 +662,12 @@ class MatchingIPPAPI(APIView):
                 
                 if not is_subscribed:
                     # Send notification to user
-                    Notifications.objects.create(
-                        user=user,
-                        message="Your subscription is inactive. Please subscribe to start receiving and accepting offers."
-                    )
+                    message = f"Your subscription is inactive. Please subscribe to start receiving and accepting offers."
+                    send_notification(user.id, message) 
                 elif has_not_updated:
                     # Send notification for outdated portfolio
-                    Notifications.objects.create(
-                        user=user,
-                        message="Your portfolios are not updated yet. Please update them to start receiving and accepting offers."
-                    )
+                    message = f"Your portfolios are not updated yet. Please update them to start receiving and accepting offers."
+                    send_notification(user.id, message) 
                 else:
                     # Sum available capacity for all portfolios of this user
                     available_capacity = (
@@ -766,10 +764,8 @@ class MatchingConsumerAPI(APIView):
                     exclude_consumers.append(requirement.user)
 
                     # Send a notification (customize this part as per your notification system)
-                    Notifications.objects.create(
-                        user=requirement.user,
-                        message="Please activate your subscription to access matching services."
-                    )
+                    message = f"Please activate your subscription to access matching services."
+                    send_notification(requirement.user.id, message) 
 
                 # Exclude users who do not have monthly consumption data for all 12 months
                 users_with_complete_consumption = MonthlyConsumptionData.objects.filter(requirement=requirement)
@@ -785,10 +781,8 @@ class MatchingConsumerAPI(APIView):
                     exclude_requirements.append(requirement.id)
 
                     # Send a notification (customize this part as per your notification system)
-                    Notifications.objects.create(
-                        user=requirement.user,
-                        message="Please complete your profile to access matching services."
-                    )
+                    message = f"Please complete your profile to access matching services."
+                    send_notification(requirement.user.id, message) 
 
 
             # Exclude consumers without a subscription from the response
@@ -970,8 +964,7 @@ class OptimizeCapacityAPI(APIView):
 
                         if not SubscriptionEnrolled.objects.filter(user=generator, status='active').exists():
                             message = "You have not subscribed yet. Please subscribe so that you don't miss the perfect matchings."
-                            notification = Notifications(user=generator, message=message)
-                            notification.save()
+                            send_notification(generator.id, message)
                             new_list.append(id)
                             continue
 
@@ -1374,9 +1367,11 @@ class StandardTermsSheetAPI(APIView):
                 if user.user_category == 'Consumer':
                     records_from_consumer = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Consumer')
                     records_from_generator = StandardTermsSheet.objects.filter(consumer=user, from_whom ='Generator')
+                    StandardTermsSheet.objects.filter(consumer=user, consumer_is_read=False).update(consumer_is_read=True)
                 else:
                     records_from_consumer = StandardTermsSheet.objects.filter(combination__generator=user, from_whom ='Consumer')
                     records_from_generator = StandardTermsSheet.objects.filter(combination__generator=user, from_whom ='Generator')
+                    StandardTermsSheet.objects.filter(combination__generator=user, generator_is_read=False).update(generator_is_read=True)
                         
                 # Combine the two record sets
                 all_records = records_from_consumer | records_from_generator
@@ -1391,6 +1386,7 @@ class StandardTermsSheetAPI(APIView):
                     serialized_record = StandardTermsSheetSerializer(record).data
                     offer_tariff = Tariffs.objects.get(terms_sheet=record)
                     serialized_record['offer_tariff'] = round(offer_tariff.offer_tariff, 2)
+                    serialized_record['re_index'] = user.re_index
                     # Check if combination and requirement exist
                     if hasattr(record, 'combination') and hasattr(record.combination, 'requirement'):
                         req = record.combination.requirement
@@ -1420,7 +1416,6 @@ class StandardTermsSheetAPI(APIView):
                             # Add more fields as required
                         }
 
-                    print(record.id)
                     transaction_window = NegotiationWindow.objects.filter(terms_sheet=record.id).first()
                     if transaction_window:
                         serialized_record['transaction_window_date'] = transaction_window.start_time
@@ -1428,6 +1423,16 @@ class StandardTermsSheetAPI(APIView):
                         serialized_record['transaction_window_date'] = None
 
                     data.append(serialized_record)
+
+                    
+                    
+                    # Notify the WebSocket group to update the unread count
+                    channel_layer = get_channel_layer()
+                    async_to_sync(channel_layer.group_send)(
+                        f"user_{pk}", {"type": "mark_terms_sheet_read"}
+                    )
+
+                    return Response(data, status=status.HTTP_200_OK)
 
                 
                 return Response(data, status=status.HTTP_200_OK)
@@ -1493,9 +1498,9 @@ class StandardTermsSheetAPI(APIView):
             combination.save()
 
             if from_whom == "Consumer":
-                Notifications.objects.get_or_create(user=termsheet.combination.generator, message=f'The consumer {termsheet.consumer.username} has sent you a terms sheet.')
+                send_notification(termsheet.combination.generator.id, f'The consumer {termsheet.consumer.username} has sent you a terms sheet.')
             elif from_whom == "Generator":
-                Notifications.objects.get_or_create(user=termsheet.consumer, message=f'The generator {termsheet.combination.generator.username} has sent you a terms sheet.')
+                send_notification(termsheet.consumer.id, f'The generator {termsheet.combination.generator.username} has sent you a terms sheet.')
             else:
                 return Response({"error": "Invalid value for 'from_whom'."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1638,6 +1643,31 @@ class SubscriptionEnrolledAPIView(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+def send_notification(user_id, message):
+    """
+    Ensures notification is created and triggers WebSocket update only for new notifications.
+    """
+    notification, created = Notifications.objects.get_or_create(
+        user_id=user_id,
+        message=message,
+        defaults={"is_read": False}
+    )
+
+    # Only trigger WebSocket update if a new notification was created
+    if created:
+        unread_count = Notifications.objects.filter(user_id=user_id, is_read=False).count()
+
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"user_{user_id}",
+            {
+                "type": "send_notification",
+                "unread_count": unread_count,
+            }
+        )
+
+    return notification
         
 class NotificationsAPI(APIView):
     
@@ -1647,9 +1677,21 @@ class NotificationsAPI(APIView):
             user_id = user.id
             # Fetch notifications based on user_id
             notifications = Notifications.objects.filter(user_id=user_id).order_by('-timestamp')
-            
             # Serialize the notifications data
             serializer = NotificationsSerializer(notifications, many=True)
+
+            # Mark notifications as read
+            Notifications.objects.filter(user_id=user_id, is_read=False).update(is_read=True)
+
+            # Send real-time update to WebSocket
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f"user_{user_id}",
+                {
+                    "type": "mark_notifications_read",
+                    "unread_count": 0,
+                }
+            )
             
             # Return the response with serialized data
             return Response(serializer.data, status=status.HTTP_200_OK)
@@ -1725,15 +1767,13 @@ class NegotiateTariffView(APIView):
                     print(recipient, "recipient")
                     try:
                         recipient_user = User.objects.get(id=recipient['user'])
-                        Notifications.objects.create(
-                            user=recipient_user,
-                            message=(
-                                f"Consumer {terms_sheet.consumer} has initiated a negotiation for Terms Sheet {terms_sheet}. "
-                                f"The negotiation window will open tomorrow at 10:00 AM. "
-                                f"The generator involved in this negotiation is {terms_sheet.combination.generator.username}, "
-                                f"and the offer tariff being provided is {terms_sheet.combination.per_unit_cost}."
-                            )
+                        message=(
+                            f"Consumer {terms_sheet.consumer} has initiated a negotiation for Terms Sheet {terms_sheet}. "
+                            f"The negotiation window will open tomorrow at 10:00 AM. "
+                            f"The generator involved in this negotiation is {terms_sheet.combination.generator.username}, "
+                            f"and the offer tariff being provided is {terms_sheet.combination.per_unit_cost}."
                         )
+                        send_notification(recipient_user.id, message)
 
                         NegotiationInvitation.objects.create(
                                 negotiation_window=negotiation_window,
@@ -1751,14 +1791,11 @@ class NegotiateTariffView(APIView):
                 tariff.save()
                 GeneratorOffer.objects.get_or_create(generator=user, tariff=tariff)
 
-                consumer = terms_sheet.consumer
-                Notifications.objects.create(
-                    user=consumer,
-                    message=(
-                        f"Generator {user.username} is interested in initiating a negotiation for Terms Sheet {terms_sheet}. "
-                        f"The offer tariff being provided is {terms_sheet.combination.per_unit_cost}."
-                    )
+                message=(
+                    f"Generator {user.username} is interested in initiating a negotiation for Terms Sheet {terms_sheet}. "
+                    f"The offer tariff being provided is {terms_sheet.combination.per_unit_cost}."
                 )
+                send_notification(terms_sheet.consumer.id, message) 
 
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -1788,15 +1825,14 @@ class NegotiateTariffView(APIView):
             for recipient in recipients:
                 try:
                     recipient_user = User.objects.get(id=recipient)
-                    Notifications.objects.create(
-                        user=recipient_user,
-                        message=(
-                            f"Consumer {user.username} has initiated a negotiation for Terms Sheet {terms_sheet}. "
-                            f"The negotiation window will open tomorrow at 10:00 AM. "
-                            f"The generator involved in this negotiation is {terms_sheet.combination.generator.username}, "
-                            f"and the offer tariff being provided is {terms_sheet.combination.per_unit_cost}."
-                        )
+                    message=(
+                        f"Consumer {user.username} has initiated a negotiation for Terms Sheet {terms_sheet}. "
+                        f"The negotiation window will open tomorrow at 10:00 AM. "
+                        f"The generator involved in this negotiation is {terms_sheet.combination.generator.username}, "
+                        f"and the offer tariff being provided is {terms_sheet.combination.per_unit_cost}."
                     )
+                    send_notification(recipient_user.id, message) 
+
 
                     NegotiationInvitation.objects.create(
                             negotiation_window=negotiation_window,
