@@ -40,6 +40,7 @@ from django.db.models import Avg
 from django.utils.timezone import localtime
 from django.conf import settings
 from django.db.models import Count, Q
+import secrets
 
 # Create your views here.
 
@@ -580,6 +581,13 @@ class UploadMonthlyConsumptionBillAPI(APIView):
         if instance.bill:
             extracted_data = self.extract_required_data(instance.bill.path)
 
+            # Validate extracted data to ensure TOD values exist
+            if extracted_data["TOD 1"] == "Not found" or extracted_data["TOD 2"] == "Not found" or extracted_data["TOD 3"] == "Not found":
+                return Response(
+                    {"error": "Invalid file format. Required TOD values not found."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             # Calculate required values
             peak_consumption = round(float(extracted_data["TOD 1"]))  # TOD 1
             off_peak_consumption = round(float(extracted_data["TOD 3"]))  # TOD 3
@@ -713,45 +721,53 @@ class MatchingConsumerAPI(APIView):
 
         try:
             # Get all GenerationPortfolio records for the user
-            # Query SolarPortfolio
             solar_data = SolarPortfolio.objects.filter(user=user)
-
-            # Query WindPortfolio
             wind_data = WindPortfolio.objects.filter(user=user)
-
-            # Query ESSPortfolio
             ess_data = ESSPortfolio.objects.filter(user=user)
 
             # Combine all data
             data = list(chain(solar_data, wind_data, ess_data))
 
             # Ensure generation portfolio exists
-            if not (solar_data.exists() or wind_data.exists() or ess_data.exists()):
+            if not data:
                 return Response(
                     {"error": "No generation portfolio records found for the user."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
+            
+            # Separate CTU and non-CTU portfolios
+            ctu_portfolios = [p for p in data if p.connectivity == "CTU"]
+            non_ctu_portfolios = [p for p in data if p.connectivity != "CTU"]
 
-            # Combine all states and CODs across all portfolios
-            states = (
-                solar_data.values_list("state", flat=True)
-                .union(wind_data.values_list("state", flat=True))
-                .union(ess_data.values_list("state", flat=True))
-            )
+            # Collect filtering criteria
+            states = set(p.state for p in non_ctu_portfolios)
+            cod_dates = [p.cod for p in non_ctu_portfolios if p.cod]
 
-            cod_dates = (
-                solar_data.values_list("cod", flat=True)
-                .union(wind_data.values_list("cod", flat=True))
-                .union(ess_data.values_list("cod", flat=True))
-            )
+            # Get consumer requirements based on filtering logic
+            filtered_data = ConsumerRequirements.objects.none()  # Empty queryset initially
 
-            # Filter ConsumerRequirements
-            filtered_data = (
-                ConsumerRequirements.objects.filter(
-                    state__in=states,
-                    procurement_date__gte=min(cod_dates),  # At least one COD <= procurement_date
+            if ctu_portfolios:
+                # Match procurement date only for CTU projects
+                ctu_cod_dates = [p.cod for p in ctu_portfolios if p.cod]
+                ctu_states = [p.state for p in ctu_portfolios]
+
+                ctu_filtered_data = ConsumerRequirements.objects.filter(
+                    state__in=ctu_states,
+                    procurement_date__gte=min(ctu_cod_dates),  # Use earliest COD from CTU projects
                 )
-            )
+
+                # Merge with existing filter
+                filtered_data = filtered_data | ctu_filtered_data
+
+            if states and cod_dates:
+                # Match state-wise and COD-wise for non-CTU projects
+                state_filtered_data = ConsumerRequirements.objects.filter(
+                    state__in=states,
+                    procurement_date__gte=min(cod_dates),  # Use earliest COD from non-CTU projects
+                )
+
+                # Merge both results (CTU + State-wise matching)
+                filtered_data   = filtered_data | state_filtered_data
             
             # Check for subscription and notify consumers without a subscription
             exclude_consumers = []
@@ -765,7 +781,10 @@ class MatchingConsumerAPI(APIView):
 
                     # Send a notification (customize this part as per your notification system)
                     message = f"Please activate your subscription to access matching services."
-                    send_notification(requirement.user.id, message) 
+                    Notifications.objects.create(
+                        user_id=requirement.user.id,
+                        message=message,
+                    )
 
                 # Exclude users who do not have monthly consumption data for all 12 months
                 users_with_complete_consumption = MonthlyConsumptionData.objects.filter(requirement=requirement)
@@ -782,7 +801,10 @@ class MatchingConsumerAPI(APIView):
 
                     # Send a notification (customize this part as per your notification system)
                     message = f"Please complete your profile to access matching services."
-                    send_notification(requirement.user.id, message) 
+                    Notifications.objects.create(
+                        user_id=requirement.user.id,
+                        message=message,
+                    )
 
 
             # Exclude consumers without a subscription from the response
@@ -1375,6 +1397,7 @@ class StandardTermsSheetAPI(APIView):
                         
                 # Combine the two record sets
                 all_records = records_from_consumer | records_from_generator
+                print(len(all_records), '11111111111')
 
                 if not all_records.exists():
                     return Response({"error": "No Record found."}, status=status.HTTP_404_NOT_FOUND)
@@ -1431,9 +1454,6 @@ class StandardTermsSheetAPI(APIView):
                     async_to_sync(channel_layer.group_send)(
                         f"user_{pk}", {"type": "mark_terms_sheet_read"}
                     )
-
-                    return Response(data, status=status.HTTP_200_OK)
-
                 
                 return Response(data, status=status.HTTP_200_OK)
 
@@ -1722,6 +1742,7 @@ class NegotiateTariffView(APIView):
         user_id = request.data.get('user_id')
         offer_tariff = request.data.get('offer_tariff')
         terms_sheet_id = request.data.get('terms_sheet_id')
+        token = secrets.token_hex(16)
 
         try:
             user = User.objects.get(id=user_id)
@@ -1762,18 +1783,40 @@ class NegotiateTariffView(APIView):
 
                 NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=terms_sheet.consumer)
 
+                # updated_tariff = request.data.get("updated_tariff")
+                Tariffs.objects.get_or_create(terms_sheet=terms_sheet_id)
+                tariff = Tariffs.objects.get(terms_sheet=terms_sheet_id)
+                tariff.offer_tariff = offer_tariff
+                tariff.save()
+
                 # Notify recipients
                 for recipient in matching_ipps:
                     print(recipient, "recipient")
+                    if recipient.id == user.id:
+                        continue
                     try:
                         recipient_user = User.objects.get(id=recipient['user'])
                         message=(
                             f"Consumer {terms_sheet.consumer} has initiated a negotiation for Terms Sheet {terms_sheet}. "
                             f"The negotiation window will open tomorrow at 10:00 AM. "
-                            f"The generator involved in this negotiation is {terms_sheet.combination.generator.username}, "
-                            f"and the offer tariff being provided is {terms_sheet.combination.per_unit_cost}."
+                            f"The starting offer tariff being provided is {offer_tariff}."
                         )
                         send_notification(recipient_user.id, message)
+
+                        email_message = (
+                            f"Consumer {user.username} has initiated a negotiation for Terms Sheet {terms_sheet}. "
+                            f"The negotiation window will open tomorrow at 10:00 AM. "
+                            f"The starting offer tariff being provided is {offer_tariff}.\n\n"
+                            f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
+                        )
+                        # Send email with the link
+                        send_mail(
+                            "Negotiation Invitation",
+                            email_message,
+                            settings.DEFAULT_FROM_EMAIL,
+                            [recipient_user.email],
+                            fail_silently=False,
+                        )
 
                         NegotiationInvitation.objects.create(
                                 negotiation_window=negotiation_window,
@@ -1784,18 +1827,48 @@ class NegotiateTariffView(APIView):
                         continue
 
                 
-                # updated_tariff = request.data.get("updated_tariff")
-                Tariffs.objects.get_or_create(terms_sheet=terms_sheet_id)
-                tariff = Tariffs.objects.get(terms_sheet=terms_sheet_id)
-                tariff.offer_tariff = offer_tariff
-                tariff.save()
                 GeneratorOffer.objects.get_or_create(generator=user, tariff=tariff)
 
                 message=(
                     f"Generator {user.username} is interested in initiating a negotiation for Terms Sheet {terms_sheet}. "
-                    f"The offer tariff being provided is {terms_sheet.combination.per_unit_cost}."
+                    f"The starting offer tariff being provided is {offer_tariff}."
                 )
                 send_notification(terms_sheet.consumer.id, message) 
+
+                email_message=(
+                    f"Generator {user.username} is interested in initiating a negotiation for Terms Sheet {terms_sheet}. "
+                    f"The starting offer tariff being provided is {offer_tariff}."
+                    f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
+                )
+                # Send email with the link
+                send_mail(
+                    "Negotiation Invitation",
+                    email_message,
+                    settings.DEFAULT_FROM_EMAIL,
+                    [recipient_user.email],
+                    fail_silently=False,
+                )
+
+                #self notification
+                message=(
+                    f"You have initiated negotiation for Terms Sheet {terms_sheet}. "
+                    f"The starting offer tariff being provided is {offer_tariff}."
+                )
+                send_notification(terms_sheet.consumer.id, message) 
+
+                email_message=(
+                    f"You have initiated negotiation for Terms Sheet {terms_sheet}. "
+                    f"The starting offer tariff being provided is {offer_tariff}."
+                    f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
+                )
+                # Send email with the link
+                send_mail(
+                    "Negotiation Invitation",
+                    email_message,
+                    settings.DEFAULT_FROM_EMAIL,
+                    [recipient_user.email],
+                    fail_silently=False,
+                )
 
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -1828,11 +1901,24 @@ class NegotiateTariffView(APIView):
                     message=(
                         f"Consumer {user.username} has initiated a negotiation for Terms Sheet {terms_sheet}. "
                         f"The negotiation window will open tomorrow at 10:00 AM. "
-                        f"The generator involved in this negotiation is {terms_sheet.combination.generator.username}, "
-                        f"and the offer tariff being provided is {terms_sheet.combination.per_unit_cost}."
+                        f"The starting offer tariff being provided is {offer_tariff}."
                     )
-                    send_notification(recipient_user.id, message) 
+                    send_notification(recipient_user.id, message)
 
+                    email_message = (
+                        f"Consumer {user.username} has initiated a negotiation for Terms Sheet {terms_sheet}. "
+                        f"The negotiation window will open tomorrow at 10:00 AM. "
+                        f"The starting offer tariff being provided is {offer_tariff}.\n\n"
+                        f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
+                    )
+                    # Send email with the link
+                    send_mail(
+                        "Negotiation Invitation",
+                        email_message,
+                        settings.DEFAULT_FROM_EMAIL,
+                        [recipient_user.email],
+                        fail_silently=False,
+                    )
 
                     NegotiationInvitation.objects.create(
                             negotiation_window=negotiation_window,
@@ -1841,6 +1927,26 @@ class NegotiateTariffView(APIView):
                     
                 except User.DoesNotExist:
                     continue
+                    
+            message=(
+                f"Generator {user.username} is interested in initiating a negotiation for Terms Sheet {terms_sheet}. "
+                f"The starting offer tariff being provided is {offer_tariff}."
+            )
+            send_notification(terms_sheet.consumer.id, message) 
+            email_message=(
+                f"Generator {user.username} is interested in initiating a negotiation for Terms Sheet {terms_sheet}. "
+                f"The starting offer tariff being provided is {offer_tariff}."
+                f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
+            )
+            # Send email with the link
+            send_mail(
+                "Negotiation Invitation",
+                email_message,
+                settings.DEFAULT_FROM_EMAIL,
+                [recipient_user.email],
+                fail_silently=False,
+            )
+                    
 
             return Response({"message": "Negotiation initiated. Notifications sent and negotiation window created."}, status=200)
 
