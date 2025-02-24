@@ -47,6 +47,8 @@ INSTALLED_APPS = [
     'corsheaders',
 
     'channels',
+    'django_celery_beat',
+    'django_celery_results',
 ]
 
 REST_FRAMEWORK = {
@@ -177,3 +179,7 @@ DEFAULT_FROM_EMAIL = 'prushaltech@gmail.com'
 
 RAZORPAY_KEY_ID = 'rzp_test_bVfC0PJsvP9OUR'
 RAZORPAY_KEY_SECRET = 'RpLynvKL2OW5BNRuvrC00lB4'
+
+CELERY_BROKER_URL = "redis://localhost:6379/0"  # Using Redis as broker
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"

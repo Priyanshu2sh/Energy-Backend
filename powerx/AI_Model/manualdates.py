@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 from pymongo import MongoClient
 from rest_framework.exceptions import APIException
+from powerx.models import CleanData
 
 MONGO_URI ="mongodb+srv://aartilahane2002:ARwggdMgphRRaGe7@cluster0.e2suo.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 DB_NAME = "iex_Data"  
@@ -109,12 +110,38 @@ def process_and_store_data(date_input: str):
         file_path = os.path.join(current_dir, "files", f"cleaned_data_{date_input}.xlsx")
         cleaned_data.to_excel(file_path, index=True)
 
-        client = MongoClient(MONGO_URI)
-        db = client[DB_NAME]
-        collection = db[COLLECTION_NAME]
         cleaned_data_dict = cleaned_data.reset_index().to_dict(orient="records")
 
-        collection.insert_many(cleaned_data_dict)
+        FIELD_MAPPING = {
+            "Date": "date",
+            "Hour": "hour",
+            "Purchase Bid (MW)": "purchase_bid",
+            "Total Sell Bid (MW)": "total_sell_bid",
+            "Sell bid Solar (MW)": "sell_bid_solar",
+            "Sell bid Non-Solar (MW)": "sell_bid_non_solar",
+            "Sell bid Hydro (MW)": "sell_bid_hydro",
+            "MCV Total (MW)": "mcv_total",
+            "MCV Solar (MW)": "mcv_solar",
+            "MCV Non-Solar (MW)": "mcv_non_solar",
+            "MCV Hydro (MW)": "mcv_hydro",
+            "MCP (Rs/MWh)": "mcp",
+            "Year": "year",
+            "Month": "month",
+            "Day": "day",
+        }
+
+        instances = []
+
+        for data in cleaned_data_dict:
+            if isinstance(data, dict):  # Ensure data is a dictionary
+                mapped_data = {FIELD_MAPPING[key]: value for key, value in data.items() if key in FIELD_MAPPING and key != "Time_x"}
+                instances.append(CleanData(**mapped_data))
+            else:
+                print(f"Skipping non-dictionary entry: {data}, {type(data)}")  # Debugging info
+
+        # Bulk insert if there are valid instances
+        if instances:
+            CleanData.objects.bulk_create(instances)
 
         return {"message": f"Data for {date_input} processed and stored successfully.", "data": cleaned_data_dict}
     except Exception as e:

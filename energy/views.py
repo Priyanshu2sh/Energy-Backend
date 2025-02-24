@@ -175,6 +175,12 @@ class GenerationPortfolioAPI(APIView):
                 # Validate the file content
                 with io.BytesIO(decoded_file) as file_stream:
                     try:
+                        # Read the Excel file into a DataFrame, retrieving sheet names
+                        xls = pd.ExcelFile(file_stream)
+                        if energy_type not in xls.sheet_names:
+                            return Response({"error": "Wrong uploaded file: Sheet name does not match energy type."}, 
+                                            status=status.HTTP_400_BAD_REQUEST)
+                        
                         # Read the Excel file into a DataFrame
                         df = pd.read_excel(file_stream)
                     except Exception as e:
@@ -1126,14 +1132,19 @@ class OptimizeCapacityAPI(APIView):
                         # Convert all values to numeric (float), coercing errors to NaN
                         hourly_demand = pd.to_numeric(hourly_demand_series, errors='coerce')
                         # Print the numeric Series with index numbers
-                        print(hourly_demand)
                     else:
                         # monthly data conversion in hourly data
                         hourly_demand = self.calculate_hourly_demand(consumer_requirement)
 
                     print('hourly demand=========')
                     print(hourly_demand)
-                    
+                
+                    # 8760 rows should be there if more then remove extra and if less then show error
+                    if len(hourly_demand) > 8760:
+                        hourly_demand = hourly_demand.iloc[:8760]
+                    elif len(hourly_demand) < 8760:
+                        padding_length = 8760 - len(hourly_demand)
+                        hourly_demand = pd.concat([hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
                     response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations)
 
                     if response_data != 'The demand cannot be met by the IPPs':

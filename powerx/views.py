@@ -5,6 +5,7 @@ from rest_framework.views import APIView
 from rest_framework import status
 from .AI_Model import manualdates
 from rest_framework.exceptions import APIException
+from powerx.AI_Model.model_scheduling import run_models_sequentially
 
 # Create your views here.
 class DayAheadAPI(APIView):
@@ -36,3 +37,5 @@ class DayAheadAPI(APIView):
         
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+run_models_sequentially()
