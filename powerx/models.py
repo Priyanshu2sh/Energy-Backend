@@ -1,7 +1,7 @@
 from django.db import models
 
 # Create your models here.
-class ConsumerTradingDemand(models.Model):
+class ConsumerDayAheadDemand(models.Model):
     ENERGY_CHOICES = [
         ('Solar', 'Solar'),
         ('Wind', 'Wind'),
@@ -37,3 +37,19 @@ class NextDayPrediction(models.Model):
     hour = models.IntegerField()
     mcv_prediction = models.FloatField(blank=True, null=True)
     mcp_prediction = models.FloatField(blank=True, null=True)
+
+class MonthAheadPrediction(models.Model):
+    date = models.DateTimeField()
+    hour = models.IntegerField()
+    mcv_prediction = models.FloatField(blank=True, null=True)
+    mcp_prediction = models.FloatField(blank=True, null=True)
+
+class Notifications(models.Model):
+    # Foreign key to User model to link notification to a user
+    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, related_name='powerx_notifications')  # Assuming User model is in 'accounts' app
+    message = models.TextField()  # The message to be sent to the user
+    timestamp = models.DateTimeField(auto_now_add=True)  # Timestamp of when the notification was created
+    is_read = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Notification for {self.user}"

@@ -180,6 +180,15 @@ DEFAULT_FROM_EMAIL = 'prushaltech@gmail.com'
 RAZORPAY_KEY_ID = 'rzp_test_bVfC0PJsvP9OUR'
 RAZORPAY_KEY_SECRET = 'RpLynvKL2OW5BNRuvrC00lB4'
 
-CELERY_BROKER_URL = "redis://localhost:6379/0"  # Using Redis as broker
-CELERY_ACCEPT_CONTENT = ["json"]
+# CELERY SETTINGS
+CELERY_BROKER_URL = "redis://localhost:6379"  # Using Redis as broker
+CELERY_ACCEPT_CONTENT = ["application/json"]
+CELERY_RESULT_SERIALIZER = "json"
 CELERY_TASK_SERIALIZER = "json"
+CELERY_TIMEZONE = 'Asia/Kolkata'
+
+# CELERY BEAT
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+
+# CIN NUMBER API KEY
+SUREPASS_API_KEY = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTczOTc5NjQyMCwianRpIjoiNzdiZGU3ZmEtZWJkNC00Y2Q5LTgxYzEtMzE1ZTExY2Q5OGNiIiwidHlwZSI6ImFjY2VzcyIsImlkZW50aXR5IjoiZGV2LnBydXNoYWx0ZWNobm9sb2dpZXNAc3VyZXBhc3MuaW8iLCJuYmYiOjE3Mzk3OTY0MjAsImV4cCI6MTc0MjM4ODQyMCwiZW1haWwiOiJwcnVzaGFsdGVjaG5vbG9naWVzQHN1cmVwYXNzLmlvIiwidGVuYW50X2lkIjoibWFpbiIsInVzZXJfY2xhaW1zIjp7InNjb3BlcyI6WyJ1c2VyIl19fQ.ifnoUmOQW6ELVPDS-R5tAGkujxy3TOtxImvmqg6oRbc'

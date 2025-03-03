@@ -345,7 +345,7 @@ class StandardTermsSheet(models.Model):
         from channels.layers import get_channel_layer
 
         channel_layer = get_channel_layer()
-        unread_count = self.get_unread_terms_sheet_count(self.consumer.id if self.consumer else self.combination.generator.id)
+        unread_count = self.get_unread_terms_sheet_count(self.consumer.id if self.consumer else self.combination.generator)
         async_to_sync(channel_layer.group_send)(
             f"user_{self.consumer.id if self.consumer else self.combination.generator.id}",
             {"type": "send_terms_sheet", "unread_count": unread_count},

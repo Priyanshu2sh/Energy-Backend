@@ -1,6 +1,7 @@
 import json
 from django.conf import settings
 import jwt
+import requests
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authentication import BaseAuthentication
@@ -16,6 +17,7 @@ from datetime import datetime, timedelta
 from rest_framework.permissions import IsAuthenticated
 from twilio.rest import Client
 from django.utils.crypto import get_random_string
+from thefuzz import fuzz
 
 
 class JWTAuthentication(BaseAuthentication):
@@ -72,6 +74,59 @@ class RegisterUser(APIView):
 
         if not domain:
             return Response({'error': 'Invalid email format.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Extract company and CIN from the request data
+        company_name = data.get('company')
+        cin_number = data.get('cin_number')
+
+        # Verify CIN and company name using Surepass API
+        if cin_number and company_name:
+            api_url = "https://sandbox.surepass.io/api/v1/corporate/company-details"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {settings.SUREPASS_API_KEY}"  # Ensure you have your API key in settings
+            }
+            payload = {"id_number": cin_number}
+
+            try:
+                response = requests.post(api_url, json=payload, headers=headers)
+                if response.status_code == 200:
+                    response_data = response.json()
+                    # Assuming the API returns a 'company_name' field in the response
+                    response_data = response_data['data']
+                    print('api response======')
+                    print(response_data)
+                    company_from_api = response_data['company_name'].strip().lower()
+                    company_name = company_name.strip().lower()
+
+                    similarity_score = fuzz.ratio(company_name, company_from_api)
+                    print(similarity_score)
+                    if similarity_score <= 95:
+                        return Response(
+                        {'error': 'The provided CIN does not match the company name.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                elif response.status_code == 422:
+                    return Response(
+                        {'error': 'Invalid CIN number.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                else:
+                    return Response(
+                        {'error': 'Failed to verify CIN. Please try again later.'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            except requests.RequestException as e:
+                return Response(
+                    {'error': 'An error occurred while verifying CIN.', 'details': str(e)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        else:
+            return Response(
+                {'error': 'Company name and CIN number are required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         serializer = UserSerializer(data=data)
 

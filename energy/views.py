@@ -41,6 +41,8 @@ from django.utils.timezone import localtime
 from django.conf import settings
 from django.db.models import Count, Q
 import secrets
+from django_celery_beat.models import PeriodicTask, ClockedSchedule, CrontabSchedule
+import json
 
 # Create your views here.
 
@@ -755,10 +757,8 @@ class MatchingConsumerAPI(APIView):
             if ctu_portfolios:
                 # Match procurement date only for CTU projects
                 ctu_cod_dates = [p.cod for p in ctu_portfolios if p.cod]
-                ctu_states = [p.state for p in ctu_portfolios]
 
                 ctu_filtered_data = ConsumerRequirements.objects.filter(
-                    state__in=ctu_states,
                     procurement_date__gte=min(ctu_cod_dates),  # Use earliest COD from CTU projects
                 )
 
@@ -1089,7 +1089,7 @@ class OptimizeCapacityAPI(APIView):
                                 "capital_cost": ess.capital_cost,
                             }
 
-                print('input data====')
+                print('===================input data===================')
                 print(input_data)
                 # Extract generator name and project lists
                 # gen = next(iter(input_data.keys()))
@@ -1265,6 +1265,7 @@ class OptimizeCapacityAPI(APIView):
                             else:
                                 # Merge the details if combination already exists
                                 aggregated_response[combination_key].update(details)
+                            print('===================aggregated_response===================')
                             print(aggregated_response[combination_key])
                     
                     # Handle missing valid_combinations that are not in response_data
@@ -1792,6 +1793,43 @@ class NegotiateTariffView(APIView):
                     end_time=end_time
                 )
 
+                print('time==========', end_time)
+                # First Run: Create a clocked schedule (one-time task)
+                negotiation_end_time = negotiation_window.end_time
+                negotiation_id = negotiation_window.id
+
+                first_run_time = negotiation_end_time + timedelta(minutes=30)
+                clocked_schedule, _ = ClockedSchedule.objects.get_or_create(clocked_time=first_run_time)
+
+                task = PeriodicTask.objects.create(
+                    name=f"Task first run {first_run_time}",
+                    task="your_task_name",
+                    clocked=clocked_schedule,
+                    one_off=True,  # Ensure it runs only once
+                    args=json.dumps([negotiation_id]),
+                )
+                print('task========')
+                print(task)
+
+                # Next Runs: Create a crontab schedule for the next two consecutive days
+                for i in range(1, 3):
+                    next_day_time = first_run_time + timedelta(days=i)
+                    crontab_schedule, _ = CrontabSchedule.objects.get_or_create(
+                        minute=next_day_time.minute,
+                        hour=next_day_time.hour,
+                        day_of_month=next_day_time.day,
+                        month_of_year=next_day_time.month
+                    )
+
+                    task = PeriodicTask.objects.create(
+                        name=f"Task on {next_day_time}",
+                        task="your_task_name",
+                        crontab=crontab_schedule,
+                        args=json.dumps([negotiation_id]),
+                    )
+                    print('task========')
+                    print(task)
+
                 NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=terms_sheet.consumer)
 
                 # updated_tariff = request.data.get("updated_tariff")
@@ -1833,6 +1871,7 @@ class NegotiateTariffView(APIView):
                                 negotiation_window=negotiation_window,
                                 user=recipient_user
                             )
+                        print('invited!!!!!!!!!!!!!!')
 
                     except User.DoesNotExist:
                         continue
@@ -1897,6 +1936,22 @@ class NegotiateTariffView(APIView):
                 start_time=next_day_10_am_aware,
                 end_time=end_time
             )
+            print('time==========', end_time)
+            # Calculate the execution time (30 min after end_time)
+            # execute_at = negotiation_window.end_time + timedelta(minutes=1)
+            execute_at = negotiation_window.end_time + timedelta(minutes=1)
+            
+
+            # Create a unique periodic task that runs one time
+            task = PeriodicTask.objects.create(
+                name=f'negotiation_reminder_{negotiation_window.id}',  # Unique task name
+                task='energy.tasks.send_negotiation_reminder',  # Celery task function
+                args=json.dumps([negotiation_window.id, 1]),  # Pass window ID + attempt count (1st attempt)
+                one_off=True,  # Runs only once
+                start_time=execute_at  # Executes 30 min after `end_time`
+            )
+            print('task========')
+            print(task)
 
             Tariffs.objects.get_or_create(terms_sheet=terms_sheet)
             tariff = Tariffs.objects.get(terms_sheet=terms_sheet_id)
@@ -1935,6 +1990,8 @@ class NegotiateTariffView(APIView):
                             negotiation_window=negotiation_window,
                             user=recipient_user
                         )
+                    
+                    print('invited!!!!!!!!!!!!!!')
                     
                 except User.DoesNotExist:
                     continue
@@ -2407,7 +2464,7 @@ class PaymentTransactionAPI(APIView):
             }
             
             subscription_response = requests.post(
-                "http://192.168.1.34:8001/api/energy/subscriptions",
+                "http://192.168.1.33:8001/api/energy/subscriptions",
                 json=subscription_data
             )
 
