@@ -1867,10 +1867,8 @@ class NegotiateTariffView(APIView):
                             fail_silently=False,
                         )
 
-                        NegotiationInvitation.objects.create(
-                                negotiation_window=negotiation_window,
-                                user=recipient_user
-                            )
+                        invitation = NegotiationInvitation.objects.create(negotiation_window=negotiation_window, user=recipient_user)
+                        print(invitation)
                         print('invited!!!!!!!!!!!!!!')
 
                     except User.DoesNotExist:
@@ -1940,6 +1938,11 @@ class NegotiateTariffView(APIView):
             # Calculate the execution time (30 min after end_time)
             # execute_at = negotiation_window.end_time + timedelta(minutes=1)
             execute_at = negotiation_window.end_time + timedelta(minutes=1)
+
+            # Create a clocked schedule for the specific execution time
+            clocked_schedule, created = ClockedSchedule.objects.get_or_create(
+                clocked_time=execute_at
+            )
             
 
             # Create a unique periodic task that runs one time
@@ -1948,7 +1951,7 @@ class NegotiateTariffView(APIView):
                 task='energy.tasks.send_negotiation_reminder',  # Celery task function
                 args=json.dumps([negotiation_window.id, 1]),  # Pass window ID + attempt count (1st attempt)
                 one_off=True,  # Runs only once
-                start_time=execute_at  # Executes 30 min after `end_time`
+                clocked=clocked_schedule  # Assign the clocked schedule
             )
             print('task========')
             print(task)
@@ -1986,11 +1989,8 @@ class NegotiateTariffView(APIView):
                         fail_silently=False,
                     )
 
-                    NegotiationInvitation.objects.create(
-                            negotiation_window=negotiation_window,
-                            user=recipient_user
-                        )
-                    
+                    invitation = NegotiationInvitation.objects.create(negotiation_window=negotiation_window, user=recipient_user)
+                    print(invitation)
                     print('invited!!!!!!!!!!!!!!')
                     
                 except User.DoesNotExist:
@@ -2464,7 +2464,7 @@ class PaymentTransactionAPI(APIView):
             }
             
             subscription_response = requests.post(
-                "http://192.168.1.33:8001/api/energy/subscriptions",
+                "http://192.168.1.34:8001/api/energy/subscriptions",
                 json=subscription_data
             )
 
