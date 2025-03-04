@@ -131,7 +131,7 @@ requests==2.32.3
 rich==13.9.4
 schedule==1.2.2
 scikit-learn==1.6.1
-scipy==1.14.1
+scipy==1.13.1
 service-identity==24.2.0
 shapely==2.0.6
 six==1.17.0
