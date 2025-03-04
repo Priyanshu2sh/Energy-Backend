@@ -72,7 +72,7 @@ keras==3.8.0
 kiwisolver==1.4.7
 kombu==5.4.2
 libclang==18.1.1
-linopy==0.4.3
+linopy==0.5.0
 locket==1.0.0
 Markdown==3.7
 markdown-it-py==3.0.0
