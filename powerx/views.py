@@ -14,6 +14,14 @@ from django.utils.dateparse import parse_time
 from django.db.models import Avg, Max, Min
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from powerx.AI_Model.model_scheduling import run_month_ahead_model
+
+
+
+def run_mcv_model(request):
+    # Run the MCV model
+    # run_month_ahead_model()
+    return Response({"message": "MCV model executed successfully."}, status=status.HTTP_200_OK)
 
 # Create your views here.
 # Get the logged-in user

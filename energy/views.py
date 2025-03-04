@@ -1793,50 +1793,35 @@ class NegotiateTariffView(APIView):
                     end_time=end_time
                 )
 
-                print('time==========', end_time)
-                # First Run: Create a clocked schedule (one-time task)
-                negotiation_end_time = negotiation_window.end_time
-                negotiation_id = negotiation_window.id
-
-                first_run_time = negotiation_end_time + timedelta(minutes=30)
-                clocked_schedule, _ = ClockedSchedule.objects.get_or_create(clocked_time=first_run_time)
-
-                task = PeriodicTask.objects.create(
-                    name=f"Task first run {first_run_time}",
-                    task="your_task_name",
-                    clocked=clocked_schedule,
-                    one_off=True,  # Ensure it runs only once
-                    args=json.dumps([negotiation_id]),
-                )
-                print('task========')
-                print(task)
-
-                # Next Runs: Create a crontab schedule for the next two consecutive days
-                for i in range(1, 3):
-                    next_day_time = first_run_time + timedelta(days=i)
-                    crontab_schedule, _ = CrontabSchedule.objects.get_or_create(
-                        minute=next_day_time.minute,
-                        hour=next_day_time.hour,
-                        day_of_month=next_day_time.day,
-                        month_of_year=next_day_time.month
-                    )
-
-                    task = PeriodicTask.objects.create(
-                        name=f"Task on {next_day_time}",
-                        task="your_task_name",
-                        crontab=crontab_schedule,
-                        args=json.dumps([negotiation_id]),
-                    )
-                    print('task========')
-                    print(task)
-
-                NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=terms_sheet.consumer)
-
                 # updated_tariff = request.data.get("updated_tariff")
-                Tariffs.objects.get_or_create(terms_sheet=terms_sheet_id)
-                tariff = Tariffs.objects.get(terms_sheet=terms_sheet_id)
+                Tariffs.objects.get_or_create(terms_sheet=terms_sheet)
+                tariff = Tariffs.objects.get(terms_sheet=terms_sheet)
                 tariff.offer_tariff = offer_tariff
                 tariff.save()
+                
+                # Calculate the execution time (30 min after end_time)
+                # execute_at = negotiation_window.end_time + timedelta(minutes=1)
+                execute_at = datetime.now() + timedelta(minutes=1)
+
+                # Create a clocked schedule for the specific execution time
+                clocked_schedule, created = ClockedSchedule.objects.get_or_create(
+                    clocked_time=execute_at
+                )
+                
+
+                # Create a unique periodic task that runs one time
+                task, created = PeriodicTask.objects.get_or_create(
+                    name=f'negotiation_reminder_{tariff.id}',  # Unique task name
+                    task='energy.tasks.send_negotiation_reminder',  # Celery task function
+                    defaults={
+                        'args': json.dumps([tariff.id, 1]),  # Pass window ID + attempt count (1st attempt)
+                        'one_off': True,  # Runs only once
+                        'enabled': True,
+                        'clocked': clocked_schedule  # Assign the clocked schedule
+                    }
+                )
+
+                NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=terms_sheet.consumer)
 
                 # Notify recipients
                 for recipient in matching_ipps:
@@ -1934,10 +1919,15 @@ class NegotiateTariffView(APIView):
                 start_time=next_day_10_am_aware,
                 end_time=end_time
             )
-            print('time==========', end_time)
+            
+            Tariffs.objects.get_or_create(terms_sheet=terms_sheet)
+            tariff = Tariffs.objects.get(terms_sheet=terms_sheet)
+            tariff.offer_tariff = offer_tariff
+            tariff.save()
+
             # Calculate the execution time (30 min after end_time)
             # execute_at = negotiation_window.end_time + timedelta(minutes=1)
-            execute_at = negotiation_window.end_time + timedelta(minutes=1)
+            execute_at = datetime.now() + timedelta(minutes=1)
 
             # Create a clocked schedule for the specific execution time
             clocked_schedule, created = ClockedSchedule.objects.get_or_create(
@@ -1946,20 +1936,16 @@ class NegotiateTariffView(APIView):
             
 
             # Create a unique periodic task that runs one time
-            task = PeriodicTask.objects.create(
-                name=f'negotiation_reminder_{negotiation_window.id}',  # Unique task name
+            task, created = PeriodicTask.objects.get_or_create(
+                name=f'negotiation_reminder_{tariff.id}',  # Unique task name
                 task='energy.tasks.send_negotiation_reminder',  # Celery task function
-                args=json.dumps([negotiation_window.id, 1]),  # Pass window ID + attempt count (1st attempt)
-                one_off=True,  # Runs only once
-                clocked=clocked_schedule  # Assign the clocked schedule
+                defaults={
+                    'args': json.dumps([tariff.id, 1]),  # Pass window ID + attempt count (1st attempt)
+                    'one_off': True,  # Runs only once
+                    'enabled': True,
+                    'clocked': clocked_schedule  # Assign the clocked schedule
+                }
             )
-            print('task========')
-            print(task)
-
-            Tariffs.objects.get_or_create(terms_sheet=terms_sheet)
-            tariff = Tariffs.objects.get(terms_sheet=terms_sheet_id)
-            tariff.offer_tariff = offer_tariff
-            tariff.save()
 
             NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=user)
 

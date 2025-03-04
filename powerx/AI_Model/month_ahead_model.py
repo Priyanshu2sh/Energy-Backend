@@ -10,15 +10,15 @@ from tensorflow.keras.models import load_model
 
 
 
-models_folder = "models"
-model_path_mcv = os.path.join(models_folder, "MCV_week_49.h5")
-best_model_mcv = load_model(model_path_mcv)
+# models_folder = "models"
+# model_path_mcv = os.path.join(models_folder, "MCV_week_49.h5")
+# best_model_mcv = load_model(model_path_mcv)
 
-scaler_X_path = os.path.join(models_folder, "MCV_Weekscaler_X.pkl")
-scaler_Y_mcv_path = os.path.join(models_folder, "Mcv_week_scaler_y.pkl")
+# scaler_X_path = os.path.join(models_folder, "MCV_Weekscaler_X.pkl")
+# scaler_Y_mcv_path = os.path.join(models_folder, "Mcv_week_scaler_y.pkl")
 
-scaler_X = joblib.load(scaler_X_path)
-scaler_Y_mcv = joblib.load(scaler_Y_mcv_path)
+# scaler_X = joblib.load(scaler_X_path)
+# scaler_Y_mcv = joblib.load(scaler_Y_mcv_path)
 
 def fetch_previous_2880_blocks():
     data = list(CleanData.objects.all().values())
@@ -35,12 +35,16 @@ def fetch_previous_2880_blocks():
     previous_2880_data = previous_2880_data.sort_values(by=["date", "hour"], ascending=True)
     previous_2880_data = previous_2880_data.tail(2880)
 
+    print('=======')
+    print(previous_2880_data)
     # Convert 15-min data to hourly by grouping by date and hour
     hourly_data = previous_2880_data.groupby(['date', 'hour']).agg({
         'some_column': 'sum',  # Replace with relevant columns and aggregation functions
     }).reset_index()
 
     print(hourly_data.head())
+    print('---------')
+    print(hourly_data)
     # convert in hourly-----------------------------------------------
     return previous_2880_data
 

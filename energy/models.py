@@ -327,6 +327,9 @@ class StandardTermsSheet(models.Model):
         if not self.pk:  # If the object is new
             self.count = 1  # Initialize count to 1
 
+        previous_consumer_is_read = self.consumer_is_read
+        previous_generator_is_read = self.generator_is_read
+
         # Fetch existing record before saving
         if self.pk:
             previous = StandardTermsSheet.objects.get(pk=self.pk)
@@ -340,14 +343,27 @@ class StandardTermsSheet(models.Model):
 
         super().save(*args, **kwargs)
 
-        # Trigger WebSocket update after save
+        # Determine which user should receive the WebSocket update
+        if self.from_whom == "Consumer":
+            if self.count % 2 == 1:  # Odd counts (1, 3) → Updated by Consumer
+                user_id = self.consumer.id
+            else:  # Even counts (2, 4) → Updated by Generator
+                user_id = self.combination.generator.id
+        else:
+            if self.count % 2 == 1:  # Odd counts (1, 3) → Updated by Consumer
+                user_id = self.consumer.id
+            else:  # Even counts (2, 4) → Updated by Generator
+                user_id = self.combination.generator.id
+
+        # Send WebSocket update
         from asgiref.sync import async_to_sync
         from channels.layers import get_channel_layer
 
         channel_layer = get_channel_layer()
-        unread_count = self.get_unread_terms_sheet_count(self.consumer.id if self.consumer else self.combination.generator)
+        unread_count = self.get_unread_terms_sheet_count(user_id)
+        
         async_to_sync(channel_layer.group_send)(
-            f"user_{self.consumer.id if self.consumer else self.combination.generator.id}",
+            f"user_{user_id}",
             {"type": "send_terms_sheet", "unread_count": unread_count},
         )
 

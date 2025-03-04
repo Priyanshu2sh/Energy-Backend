@@ -8,19 +8,3 @@ from energy_transition import settings
 def run_model_task(self):
     run_models_sequentially()
     return "Task executed successfully"
-
-@shared_task(bind=True)
-def send_mail_func(self):
-    users = User.objects.all()
-    for user in users:
-        mail_subject = "Hi! Celery Testing"
-        message = "Please accept any offer"
-        to_email = user.email
-        send_mail(
-            subject = mail_subject,
-            message = message,
-            from_email = settings.EMAIL_HOST_USER,
-            recipient_list = [to_email],
-            fail_silently = True,
-        )
-    return "Done"
