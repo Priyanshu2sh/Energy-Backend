@@ -12,6 +12,10 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -21,10 +25,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-3h0i72$mf$9j44@c7o-(874k43vs2o%i@n(i$)4$@^3wsc@d73'
+SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DEBUG") == "True"
 
 ALLOWED_HOSTS = []
 
@@ -116,8 +120,15 @@ CHANNEL_LAYERS = {
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': os.getenv("DB_NAME"),
+        'USER': os.getenv("DB_USER"),
+        'PASSWORD': os.getenv("DB_PASSWORD"),
+        'HOST': os.getenv("DB_HOST"),
+        'PORT': os.getenv("DB_PORT"),
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+        },
     }
 }
 
@@ -170,25 +181,27 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'prushaltech@gmail.com'
-EMAIL_HOST_PASSWORD = 'gufirwicaactesmp'
-DEFAULT_FROM_EMAIL = 'prushaltech@gmail.com'
+# EMAIL SETTINGS
+EMAIL_HOST = os.getenv("EMAIL_HOST")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))  # Convert to integer
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS") == "True"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 
-RAZORPAY_KEY_ID = 'rzp_test_bVfC0PJsvP9OUR'
-RAZORPAY_KEY_SECRET = 'RpLynvKL2OW5BNRuvrC00lB4'
+# RAZORPAY KEYS
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
 
 # CELERY SETTINGS
-CELERY_BROKER_URL = "redis://localhost:6379"  # Using Redis as broker
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL")
+CELERY_TIMEZONE = os.getenv("CELERY_TIMEZONE")
 CELERY_ACCEPT_CONTENT = ["application/json"]
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TASK_SERIALIZER = "json"
-CELERY_TIMEZONE = 'Asia/Kolkata'
 
 # CELERY BEAT
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 
 # CIN NUMBER API KEY
-SUREPASS_API_KEY = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTczOTc5NjQyMCwianRpIjoiNzdiZGU3ZmEtZWJkNC00Y2Q5LTgxYzEtMzE1ZTExY2Q5OGNiIiwidHlwZSI6ImFjY2VzcyIsImlkZW50aXR5IjoiZGV2LnBydXNoYWx0ZWNobm9sb2dpZXNAc3VyZXBhc3MuaW8iLCJuYmYiOjE3Mzk3OTY0MjAsImV4cCI6MTc0MjM4ODQyMCwiZW1haWwiOiJwcnVzaGFsdGVjaG5vbG9naWVzQHN1cmVwYXNzLmlvIiwidGVuYW50X2lkIjoibWFpbiIsInVzZXJfY2xhaW1zIjp7InNjb3BlcyI6WyJ1c2VyIl19fQ.ifnoUmOQW6ELVPDS-R5tAGkujxy3TOtxImvmqg6oRbc'
+SUREPASS_API_KEY = os.getenv("SUREPASS_API_KEY")

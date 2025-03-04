@@ -1,18 +1,49 @@
 # Python-related files
 *.pyc
 __pycache__/
+*.pyo
+*.pyd
+*.egg-info/
+*.eggs/
+*.log
 
 # Django-specific files
-media/*
+media/
 staticfiles/
+db.sqlite3  # Ignore SQLite database file (if used locally)
 
 # Ignore migrations if you prefer to generate them on the server
+**/migrations/*.py
+!**/migrations/__init__.py
 
-# Ignore IDE-specific files
+# Ignore environment-specific files
+.env
+*.env
+config/settings/local.py  # Ignore local settings if you have different settings for production
+
+# Ignore dependency and virtual environment files
+venv/
+env/
+*.pip
+Pipfile
+Pipfile.lock
+poetry.lock
+
+# Ignore IDE/editor-specific files
 .vscode/
 .idea/
 *.swp
-.bash_history
+*.swo
+*.swn
+*.bak
 
-# Ignore media files directory
-/media/
+# Ignore logs and temp files
+logs/
+*.log
+nohup.out
+.DS_Store
+
+# Ignore SSH and history files
+.bash_history
+.bashrc
+.zsh_history
