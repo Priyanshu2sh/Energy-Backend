@@ -2,18 +2,24 @@ from django.db import models
 
 # Create your models here.
 class ConsumerDayAheadDemand(models.Model):
-    ENERGY_CHOICES = [
-        ('Solar', 'Solar'),
-        ('Wind', 'Wind'),
-        ('Hydro', 'Hydro')
-    ]
-
-    consumer = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Consumer'})
-    energy_type = models.CharField(max_length=50, choices=ENERGY_CHOICES)
+    requirement = models.ForeignKey('energy.ConsumerRequirements', on_delete=models.CASCADE)
     date = models.DateField()
     start_time = models.TimeField() 
     end_time = models.TimeField() 
     demand = models.IntegerField()
+    price_details = models.JSONField()  # Stores prices as JSON: {"Solar": 20, "Non-Solar": 10}
+
+class ConsumerMonthAheadDemand(models.Model):
+    requirement = models.ForeignKey('energy.ConsumerRequirements', on_delete=models.CASCADE)
+    date = models.DateField()
+    demand = models.FloatField()  # Single demand value for all energy types
+    price_details = models.JSONField()  # Stores prices as JSON: {"Solar": 20, "Non-Solar": 10}
+
+class ConsumerMonthAheadDemandDistribution(models.Model):
+    month_ahead_demand = models.ForeignKey(ConsumerMonthAheadDemand, on_delete=models.CASCADE, related_name="distributions")
+    start_time = models.TimeField() # 00:00
+    end_time = models.TimeField()   # 00:15
+    distributed_demand = models.FloatField()  # Demand distributed per 15-minute slot
 
 class CleanData(models.Model):
     date = models.DateTimeField()

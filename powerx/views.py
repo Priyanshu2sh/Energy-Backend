@@ -6,8 +6,9 @@ from rest_framework import status
 from django.utils.timezone import now, timedelta
 
 from accounts.models import User
-from .models import ConsumerDayAheadDemand, MonthAheadPrediction, NextDayPrediction, Notifications
-from .serializers import NextDayPredictionSerializer, ConsumerDayAheadDemandSerializer, NotificationsSerializer
+from energy.models import ConsumerRequirements
+from .models import ConsumerDayAheadDemand, ConsumerMonthAheadDemand, ConsumerMonthAheadDemandDistribution, MonthAheadPrediction, NextDayPrediction, Notifications
+from .serializers import ConsumerMonthAheadDemandSerializer, NextDayPredictionSerializer, ConsumerDayAheadDemandSerializer, NotificationsSerializer
 from django.core.files.base import ContentFile
 from datetime import datetime, timedelta
 from django.utils.dateparse import parse_time
@@ -130,16 +131,18 @@ class MonthAheadPredictionAPI(APIView):
 class ConsumerDayAheadDemandAPI(APIView):
 
     def get(self, request, user_id):
-
+        
         next_day = datetime.now().date() + timedelta(days=1)
 
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response({"error": "Consumer not found."}, status=status.HTTP_404_NOT_FOUND)
+        # Fetch all requirements linked to the user
+        requirements = ConsumerRequirements.objects.filter(user=user_id)
 
+        if not requirements.exists():
+            return Response({"error": "No requirements found for this user"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Fetch demand records for the next day
         demand_records = ConsumerDayAheadDemand.objects.filter(
-            consumer=user,
+            requirement__in=requirements,
             date=next_day
         ).order_by("start_time")
 
@@ -150,23 +153,20 @@ class ConsumerDayAheadDemandAPI(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request):
-        consumer = request.data.get("consumer")
+
+        requirement_id = request.data.get("requirement")
+        price_details = request.data.get("price_details", {})
         file_data = request.data.get("file")
-        energy_type = request.data.get("energy_type")
-        demand_data = request.data.get("demand_data", [])  # List of demand entries
+        demand_data = request.data.get("demand_data", [])
 
-        # Validate energy type
-        if energy_type not in dict(ConsumerDayAheadDemand.ENERGY_CHOICES):
-            return Response({"error": "Invalid energy type."}, status=status.HTTP_400_BAD_REQUEST)
-
+        # Validate requirement
         try:
-            consumer = User.objects.get(id=consumer)
-        except User.DoesNotExist:
-            return Response({"error": "Consumer not found."}, status=status.HTTP_404_NOT_FOUND)
+            requirement = ConsumerRequirements.objects.get(id=requirement_id)
+        except ConsumerRequirements.DoesNotExist:
+            return Response({"error": "Requirement not found."}, status=status.HTTP_404_NOT_FOUND)
 
         # Get tomorrow's date
         next_day = datetime.now().date() + timedelta(days=1)
-
         data_list = []
 
         if file_data:
@@ -192,12 +192,12 @@ class ConsumerDayAheadDemandAPI(APIView):
 
                         # Create an entry
                         data_list.append(ConsumerDayAheadDemand(
-                            consumer=consumer,
-                            energy_type=energy_type,
+                            requirement=requirement,
                             date=next_day,
                             start_time=parse_time(start_time),
                             end_time=parse_time(end_time),
-                            demand=demand
+                            demand=demand,
+                            price_details=price_details
                         ))
 
                     except Exception as e:
@@ -219,12 +219,12 @@ class ConsumerDayAheadDemandAPI(APIView):
                         return Response({"error": "Missing start_time, end_time, or demand."}, status=status.HTTP_400_BAD_REQUEST)
 
                     data_list.append(ConsumerDayAheadDemand(
-                        consumer=consumer,
-                        energy_type=energy_type,
+                        requirement=requirement,
                         date=next_day,
                         start_time=parse_time(start_time),
                         end_time=parse_time(end_time),
-                        demand=demand
+                        demand=demand,
+                        price_details=price_details
                     ))
 
             except Exception as e:
@@ -237,6 +237,91 @@ class ConsumerDayAheadDemandAPI(APIView):
         ConsumerDayAheadDemand.objects.bulk_create(data_list)
 
         return Response({"message": "Data uploaded successfully"}, status=status.HTTP_201_CREATED)
+    
+class ConsumerMonthAheadDemandAPI(APIView):
+
+    def get(self, request, user_id):
+        try:
+            # Fetch all requirements linked to the user
+            requirements = ConsumerRequirements.objects.filter(user=user_id)
+
+            if not requirements.exists():
+                return Response({"error": "No requirements found for this user"}, status=status.HTTP_404_NOT_FOUND)
+
+            # Fetch all month-ahead demand records for these requirements
+            demands = ConsumerMonthAheadDemand.objects.filter(requirement__in=requirements)
+
+            if not demands.exists():
+                return Response({"error": "No demand records found"}, status=status.HTTP_404_NOT_FOUND)
+
+            # Format response
+            response_data = [
+                {
+                    "requirement": demand.requirement.id,
+                    "date": demand.date.strftime("%Y-%m-%d"),
+                    "demand": demand.demand,
+                    "price": demand.price_details  # Already stored as JSON
+                }
+                for demand in demands
+            ]
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def post(self, request):
+        data = request.data
+        requirement_id = data.get("requirement")
+        date = data.get("date")
+        demand = data.get("demand")
+        price_details = data.get("price", {})  # JSON: {"Solar": 20, "Non-Solar": 10}
+
+        if not (requirement_id and date and demand and price_details):
+            return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Ensure requirement exists
+        try:
+            requirement = ConsumerRequirements.objects.get(id=requirement_id)
+        except ConsumerRequirements.DoesNotExist:
+            return Response({"error": "Invalid requirement ID"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if demand entry already exists for requirement and date
+        demand_record, created = ConsumerMonthAheadDemand.objects.get_or_create(
+            requirement=requirement,
+            date=date,
+            defaults={"demand": demand, "price_details": price_details}
+        )
+
+        # If existing, update demand and prices
+        if not created:
+            demand_record.demand = demand
+            demand_record.price_details = price_details
+            demand_record.save()
+
+        # If it's a new demand entry, create 15-minute distributions
+        if created:
+            distributions = []
+            start_time = datetime.strptime("00:00", "%H:%M")
+            demand_per_slot = demand / 96  # 96 slots (15 min each)
+
+            for i in range(96):
+                slot_start = (start_time + timedelta(minutes=15 * i)).time()
+                slot_end = (start_time + timedelta(minutes=15 * (i + 1))).time()
+
+                distributions.append(
+                    ConsumerMonthAheadDemandDistribution(
+                        month_ahead_demand=demand_record,
+                        start_time=slot_start,
+                        end_time=slot_end,
+                        distributed_demand=demand_per_slot
+                    )
+                )
+
+            # Bulk insert for efficiency
+            ConsumerMonthAheadDemandDistribution.objects.bulk_create(distributions)
+
+        return Response({"message": "Data processed successfully"}, status=status.HTTP_201_CREATED)
 
 def send_notification(user_id, message):
     """
