@@ -1,3 +1,5 @@
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 
 # Create your models here.
@@ -7,7 +9,7 @@ class ConsumerDayAheadDemand(models.Model):
     start_time = models.TimeField() 
     end_time = models.TimeField() 
     demand = models.IntegerField()
-    price_details = models.JSONField()  # Stores prices as JSON: {"Solar": 20, "Non-Solar": 10}
+    price_details = models.JSONField(blank=True, null=True)  # Stores prices as JSON: {"Solar": 20, "Non-Solar": 10}
 
 class ConsumerMonthAheadDemand(models.Model):
     requirement = models.ForeignKey('energy.ConsumerRequirements', on_delete=models.CASCADE)
@@ -59,3 +61,31 @@ class Notifications(models.Model):
 
     def __str__(self):
         return f"Notification for {self.user}"
+    
+class DayAheadGeneration(models.Model):
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, limit_choices_to={'app_label': 'energy', 'model__in': ['solarportfolio', 'windportfolio']}
+    )
+    object_id = models.PositiveIntegerField()
+    portfolio = GenericForeignKey('content_type', 'object_id')
+
+    date = models.DateField()
+    start_time = models.TimeField() 
+    end_time = models.TimeField() 
+    generation = models.IntegerField()
+    price = models.IntegerField()
+
+class MonthAheadGeneration(models.Model):
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, limit_choices_to={'app_label': 'energy', 'model__in': ['solarportfolio', 'windportfolio']}
+    )
+    object_id = models.PositiveIntegerField()
+    portfolio = GenericForeignKey('content_type', 'object_id')
+
+    date = models.DateField()
+    generation = models.FloatField()  # Single generation value for all energy types
+    price = models.IntegerField()
+
+class MonthAheadGenerationDistribution(models.Model):
+    month_ahead_generation = models.ForeignKey(MonthAheadGeneration, on_delete=models.CASCADE, related_name="generation_distributions")
+    start_time = models.TimeField() # 00:00
+    end_time = models.TimeField()   # 00:15
+    distributed_generation = models.FloatField()  # Generation distributed per 15-minute slot
