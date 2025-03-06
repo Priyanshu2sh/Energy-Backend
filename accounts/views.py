@@ -51,14 +51,14 @@ class RegisterUser(APIView):
         print('otp sent')
         print(mobile_number)
         # Twilio Client initialization
-        client = Client('AC8b2868ffb82672e1a4a89496bbdc9435', '9a7fcff685b71da5085f40d87174397b')
+        client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
 
         # Send OTP via SMS
         # try:
       
         message = client.messages.create(
             body=f'Your OTP for registration is {otp}',
-            from_='+15737734302',
+            from_=settings.TWILIO_PHONE_NUMBER,
             to=f'+91{mobile_number}'
         )
         print(f"Message SID: {message.sid}")

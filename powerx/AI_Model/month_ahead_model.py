@@ -10,21 +10,28 @@ from tensorflow.keras.models import load_model
 
 
 
-# models_folder = "models"
-# model_path_mcv = os.path.join(models_folder, "MCV_week_49.h5")
-# best_model_mcv = load_model(model_path_mcv)
+# Get the directory where the script is located
+current_dir = os.path.dirname(os.path.abspath(__file__))
 
-# scaler_X_path = os.path.join(models_folder, "MCV_Weekscaler_X.pkl")
-# scaler_Y_mcv_path = os.path.join(models_folder, "Mcv_week_scaler_y.pkl")
+# Define the path to the models folder
+models_folder = os.path.join(current_dir, "models")
 
-# scaler_X = joblib.load(scaler_X_path)
-# scaler_Y_mcv = joblib.load(scaler_Y_mcv_path)
+model_path_mcv = os.path.join(models_folder, "mcv_month_ahead1_lstm_model.h5")
+best_model_mcv = load_model(model_path_mcv)
+
+scaler_X_path = os.path.join(models_folder, "mcv_month_ahead_scaler_X.pkl")
+scaler_Y_mcv_path = os.path.join(models_folder, "mcv_month_ahead_scaler_y.pkl")
+
+scaler_X = joblib.load(scaler_X_path)
+scaler_Y_mcv = joblib.load(scaler_Y_mcv_path)
 
 def fetch_previous_2880_blocks():
     data = list(CleanData.objects.all().values())
     df = pd.DataFrame(data)
+    print(df.head())
 
     if 'date' in df.columns:
+        print('dddddddddd')
         df['date'] = pd.to_datetime(df['date'])
     if 'hour' in df.columns:
         df['hour'] = pd.to_numeric(df['hour'], errors='coerce')

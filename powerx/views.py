@@ -21,7 +21,7 @@ from powerx.AI_Model.model_scheduling import run_month_ahead_model
 
 def run_mcv_model(request):
     # Run the MCV model
-    # run_month_ahead_model()
+    run_month_ahead_model()
     return Response({"message": "MCV model executed successfully."}, status=status.HTTP_200_OK)
 
 # Create your views here.
