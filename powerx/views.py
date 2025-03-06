@@ -4,20 +4,35 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
 from django.utils.timezone import now, timedelta
-
+from django.contrib.contenttypes.models import ContentType
 from accounts.models import User
-from energy.models import ConsumerRequirements
-from .models import ConsumerDayAheadDemand, ConsumerMonthAheadDemand, ConsumerMonthAheadDemandDistribution, MonthAheadPrediction, NextDayPrediction, Notifications
-from .serializers import ConsumerMonthAheadDemandSerializer, NextDayPredictionSerializer, ConsumerDayAheadDemandSerializer, NotificationsSerializer
+from energy.models import ConsumerRequirements, SolarPortfolio, WindPortfolio
+from .models import ConsumerDayAheadDemand, ConsumerMonthAheadDemand, ConsumerMonthAheadDemandDistribution, DayAheadGeneration, MonthAheadGeneration, MonthAheadGenerationDistribution, MonthAheadPrediction, NextDayPrediction, Notifications
+from .serializers import ConsumerMonthAheadDemandSerializer, DayAheadGenerationSerializer, NextDayPredictionSerializer, ConsumerDayAheadDemandSerializer, NotificationsSerializer
 from django.core.files.base import ContentFile
 from datetime import datetime, timedelta
 from django.utils.dateparse import parse_time
 from django.db.models import Avg, Max, Min
+from django.db.models import Q
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from powerx.AI_Model.model_scheduling import run_month_ahead_model
+from powerx.AI_Model.model_scheduling import run_predictions, run_month_ahead_model
+from powerx.AI_Model.manualdates import process_and_store_data
+
+class CleanDataAPI(APIView):
+    def post(self, request):
+        date = request.data.get("date")
+        try:
+            process_and_store_data(date)
+            return Response({"message": "Data processed and stored successfully."}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+def run_day_ahead_model(request):
+    # Run the MCV model
+    run_predictions()
+    return Response({"message": "Day Ahead model executed successfully."}, status=status.HTTP_200_OK)
 
 def run_mcv_model(request):
     # Run the MCV model
@@ -382,3 +397,225 @@ class NotificationsAPI(APIView):
         except Exception as e:
             # Handle any other exceptions
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+class DayAheadGenerationAPI(APIView):
+
+    def get(self, request, user_id):
+        next_day = datetime.now().date() + timedelta(days=1)
+
+        solar_content_type = ContentType.objects.get_for_model(SolarPortfolio)
+        wind_content_type = ContentType.objects.get_for_model(WindPortfolio)
+
+        # Fetch all portfolios linked to the user
+        solar_portfolios = SolarPortfolio.objects.filter(user=user_id)
+        wind_portfolios = WindPortfolio.objects.filter(user=user_id)
+
+        
+        if not solar_portfolios.exists() and not wind_portfolios.exists():
+            return Response({"error": "No portfolios found for this user"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Fetch generation records for the next day
+        generation_records = DayAheadGeneration.objects.filter(
+            (
+                Q(content_type=solar_content_type, object_id__in=solar_portfolios.values_list('id', flat=True)) |
+                Q(content_type=wind_content_type, object_id__in=wind_portfolios.values_list('id', flat=True))
+            ),
+            date=next_day
+        ).order_by("start_time")
+
+        if not generation_records.exists():
+            return Response({"message": "No generation data available for the next day."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = DayAheadGenerationSerializer(generation_records, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    
+    def post(self, request):
+        model = request.data.get("model")
+        object_id = request.data.get("object_id")
+        price = request.data.get("price")
+        file_data = request.data.get("file")
+        generation_data = request.data.get("generation_data", [])
+
+        # Validate content type
+        try:
+            content_type = ContentType.objects.get(app_label='energy', model=model)
+        except (ValueError, ContentType.DoesNotExist):
+            return Response({"error": "Invalid content_type format or not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate object_id existence
+        try:
+            portfolio = content_type.get_object_for_this_type(id=object_id)
+        except Exception:
+            return Response({"error": "Portfolio not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Get tomorrow's date
+        next_day = datetime.now().date() + timedelta(days=1)
+        data_list = []
+
+        if file_data:
+            # Process Excel File
+            try:
+                decoded_file = base64.b64decode(file_data)
+                file_name = "uploaded_generation_file.xlsx"
+                file_content = ContentFile(decoded_file, name=file_name)
+
+                # Read Excel file
+                df = pd.read_excel(file_content)
+
+                # Required columns in the Excel file
+                required_columns = {'Time Interval', 'Generation'}
+                if not required_columns.issubset(df.columns):
+                    return Response({"error": f"Missing required columns: {required_columns}"}, status=status.HTTP_400_BAD_REQUEST)
+
+                # Extract data from Excel
+                for _, row in df.iterrows():
+                    try:
+                        start_time, end_time = row['Time Interval'].split(" - ")
+                        generation = int(row['Generation'])
+
+                        # Create an entry
+                        data_list.append(DayAheadGeneration(
+                            content_type=content_type,
+                            object_id=object_id,
+                            date=next_day,
+                            start_time=parse_time(start_time),
+                            end_time=parse_time(end_time),
+                            generation=generation,
+                            price=price
+                        ))
+
+                    except Exception as e:
+                        return Response({"error": f"Data processing error: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+            except Exception as e:
+                return Response({"error": f"Invalid Base64 file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        elif generation_data:
+            # Process Manual JSON Data
+            try:
+                for entry in generation_data:
+                    start_time = entry.get("start_time")
+                    end_time = entry.get("end_time")
+                    generation = entry.get("generation")
+
+                    # Validate required fields
+                    if not start_time or not end_time or generation is None:
+                        return Response({"error": "Missing start_time, end_time, or generation."}, status=status.HTTP_400_BAD_REQUEST)
+
+                    data_list.append(DayAheadGeneration(
+                        content_type=content_type,
+                        object_id=object_id,
+                        date=next_day,
+                        start_time=parse_time(start_time),
+                        end_time=parse_time(end_time),
+                        generation=generation,
+                        price=price
+                    ))
+
+            except Exception as e:
+                return Response({"error": f"Invalid manual data: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        else:
+            return Response({"error": "No file or generation data provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Bulk insert the data
+        DayAheadGeneration.objects.bulk_create(data_list)
+
+        return Response({"message": "Data uploaded successfully"}, status=status.HTTP_201_CREATED)
+    
+class MonthAheadGenerationAPI(APIView):
+
+    def get(self, request, user_id):
+        try:
+            # Fetch content types for Solar and Wind
+            solar_content_type = ContentType.objects.get_for_model(SolarPortfolio)
+            wind_content_type = ContentType.objects.get_for_model(WindPortfolio)
+
+            # Fetch all portfolios linked to the user
+            solar_portfolios = SolarPortfolio.objects.filter(user=user_id)
+            wind_portfolios = WindPortfolio.objects.filter(user=user_id)
+
+            if not solar_portfolios.exists() and not wind_portfolios.exists():
+                return Response({"error": "No portfolios found for this user"}, status=status.HTTP_404_NOT_FOUND)
+
+            # Fetch month-ahead generation records for these portfolios
+            generation_records = MonthAheadGeneration.objects.filter(
+                (Q(content_type=solar_content_type) & Q(object_id__in=solar_portfolios.values_list('id', flat=True))) |
+                (Q(content_type=wind_content_type) & Q(object_id__in=wind_portfolios.values_list('id', flat=True)))
+            )
+
+            if not generation_records.exists():
+                return Response({"error": "No generation records found"}, status=status.HTTP_404_NOT_FOUND)
+
+            # Serialize response
+            serializer = MonthAheadGenerationSerializer(generation_records, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def post(self, request):
+        data = request.data
+        portfolio_id = data.get("portfolio_id")  # Object ID (Solar/Wind)
+        portfolio_type = data.get("portfolio_type")  # "solar" or "wind"
+        date = data.get("date")
+        generation = data.get("generation")
+        price = data.get("price")
+
+        if not (portfolio_id and portfolio_type and date and generation and price):
+            return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get the correct content type
+        if portfolio_type.lower() == "solar":
+            try:
+                content_type = ContentType.objects.get_for_model(SolarPortfolio)
+                portfolio = SolarPortfolio.objects.get(id=portfolio_id)
+            except SolarPortfolio.DoesNotExist:
+                return Response({"error": "Invalid SolarPortfolio ID"}, status=status.HTTP_400_BAD_REQUEST)
+        elif portfolio_type.lower() == "wind":
+            try:
+                content_type = ContentType.objects.get_for_model(WindPortfolio)
+                portfolio = WindPortfolio.objects.get(id=portfolio_id)
+            except WindPortfolio.DoesNotExist:
+                return Response({"error": "Invalid WindPortfolio ID"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            return Response({"error": "Invalid portfolio type"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if generation entry already exists
+        generation_record, created = MonthAheadGeneration.objects.get_or_create(
+            content_type=content_type,
+            object_id=portfolio.id,
+            date=date,
+            defaults={"generation": generation, "price": price}
+        )
+
+        # If existing, update generation and price
+        if not created:
+            generation_record.generation = generation
+            generation_record.price = price
+            generation_record.save()
+
+        # If it's a new generation entry, create 15-minute distributions
+        if created:
+            distributions = []
+            start_time = datetime.strptime("00:00", "%H:%M")
+            generation_per_slot = generation / 96  # 96 slots (15 min each)
+
+            for i in range(96):
+                slot_start = (start_time + timedelta(minutes=15 * i)).time()
+                slot_end = (start_time + timedelta(minutes=15 * (i + 1))).time()
+
+                distributions.append(
+                    MonthAheadGenerationDistribution(
+                        month_ahead_generation=generation_record,
+                        start_time=slot_start,
+                        end_time=slot_end,
+                        distributed_generation=generation_per_slot
+                    )
+                )
+
+            # Bulk insert for efficiency
+            MonthAheadGenerationDistribution.objects.bulk_create(distributions)
+
+        return Response({"message": "Data processed successfully"}, status=status.HTTP_201_CREATED)
