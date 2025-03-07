@@ -6,7 +6,7 @@ from rest_framework import status
 from django.utils.timezone import now, timedelta
 from django.contrib.contenttypes.models import ContentType
 from accounts.models import User
-from energy.models import ConsumerRequirements, SolarPortfolio, WindPortfolio
+from energy.models import ConsumerRequirements, ESSPortfolio, SolarPortfolio, WindPortfolio
 from .models import ConsumerDayAheadDemand, ConsumerMonthAheadDemand, ConsumerMonthAheadDemandDistribution, DayAheadGeneration, MonthAheadGeneration, MonthAheadGenerationDistribution, MonthAheadPrediction, NextDayPrediction, Notifications
 from .serializers import ConsumerMonthAheadDemandSerializer, DayAheadGenerationSerializer, NextDayPredictionSerializer, ConsumerDayAheadDemandSerializer, NotificationsSerializer
 from django.core.files.base import ContentFile
@@ -18,6 +18,7 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from powerx.AI_Model.model_scheduling import run_predictions, run_month_ahead_model
 from powerx.AI_Model.manualdates import process_and_store_data
+from rest_framework.decorators import api_view
 
 class CleanDataAPI(APIView):
     def post(self, request):
@@ -34,6 +35,7 @@ def run_day_ahead_model(request):
     run_predictions()
     return Response({"message": "Day Ahead model executed successfully."}, status=status.HTTP_200_OK)
 
+@api_view(["GET"])  
 def run_mcv_model(request):
     # Run the MCV model
     run_month_ahead_model()
@@ -619,3 +621,15 @@ class MonthAheadGenerationAPI(APIView):
             MonthAheadGenerationDistribution.objects.bulk_create(distributions)
 
         return Response({"message": "Data processed successfully"}, status=status.HTTP_201_CREATED)
+
+class ConsumerDashboardAPI(APIView):
+    def get(self, request, user_id):
+        requirements = ConsumerRequirements.objects.filter(user=user_id).values()
+        return Response(list(requirements), status=status.HTTP_200_OK)
+
+class GeneratorDashboardAPI(APIView):
+    def get(self, request, user_id):
+        solar_portfolios = SolarPortfolio.objects.filter(user=user_id).values()
+        wind_portfolios = WindPortfolio.objects.filter(user=user_id).values()
+        ess_portfolios = ESSPortfolio.objects.filter(user=user_id).values()
+        return Response({"solar": list(solar_portfolios), "wind": list(wind_portfolios), "ess": list(ess_portfolios)}, status=status.HTTP_200_OK)

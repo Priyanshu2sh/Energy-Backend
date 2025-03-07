@@ -644,9 +644,9 @@ class MatchingIPPAPI(APIView):
                 Q(state=requirement.state) | Q(connectivity="CTU"),
             ).values("user", "user__username", "state", "available_capacity", "updated")
         
-            print(solar_data)
-            print(wind_data)
-            print(ess_data)
+            print('solar.....', solar_data)
+            print('wind.....', wind_data)
+            print('ess.....', ess_data)
             # Combine all data
             combined_data = list(chain(solar_data, wind_data, ess_data))
 
@@ -659,7 +659,8 @@ class MatchingIPPAPI(APIView):
 
             # Extract the unique entries and sort by capacity in descending order
             unique_data = list(unique_users.values())
-
+            print('unique data...........')
+            print(unique_data)
             # Check if users have an active subscription
             filtered_data = []
             for entry in unique_data:
@@ -677,10 +678,12 @@ class MatchingIPPAPI(APIView):
                 print(has_not_updated)
                 
                 if not is_subscribed:
+                    print('not subscribed...........')
                     # Send notification to user
                     message = f"Your subscription is inactive. Please subscribe to start receiving and accepting offers."
                     send_notification(user.id, message) 
                 elif has_not_updated:
+                    print('not updated...........')
                     # Send notification for outdated portfolio
                     message = f"Your portfolios are not updated yet. Please update them to start receiving and accepting offers."
                     send_notification(user.id, message) 
@@ -702,6 +705,7 @@ class MatchingIPPAPI(APIView):
 
             # Get only the top 3 matches
             top_three_matches = sorted_data[:3]
+            print('top three matched...........')
             print(top_three_matches)
 
             # Extract user IDs from the top three matches
