@@ -8,7 +8,7 @@ from django.contrib.contenttypes.models import ContentType
 from accounts.models import User
 from energy.models import ConsumerRequirements, ESSPortfolio, SolarPortfolio, WindPortfolio
 from .models import ConsumerDayAheadDemand, ConsumerMonthAheadDemand, ConsumerMonthAheadDemandDistribution, DayAheadGeneration, MonthAheadGeneration, MonthAheadGenerationDistribution, MonthAheadPrediction, NextDayPrediction, Notifications
-from .serializers import ConsumerMonthAheadDemandSerializer, DayAheadGenerationSerializer, NextDayPredictionSerializer, ConsumerDayAheadDemandSerializer, NotificationsSerializer
+from .serializers import ConsumerMonthAheadDemandSerializer, DayAheadGenerationSerializer, MonthAheadGenerationSerializer, NextDayPredictionSerializer, ConsumerDayAheadDemandSerializer, NotificationsSerializer
 from django.core.files.base import ContentFile
 from datetime import datetime, timedelta
 from django.utils.dateparse import parse_time
@@ -19,6 +19,7 @@ from asgiref.sync import async_to_sync
 from powerx.AI_Model.model_scheduling import run_predictions, run_month_ahead_model
 from powerx.AI_Model.manualdates import process_and_store_data
 from rest_framework.decorators import api_view
+from django.utils import timezone
 
 class CleanDataAPI(APIView):
     def post(self, request):
@@ -29,14 +30,14 @@ class CleanDataAPI(APIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
+@api_view(['GET'])
 def run_day_ahead_model(request):
     # Run the MCV model
     run_predictions()
     return Response({"message": "Day Ahead model executed successfully."}, status=status.HTTP_200_OK)
 
-@api_view(["GET"])  
-def run_mcv_model(request):
+@api_view(['GET'])
+def run_month_ahead_model_mcv_mcp(request):
     # Run the MCV model
     run_month_ahead_model()
     return Response({"message": "MCV model executed successfully."}, status=status.HTTP_200_OK)
@@ -57,38 +58,40 @@ class NextDayPredictionAPI(APIView):
         next_day = now().date() + timedelta(days=1)
         predictions = NextDayPrediction.objects.filter(date__date=next_day).order_by('hour')
 
-        if predictions.exists():
-            serializer = NextDayPredictionSerializer(predictions, many=True)
+        if not predictions.exists():  # If no records found for next day
+            # Get last entry's UTC datetime and convert to IST date
+            last_entry = NextDayPrediction.objects.latest('date')
+            # Find all entries matching last available IST date
+            predictions = NextDayPrediction.objects.filter(date=last_entry.date).order_by('hour')
+            print(predictions)
 
-            # Aggregate statistics
-            stats = predictions.aggregate(
-                max_mcv=Max('mcv_prediction'),
-                min_mcv=Min('mcv_prediction'),
-                avg_mcv=Avg('mcv_prediction'),
-                max_mcp=Max('mcp_prediction'),
-                min_mcp=Min('mcp_prediction'),
-                avg_mcp=Avg('mcp_prediction')
-            )
-            # Format response
-            response_data = {
-                "predictions": serializer.data,
-                "statistics": {
-                    "mcv": {
-                        "max": stats["max_mcv"],
-                        "min": stats["min_mcv"],
-                        "avg": round(stats["avg_mcv"], 2) if stats["avg_mcv"] is not None else None
-                    },
-                    "mcp": {
-                        "max": stats["max_mcp"],
-                        "min": stats["min_mcp"],
-                        "avg": round(stats["avg_mcp"], 2) if stats["avg_mcp"] is not None else None
-                    }
+        serializer = NextDayPredictionSerializer(predictions, many=True)
+        # Aggregate statistics
+        stats = predictions.aggregate(
+            max_mcv=Max('mcv_prediction'),
+            min_mcv=Min('mcv_prediction'),
+            avg_mcv=Avg('mcv_prediction'),
+            max_mcp=Max('mcp_prediction'),
+            min_mcp=Min('mcp_prediction'),
+            avg_mcp=Avg('mcp_prediction')
+        )
+        # Format response
+        response_data = {
+            "predictions": serializer.data,
+            "statistics": {
+                "mcv": {
+                    "max": stats["max_mcv"],
+                    "min": stats["min_mcv"],
+                    "avg": round(stats["avg_mcv"], 2) if stats["avg_mcv"] is not None else None
+                },
+                "mcp": {
+                    "max": stats["max_mcp"],
+                    "min": stats["min_mcp"],
+                    "avg": round(stats["avg_mcp"], 2) if stats["avg_mcp"] is not None else None
                 }
             }
-
-            return Response(response_data, status=status.HTTP_200_OK)
-        else:
-            return Response({"message": "No data available for the next day"}, status=status.HTTP_404_NOT_FOUND)
+        }
+        return Response(response_data, status=status.HTTP_200_OK)
 
 class MonthAheadPredictionAPI(APIView):
     def get(self, request):
@@ -98,20 +101,28 @@ class MonthAheadPredictionAPI(APIView):
         # Get data for the next 30 days
         predictions = MonthAheadPrediction.objects.filter(date__date__range=[start_date, end_date])
 
-        if not predictions.exists():
-            return Response({"message": "No data available for the next 30 days"}, status=status.HTTP_404_NOT_FOUND)
+        if not predictions.exists():  # If no records found for the next 30 days
+            latest_prediction = MonthAheadPrediction.objects.latest('date')  # Get latest record
+            if latest_prediction:
+                last_date = latest_prediction.date
+                start_date = last_date - timedelta(days=30)  # Get 30 days before the latest date
+                predictions = MonthAheadPrediction.objects.filter(date__range=[start_date, last_date])
 
         # Aggregate per day
-        daily_stats = predictions.values('date__date').annotate(
+        daily_stats = predictions.values('date').annotate(
             avg_mcv=Avg('mcv_prediction'),
+            max_mcv=Max('mcv_prediction'),
+            min_mcv=Min('mcv_prediction'),
             avg_mcp=Avg('mcp_prediction'),
-        ).order_by('date__date')
+            max_mcp=Max('mcp_prediction'),
+            min_mcp=Min('mcp_prediction'),
+        ).order_by('date')
 
         # Prepare daily aggregated data
         daily_data = []
         for record in daily_stats:
             daily_data.append({
-                "date": record["date__date"],
+                "date": record["date"],
                 "mcv_prediction": {
                     "max": record["max_mcv"],
                     "min": record["min_mcv"],
@@ -138,12 +149,7 @@ class MonthAheadPredictionAPI(APIView):
             }
         }
 
-        return Response({
-            "daily_data": daily_data,
-            "overall_stats": overall_stats
-        }, status=status.HTTP_200_OK)
-
-
+        return Response({"daily_data": daily_data, "overall_stats": overall_stats}, status=status.HTTP_200_OK)
 
 class ConsumerDayAheadDemandAPI(APIView):
 

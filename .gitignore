@@ -47,3 +47,6 @@ nohup.out
 .bash_history
 .bashrc
 .zsh_history
+
+# Ignore Excel files
+*.xlsx

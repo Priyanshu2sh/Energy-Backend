@@ -57,7 +57,6 @@ def fetch_latest_96_blocks():
     
     latest_data = latest_data.sort_values(by="hour", ascending=True)
 
-    print('ffffffffffffffff')
     return latest_data
 
 # firstly aggreagte hourly one month data
@@ -102,33 +101,39 @@ def preprocess_data(latest_data):
 
 
 #feature selection based on colab
-def feature_selection_and_scaling_mcp(latest_data):
-    print("Before feature selection (MCP):")
-    print("Columns before feature selection:", latest_data.columns.tolist())
-    print("Shape:", latest_data.shape)
+# def feature_selection_and_scaling_mcp(latest_data):
+#     print("Before feature selection (MCP):")
+#     print("Columns before feature selection:", latest_data.columns.tolist())
+#     print("Shape:", latest_data.shape)
 
-    columns_to_keep = [col for col in latest_data if col not in [
-        'Sell bid Solar (MW)', 'Sell bid Non-Solar (MW)', 'Sell bid Hydro (MW)',
-        'MCV Solar (MW)', 'MCV Non-Solar (MW)', 'MCV Hydro (MW)', '_id', 'Date', 'Time_x'
-    ]]
+#     columns_to_keep = [col for col in latest_data if col not in [
+#         'Sell bid Solar (MW)', 'Sell bid Non-Solar (MW)', 'Sell bid Hydro (MW)',
+#         'MCV Solar (MW)', 'MCV Non-Solar (MW)', 'MCV Hydro (MW)', '_id', 'Date', 'Time_x'
+#     ]]
     
-    df_selected = latest_data[columns_to_keep]
-    print("After feature selection (MCP):")
-    print("Columns after feature selection:", df_selected.columns.tolist())
-    print("Shape:", df_selected.shape)
+#     df_selected = latest_data[columns_to_keep]
+#     print("After feature selection (MCP):")
+#     print("Columns after feature selection:", df_selected.columns.tolist())
+#     print("Shape:", df_selected.shape)
     
-    input_data = df_selected
-    return input_data
+#     input_data = df_selected
+#     return input_data
 
-def feature_selection_and_scaling_mcv(latest_data):
+def feature_selection_and_scaling(latest_data, target):
     print("Before feature selection (MCV):")
-    print("Columns before feature selection:", latest_data.columns.tolist())
+    print("Columns before feature selection:=====", latest_data.columns.tolist())
     print("Shape:", latest_data.shape)
 
-    columns_to_keep = [col for col in latest_data if col not in [
-        'Sell bid Non-Solar (MW)', 'Sell bid Hydro (MW)',
-        'MCV Solar (MW)', 'MCV Non-Solar (MW)', 'MCV Hydro (MW)', '_id', 'Date', 'Time_x'
-    ]]
+    if target == 'MCV':
+        columns_to_keep = [col for col in latest_data if col not in [
+            'Sell bid Non-Solar (MW)', 'Sell bid Hydro (MW)',
+            'MCV Solar (MW)', 'MCV Non-Solar (MW)', 'MCV Hydro (MW)', '_id', 'Date', 'Time_x'
+        ]]
+    elif target == 'MCP':
+        columns_to_keep = [col for col in latest_data if col not in [
+            'Sell bid Solar (MW)', 'Sell bid Non-Solar (MW)', 'Sell bid Hydro (MW)',
+            'MCV Solar (MW)', 'MCV Non-Solar (MW)', 'MCV Hydro (MW)', '_id', 'Date', 'Time_x'
+        ]]
     
     df_selected = latest_data[columns_to_keep]
     print("After feature selection (MCV):")
@@ -164,6 +169,7 @@ def make_predictions_mcp(input_data):
     print("Columns in input data:", input_data.columns.tolist())
     print("Expected feature names:", best_model_mcp.feature_names_in_.tolist())
     predictions = best_model_mcp.predict(input_data)
+    print('')
     return predictions
 
 def make_predictions_mcv(input_data):
@@ -196,108 +202,135 @@ def make_predictions_mcv(input_data):
     print("Columns in input data:", input_data.columns.tolist())
     print("Expected feature names:", best_model_mcv.feature_names_in_.tolist())
     predictions = best_model_mcv.predict(input_data)
+    print('pppppp', predictions)
     return predictions
 
-def save_prediction_mcp(predictions, preprocess_data):
-    records = []
-    print('aaaaaaaaaaaa')
-    prediction_dates = preprocess_data.index
-    # time_x_values = preprocess_data['Time_x'].values
-    hour_values = preprocess_data['hour'].values
-    print(preprocess_data.columns.tolist())
+# def save_prediction_mcp(predictions, preprocess_data):
+#     records = []
+#     prediction_dates = preprocess_data.index
+#     # time_x_values = preprocess_data['Time_x'].values
+#     hour_values = preprocess_data['hour'].values
+#     print(preprocess_data.columns.tolist())
 
-    for i, prediction in enumerate(predictions):
-        record = {
-            "Date": prediction_dates[i].strftime("%Y-%m-%d"),
-            "hour": hour_values[i], 
-            # "Time_x": time_x_values[i], 
-            "Prediction": prediction
-        }
-        records.append(record)
-    sorted_records = sorted(records, key=lambda x: (x['Date'], x['hour']))
+#     for i, prediction in enumerate(predictions):
+#         record = {
+#             "Date": prediction_dates[i].strftime("%Y-%m-%d"),
+#             "hour": hour_values[i], 
+#             "Prediction": prediction
+#         }
+#         records.append(record)
+#     sorted_records = sorted(records, key=lambda x: (x['Date'], x['hour']))
 
-    # Mapping dictionary to rename columns to match model fields
-    column_mapping = {
-        'Date': 'date',
-        'hour': 'hour',
-        'Prediction': 'mcp_prediction',  # Assuming 'Prediction' refers to MCP
-        'MCV_Prediction': 'mcv_prediction'  # Assuming this is MCV
-    }
+#     # Mapping dictionary to rename columns to match model fields
+#     column_mapping = {
+#         'Date': 'date',
+#         'hour': 'hour',
+#         'Prediction': 'mcp_prediction',  # Assuming 'Prediction' refers to MCP
+#         'MCV_Prediction': 'mcv_prediction'  # Assuming this is MCV
+#     }
 
-    # Rename keys in each dictionary
-    formatted_records = [
-        {column_mapping.get(k, k): v for k, v in record.items()} for record in sorted_records
-    ]
+#     # Rename keys in each dictionary
+#     formatted_records = [
+#         {column_mapping.get(k, k): v for k, v in record.items()} for record in sorted_records
+#     ]
 
-    # Get existing records that match date & hour
-    existing_records = {
-        (record.date, record.hour): record for record in NextDayPrediction.objects.filter(
-            date__in=[r['date'] for r in formatted_records],
-            hour__in=[r['hour'] for r in formatted_records]
-        )
-    }
+#     # Get existing records that match date & hour
+#     existing_records = {
+#         (record.date, record.hour): record for record in NextDayPrediction.objects.filter(
+#             date__in=[r['date'] for r in formatted_records],
+#             hour__in=[r['hour'] for r in formatted_records]
+#         )
+#     }
 
-    new_objects = []
-    update_objects = []
+#     new_objects = []
+#     update_objects = []
 
-    for record in formatted_records:
-        key = (record['date'], record['hour'])
-        if key in existing_records:
-            # Update existing record
-            existing_record = existing_records[key]
-            existing_record.mcv_prediction = record['mcv_prediction']
-            existing_record.mcp_prediction = record['mcp_prediction']
-            update_objects.append(existing_record)
-        else:
-            # Create new record
-            new_objects.append(NextDayPrediction(**record))
+#     for record in formatted_records:
+#         key = (record['date'], record['hour'])
+#         if key in existing_records:
+#             # Update existing record
+#             existing_record = existing_records[key]
+#             existing_record.mcv_prediction = record['mcv_prediction']
+#             existing_record.mcp_prediction = record['mcp_prediction']
+#             update_objects.append(existing_record)
+#         else:
+#             # Create new record
+#             new_objects.append(NextDayPrediction(**record))
 
-    # Bulk update existing records
-    if update_objects:
-        NextDayPrediction.objects.bulk_update(update_objects, ['mcv_prediction', 'mcp_prediction'])
+#     # Bulk update existing records
+#     if update_objects:
+#         NextDayPrediction.objects.bulk_update(update_objects, ['mcv_prediction', 'mcp_prediction'])
 
-    # Bulk create new records
-    if new_objects:
-        NextDayPrediction.objects.bulk_create(new_objects)
-    print(f"Saved {len(sorted_records)} MCP predictions to the database.")
+#     # Bulk create new records
+#     if new_objects:
+#         NextDayPrediction.objects.bulk_create(new_objects)
+#     print(f"Saved {len(sorted_records)} MCP predictions to the database.")
 
-def save_prediction_mcv(predictions, preprocess_data):
+def save_prediction(predictions, preprocess_data, target):
     records = []
     prediction_dates = preprocess_data.index
     print(preprocess_data.columns.tolist())
     hour_values = preprocess_data['hour'].values
-    # time_x_values = preprocess_data['Time_x'].values
 
-    for i, prediction in enumerate(predictions):
-        record = {
-            "date": prediction_dates[i].strftime("%Y-%m-%d"),
-            "hour": hour_values[i], 
-            # "Time_x": time_x_values[i], 
-            "mcv_prediction": prediction
-        }
-        records.append(record)
+    if target == 'MCV':
+        for i, prediction in enumerate(predictions):
+            record = {
+                "date": prediction_dates[i].strftime("%Y-%m-%d"),
+                "hour": hour_values[i], 
+                "mcv_prediction": prediction
+            }
+            records.append(record)
+    elif target == 'MCP':
+        for i, prediction in enumerate(predictions):
+            record = {
+                "date": prediction_dates[i].strftime("%Y-%m-%d"),
+                "hour": hour_values[i], 
+                "mcp_prediction": prediction
+            }
+            records.append(record)
+
     sorted_records = sorted(records, key=lambda x: (x['date'], x['hour']))
-    # Convert dictionaries into model instances
-    objects_to_create = [
-        NextDayPrediction(**record) for record in sorted_records
-    ]
-    
-    # predictions_collection_mcv.insert_many(sorted_records)
-    NextDayPrediction.objects.bulk_create(objects_to_create)
-    print(f"Saved {len(sorted_records)} MCV predictions to the database.")
+    if sorted_records:
+        objects_to_create = []
+        objects_to_update = []
+        for record in sorted_records:
+            # Check if a record already exists for the same date and hour
+            existing_record = NextDayPrediction.objects.filter(
+                date=record["date"], hour=record["hour"]
+            ).first()
+            if existing_record:
+                # Update existing record
+                if target == "MCV":
+                    existing_record.mcv_prediction = record["mcv_prediction"]
+                elif target == "MCP":
+                    existing_record.mcp_prediction = record["mcp_prediction"]
+                objects_to_update.append(existing_record)
+            else:
+                # Create new record
+                objects_to_create.append(NextDayPrediction(**record))
+        # Bulk update and create records
+        if objects_to_update:
+            NextDayPrediction.objects.bulk_update(objects_to_update, ["mcv_prediction", "mcp_prediction"])
+        if objects_to_create:
+            NextDayPrediction.objects.bulk_create(objects_to_create)
+        print(f"Saved {len(sorted_records)} {target} predictions to the database.")
+    else:
+        print(f"No records to insert for {target}.")
 
 def run_predictions():
     max_date = fetch_latest_96_blocks()
     preprocess = preprocess_data(max_date)
 
-    input_data_mcp = feature_selection_and_scaling_mcp(preprocess)
-    predictions_mcp = make_predictions_mcp(input_data_mcp)
-    save_prediction_mcp(predictions_mcp, preprocess)
-
-    input_data_mcv = feature_selection_and_scaling_mcv(preprocess)
-    print(input_data_mcv.columns.tolist())
+    input_data_mcv = feature_selection_and_scaling(preprocess, 'MCV')
     predictions_mcv = make_predictions_mcv(input_data_mcv)
-    save_prediction_mcv(predictions_mcv, preprocess)
+    print('++++++++', len(predictions_mcv))
+    save_prediction(predictions_mcv, preprocess, 'MCV')
+
+    input_data_mcp = feature_selection_and_scaling(preprocess , 'MCP')
+    predictions_mcp = make_predictions_mcp(input_data_mcp)
+    print('++++++++', len(predictions_mcp))
+    save_prediction(predictions_mcp, preprocess, 'MCP')
+
 
 if __name__ == "__main__":
     try:
