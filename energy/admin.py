@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import NegotiationInvitation, State, Industry, PaymentTransaction, SolarPortfolio, StateTimeSlot, SubIndustry, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs,GeneratorOffer, NegotiationWindow, MasterTable, GridTariff, ScadaFile, RETariffMasterTable, PerformaInvoice
+from .models import GeneratorHourlyDemand, GeneratorMonthlyConsumption, NegotiationInvitation, State, Industry, PaymentTransaction, SolarPortfolio, StateTimeSlot, SubIndustry, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs,GeneratorOffer, NegotiationWindow, MasterTable, GridTariff, ScadaFile, RETariffMasterTable, PerformaInvoice
 
 # Register your models here.
 admin.site.register(SolarPortfolio)
@@ -28,3 +28,8 @@ admin.site.register(Industry)
 admin.site.register(SubIndustry)
 admin.site.register(PerformaInvoice)
 admin.site.register(StateTimeSlot)
+admin.site.register(GeneratorHourlyDemand)
+
+@admin.register(GeneratorMonthlyConsumption)
+class GeneratorMonthlyConsumptionAdmin(admin.ModelAdmin):
+    list_display = ('generator', 'month', 'monthly_consumption', 'peak_consumption', 'off_peak_consumption', 'monthly_bill_amount')

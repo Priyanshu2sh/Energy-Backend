@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
-from .views import NextDayPredictionAPI, MonthAheadPredictionAPI, ConsumerDayAheadDemandAPI, ConsumerMonthAheadDemandAPI, NotificationsAPI, run_day_ahead_model, run_month_ahead_model_mcv_mcp, CleanDataAPI, DayAheadGenerationAPI, MonthAheadGenerationAPI, ConsumerDashboardAPI, GeneratorDashboardAPI
+from .views import NextDayPredictionAPI, MonthAheadPredictionAPI, ConsumerDayAheadDemandAPI, ConsumerMonthAheadDemandAPI, NotificationsAPI, run_day_ahead_model, run_month_ahead_model_mcv_mcp, CleanDataAPI, DayAheadGenerationAPI, MonthAheadGenerationAPI, ConsumerDashboardAPI, GeneratorDashboardAPI, ModelStatisticsAPI, ModelStatisticsMonthAPI
 
 urlpatterns = [
     path('next-day-predictions', NextDayPredictionAPI.as_view(), name='next-day-predictions'),
@@ -21,4 +21,6 @@ urlpatterns = [
     path('month-ahead-generation', MonthAheadGenerationAPI.as_view(), name='month-ahead-generation'),
     path('consumer-dashboard/<int:user_id>', ConsumerDashboardAPI.as_view(), name='consumer-dashboard'),
     path('generator-dashboard/<int:user_id>', GeneratorDashboardAPI.as_view(), name='generator-dashboard'),
+    path('model-statistics', ModelStatisticsAPI.as_view(), name='model-statistics'),
+    path('model-statistics-month', ModelStatisticsMonthAPI.as_view(), name='model-statistics-month'),
 ]

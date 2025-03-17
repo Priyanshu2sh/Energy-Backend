@@ -5,6 +5,7 @@ from django.utils.timezone import now
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from channels.layers import get_channel_layer
+from django.db.models import Count
 import json
 import asyncio
 
@@ -572,3 +573,28 @@ class PaymentTransaction(models.Model):
 
     def __str__(self):
         return f"({self.invoice.user}) -({self.order_id})" 
+    
+class GeneratorMonthlyConsumption(models.Model):
+    generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'})
+    name = models.CharField(max_length=255, null=True, blank=True)
+    month = models.CharField(max_length=255, null=True, blank=True)
+    monthly_consumption = models.FloatField(null=True, blank=True)
+    peak_consumption = models.FloatField(null=True, blank=True)
+    off_peak_consumption = models.FloatField(null=True, blank=True)
+    monthly_bill_amount = models.FloatField(null=True, blank=True)
+    bill = models.FileField(upload_to='bills/', blank=True, null=True)
+
+class GeneratorHourlyDemand(models.Model):
+    consumption = models.CharField(max_length=255)
+    hourly_demand = models.TextField(blank=True, null=True)  # Stores a single string of values
+
+    def __str__(self):
+        return f"{self.consumption}"
+
+    def get_hourly_data_as_list(self):
+        """Convert the stored string of values into a list of floats."""
+        return list(map(float, self.hourly_demand.split(',')))
+
+    def set_hourly_data_from_list(self, data_list):
+        """Convert a list of floats into a comma-separated string and save it."""
+        self.hourly_demand = ','.join(map(str, data_list))

@@ -43,5 +43,6 @@ urlpatterns = [
     path('generator-dashboard/<int:user_id>', views.GeneratorDashboardAPI.as_view(), name='generator_dashboard'),
     path('template-downloaded', views.TemplateDownloadedAPI.as_view(), name='template_downloaded'),
     path('states-time-slots', views.StateTimeSlotAPI.as_view(), name='states_time_slots'),
+    path('capacity-sizing', views.CapacitySizingAPI.as_view(), name='capacity_sizing'),
     
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

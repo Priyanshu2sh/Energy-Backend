@@ -7,7 +7,7 @@ from django.utils.timezone import now, timedelta
 from django.contrib.contenttypes.models import ContentType
 from accounts.models import User
 from energy.models import ConsumerRequirements, ESSPortfolio, SolarPortfolio, WindPortfolio
-from .models import ConsumerDayAheadDemand, ConsumerMonthAheadDemand, ConsumerMonthAheadDemandDistribution, DayAheadGeneration, MonthAheadGeneration, MonthAheadGenerationDistribution, MonthAheadPrediction, NextDayPrediction, Notifications
+from .models import CleanData, ConsumerDayAheadDemand, ConsumerMonthAheadDemand, ConsumerMonthAheadDemandDistribution, DayAheadGeneration, MonthAheadGeneration, MonthAheadGenerationDistribution, MonthAheadPrediction, NextDayPrediction, Notifications
 from .serializers import ConsumerMonthAheadDemandSerializer, DayAheadGenerationSerializer, MonthAheadGenerationSerializer, NextDayPredictionSerializer, ConsumerDayAheadDemandSerializer, NotificationsSerializer
 from django.core.files.base import ContentFile
 from datetime import datetime, timedelta
@@ -15,6 +15,7 @@ from django.utils.dateparse import parse_time
 from django.db.models import Avg, Max, Min
 from django.db.models import Q
 from channels.layers import get_channel_layer
+from datetime import date
 from asgiref.sync import async_to_sync
 from powerx.AI_Model.model_scheduling import run_predictions, run_month_ahead_model
 from powerx.AI_Model.manualdates import process_and_store_data
@@ -63,7 +64,6 @@ class NextDayPredictionAPI(APIView):
             last_entry = NextDayPrediction.objects.latest('date')
             # Find all entries matching last available IST date
             predictions = NextDayPrediction.objects.filter(date=last_entry.date).order_by('hour')
-            print(predictions)
 
         serializer = NextDayPredictionSerializer(predictions, many=True)
         # Aggregate statistics
@@ -77,7 +77,16 @@ class NextDayPredictionAPI(APIView):
         )
         # Format response
         response_data = {
-            "predictions": serializer.data,
+            "predictions": [
+                {
+                    "id": entry["id"],
+                    "date": entry["date"],
+                    "hour": entry["hour"],
+                    "mcv_prediction": round(entry["mcv_prediction"], 2) if entry["mcv_prediction"] is not None else None,
+                    "mcp_prediction": round(entry["mcp_prediction"], 2) if entry["mcp_prediction"] is not None else None
+                }
+                for entry in serializer.data
+            ],
             "statistics": {
                 "mcv": {
                     "max": stats["max_mcv"],
@@ -258,7 +267,7 @@ class ConsumerDayAheadDemandAPI(APIView):
 
         # Bulk insert the data
         ConsumerDayAheadDemand.objects.bulk_create(data_list)
-
+        send_notification(requirement.user.id, f'Your trade will execute tomorrow at 10 AM.')
         return Response({"message": "Data uploaded successfully"}, status=status.HTTP_201_CREATED)
     
 class ConsumerMonthAheadDemandAPI(APIView):
@@ -344,7 +353,7 @@ class ConsumerMonthAheadDemandAPI(APIView):
             # Bulk insert for efficiency
             ConsumerMonthAheadDemandDistribution.objects.bulk_create(distributions)
 
-        return Response({"message": "Data processed successfully"}, status=status.HTTP_201_CREATED)
+        return Response({"message": "Data added successfully"}, status=status.HTTP_201_CREATED)
 
 def send_notification(user_id, message):
     """
@@ -639,3 +648,99 @@ class GeneratorDashboardAPI(APIView):
         wind_portfolios = WindPortfolio.objects.filter(user=user_id).values()
         ess_portfolios = ESSPortfolio.objects.filter(user=user_id).values()
         return Response({"solar": list(solar_portfolios), "wind": list(wind_portfolios), "ess": list(ess_portfolios)}, status=status.HTTP_200_OK)
+
+class ModelStatisticsAPI(APIView):
+    def get(self, request):
+        today = date.today()
+
+        # Get today's data from both models
+        next_day_data = NextDayPrediction.objects.filter(date=today)
+        clean_data = CleanData.objects.filter(date=today)
+
+        if not (next_day_data.exists() and clean_data.exists()):  # If today's data is missing in any model
+            # Find the last available date in both models
+            last_clean_date = CleanData.objects.aggregate(max_date=Max('date'))['max_date']
+            last_next_day_date = NextDayPrediction.objects.aggregate(max_date=Max('date'))['max_date']
+
+            # Determine the common latest date
+            if last_clean_date and last_next_day_date:
+                common_latest_date = min(last_clean_date, last_next_day_date)
+            else:
+                common_latest_date = last_clean_date or last_next_day_date  # Use whichever is available
+
+            # Fetch data from the common latest date
+            next_day_data = NextDayPrediction.objects.filter(date=common_latest_date)
+            clean_data = CleanData.objects.filter(date=common_latest_date)
+
+        # Prepare response
+        response_data = {
+            "date": next_day_data.first().date.date() if next_day_data.exists() else clean_data.first().date.date(),
+            "next_day_predictions": [
+                {
+                    "hour": entry.hour,
+                    "mcv_prediction": round(entry.mcv_prediction, 2),
+                    "mcp_prediction": round(entry.mcp_prediction, 2)
+                }
+                for entry in next_day_data
+            ],
+            "clean_data": [
+                {
+                    "hour": entry.hour,
+                    "mcv_total": entry.mcv_total,
+                    "mcp": entry.mcp
+                }
+                for entry in clean_data
+            ]
+        }
+
+        return Response(response_data)
+
+class ModelStatisticsMonthAPI(APIView):
+    def get(self, request):
+        today = date.today()
+
+        # Find the last available date in both models
+        last_clean_date = CleanData.objects.aggregate(max_date=Max('date'))['max_date']
+        last_month_date = MonthAheadPrediction.objects.aggregate(max_date=Max('date'))['max_date']
+
+        # Determine the common latest date
+        if last_clean_date and last_month_date:
+            common_latest_date = min(last_clean_date, last_month_date)
+        else:
+            common_latest_date = last_clean_date or last_month_date  # Use whichever is available
+
+        if not common_latest_date:
+            return Response({"error": "No data available"}, status=404)
+
+        # Calculate the start date for the last 30 days
+        start_date = common_latest_date - timedelta(days=30)
+
+        # Fetch data for the last 30 days
+        month_data = MonthAheadPrediction.objects.filter(date__range=[start_date, common_latest_date])
+        clean_data = CleanData.objects.filter(date__range=[start_date, common_latest_date])
+
+        # Prepare response
+        response_data = {
+            "start_date": start_date.date(),
+            "end_date": common_latest_date.date(),
+            "month_predictions": [
+                {
+                    "date": entry.date.date(),
+                    "hour": entry.hour,
+                    "mcv_prediction": round(entry.mcv_prediction, 2) if entry.mcv_prediction else None,
+                    "mcp_prediction": round(entry.mcp_prediction, 2) if entry.mcp_prediction else None
+                }
+                for entry in month_data
+            ],
+            "clean_data": [
+                {
+                    "date": entry.date.date(),
+                    "hour": entry.hour,
+                    "mcv_total": entry.mcv_total,
+                    "mcp": entry.mcp
+                }
+                for entry in clean_data
+            ]
+        }
+
+        return Response(response_data)

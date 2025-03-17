@@ -106,9 +106,9 @@ def process_and_store_data(date_input: str):
         print(type(raw_data))
         cleaned_data = clean_and_process_data(raw_data)
 
-        current_dir = os.path.dirname(os.path.abspath(__file__)) 
-        file_path = os.path.join(current_dir, "files", f"cleaned_data_{date_input}.xlsx")
-        cleaned_data.to_excel(file_path, index=True)
+        # current_dir = os.path.dirname(os.path.abspath(__file__)) 
+        # file_path = os.path.join(current_dir, "files", f"cleaned_data_{date_input}.xlsx")
+        # cleaned_data.to_excel(file_path, index=True)
 
         cleaned_data_dict = cleaned_data.reset_index().to_dict(orient="records")
 

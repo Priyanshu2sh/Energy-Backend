@@ -45,7 +45,11 @@ def fetch_previous_2880_blocks():
     if 'hour' in df.columns:
         df['hour'] = pd.to_numeric(df['hour'], errors='coerce')
 
-    max_date = df['date'].max()
+    # max_date = df['date'].max()
+    max_date = pd.to_datetime("2024-12-31").tz_localize("UTC")
+    print('maxxxxxxxx')
+    # print(max_date)
+
     date_1_month_ago = max_date - pd.Timedelta(days=39)
     previous_2880_data = df[df['date'] > date_1_month_ago]
     previous_2880_data = previous_2880_data.sort_values(by=["date", "hour"], ascending=True)
@@ -76,12 +80,11 @@ def fetch_previous_2880_blocks():
 
     # Adjust the hour column to be sequential and reset after 24
     df_hourly['hour'] = (df_hourly.index % 24) + 1
-    print('leneeeeeeeee ', len(df_hourly))
-    print('dggggggggggg',df_hourly)
+    
     return df_hourly
 
 def preprocess_data(previous_2880_data):
-    print('22222222222222 ', len(previous_2880_data))
+    
     if 'date' not in previous_2880_data.columns:
         raise ValueError("The 'Date' column is missing from the DataFrame.")
 
@@ -89,7 +92,6 @@ def preprocess_data(previous_2880_data):
 
     columns_to_drop = ['year', 'month', 'day']
     latest_data = previous_2880_data.drop(columns=[col for col in columns_to_drop if col in previous_2880_data.columns], errors='ignore')
-    print(latest_data.columns.tolist())
 
     latest_data['year'] = latest_data['date'].dt.year
     latest_data['month'] = latest_data['date'].dt.month
@@ -117,7 +119,6 @@ def preprocess_data(previous_2880_data):
     latest_data = latest_data[cols]
     latest_data = latest_data.set_index('date')
 
-    print('pppppppppppp ', len(latest_data))
     return latest_data
 
 def feature_selection_and_scaling(latest_data, target):

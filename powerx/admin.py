@@ -24,3 +24,5 @@ class NextDayPredictionAdmin(admin.ModelAdmin):
 @admin.register(MonthAheadPrediction)
 class MonthAheadPredictionAdmin(admin.ModelAdmin):
     list_display = ['date', 'hour', 'mcv_prediction', 'mcp_prediction']
+
+admin.site.register(Notifications)
