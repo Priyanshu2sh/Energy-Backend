@@ -144,16 +144,28 @@ class MonthAheadPredictionAPI(APIView):
                 }
             })
 
+        # Find overall highest, lowest, and average across 30 days, including dates
+        highest_mcv = max(daily_data, key=lambda d: d["mcv_prediction"]["avg"] if d["mcv_prediction"]["avg"] is not None else float('-inf'))
+        lowest_mcv = min(daily_data, key=lambda d: d["mcv_prediction"]["avg"] if d["mcv_prediction"]["avg"] is not None else float('inf'))
+
+        highest_mcp = max(daily_data, key=lambda d: d["mcp_prediction"]["avg"] if d["mcp_prediction"]["avg"] is not None else float('-inf'))
+        lowest_mcp = min(daily_data, key=lambda d: d["mcp_prediction"]["avg"] if d["mcp_prediction"]["avg"] is not None else float('inf'))
+
+
         # Find overall highest, lowest, and average across 30 days
         overall_stats = {
             "mcv_prediction": {
-                "highest": max(d["mcv_prediction"]["avg"] for d in daily_data if d["mcv_prediction"]["avg"] is not None),
-                "lowest": min(d["mcv_prediction"]["avg"] for d in daily_data if d["mcv_prediction"]["avg"] is not None),
+                "highest": highest_mcv["mcv_prediction"]["avg"],
+                "highest_date": highest_mcv["date"],
+                "lowest": lowest_mcv["mcv_prediction"]["avg"],
+                "lowest_date": lowest_mcv["date"],
                 "average": round(sum(d["mcv_prediction"]["avg"] for d in daily_data if d["mcv_prediction"]["avg"] is not None) / len(daily_data), 2),
             },
             "mcp_prediction": {
-                "highest": max(d["mcp_prediction"]["avg"] for d in daily_data if d["mcp_prediction"]["avg"] is not None),
-                "lowest": min(d["mcp_prediction"]["avg"] for d in daily_data if d["mcp_prediction"]["avg"] is not None),
+                "highest": highest_mcp["mcp_prediction"]["avg"],
+                "highest_date": highest_mcp["date"],
+                "lowest": lowest_mcp["mcp_prediction"]["avg"],
+                "lowest_date": lowest_mcp["date"],
                 "average": round(sum(d["mcp_prediction"]["avg"] for d in daily_data if d["mcp_prediction"]["avg"] is not None) / len(daily_data), 2),
             }
         }
