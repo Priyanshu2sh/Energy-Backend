@@ -20,21 +20,6 @@ from django.utils.crypto import get_random_string
 from thefuzz import fuzz
 
 
-import logging
-
-logger = logging.getLogger(__name__)
-
-def custom_print(*args, **kwargs):
-    message = " ".join(str(arg) for arg in args)
-    logger.debug(message)
-
-# Override print globally
-import builtins
-builtins.print = custom_print
-
-# Now, all `print()` calls will use logging instead
-
-
 class JWTAuthentication(BaseAuthentication):
     def authenticate(self, request):
         # Get Authorization header

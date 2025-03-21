@@ -58,6 +58,10 @@ LOGGING = {
     },
 }
 
+import builtins
+
+builtins.print = lambda *args, **kwargs: None  # Disables all print() calls
+
 
 
 # Application definition
