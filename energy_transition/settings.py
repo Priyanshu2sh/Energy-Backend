@@ -224,16 +224,16 @@ LOGGING = {
     },
     'handlers': {
         'file': {
-            'level': 'ERROR',
+            'level': 'ERROR',  # Only log ERROR level messages
             'class': 'logging.FileHandler',
-            'filename': 'logs/django_errors.log',
-            'formatter': 'verbose',  # Attach the formatter
+            'filename': 'logs/django_errors.log',  # Ensure this path is correct
+            'formatter': 'verbose',
         },
     },
     'loggers': {
         'django': {
             'handlers': ['file'],
-            'level': 'ERROR',
+            'level': 'ERROR',  # Only log ERROR level messages
             'propagate': True,
         },
     },
