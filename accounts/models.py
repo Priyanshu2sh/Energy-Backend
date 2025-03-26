@@ -59,6 +59,7 @@ class User(AbstractUser, PermissionsMixin):
     verified_at = models.DateTimeField(blank=True, null=True)  # Verification timestamp
     is_new_user = models.BooleanField(default=True)  # Assume user is new by default
     re_index = models.CharField(max_length=255, blank=True, null=True)
+    credit_rating = models.CharField(max_length=255, blank=True, null=True)
     last_visited_page = models.CharField(max_length=255, null=True, blank=True)
     selected_requirement_id = models.IntegerField(null=True, blank=True)
     registration_token = models.CharField(max_length=64, blank=True, null=True)  # Token for password setup

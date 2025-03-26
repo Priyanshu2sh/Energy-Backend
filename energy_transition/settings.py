@@ -14,7 +14,6 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 import pymysql
-import logging
 pymysql.install_as_MySQLdb()
 
 # Load environment variables from .env file
@@ -35,32 +34,28 @@ DEBUG = os.getenv("DEBUG") == "True"
 
 ALLOWED_HOSTS = []
 
-LOG_DIR = os.path.join(BASE_DIR, "logs")
-if not os.path.exists(LOG_DIR):
-    os.makedirs(LOG_DIR)  # Ensure the logs directory exists
+# LOG_DIR = os.path.join(BASE_DIR, "logs")
+# if not os.path.exists(LOG_DIR):
+#     os.makedirs(LOG_DIR)  # Ensure the logs directory exists
 
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'handlers': {
         'file': {
-            'level': 'DEBUG',
+            'level': 'ERROR',
             'class': 'logging.FileHandler',
-            'filename': 'logs/django_debug.log',
+            'filename': 'logs/django_errors.log',
         },
     },
     'loggers': {
         'django': {
             'handlers': ['file'],
-            'level': 'DEBUG',
+            'level': 'ERROR',
             'propagate': True,
         },
     },
 }
-
-import builtins
-
-builtins.print = lambda *args, **kwargs: None  # Disables all print() calls
 
 
 
