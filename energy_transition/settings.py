@@ -10,7 +10,9 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
+import builtins
 import os
+import sys
 from pathlib import Path
 from dotenv import load_dotenv
 import pymysql
@@ -32,31 +34,18 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG") == "True"
 
-ALLOWED_HOSTS = []
+# Check if the environment is production
+ENVIRONMENT = os.environ.get('DJANGO_ENV', 'local')
 
-# LOG_DIR = os.path.join(BASE_DIR, "logs")
-# if not os.path.exists(LOG_DIR):
-#     os.makedirs(LOG_DIR)  # Ensure the logs directory exists
-
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'handlers': {
-        'file': {
-            'level': 'ERROR',
-            'class': 'logging.FileHandler',
-            'filename': 'logs/django_errors.log',
-        },
-    },
-    'loggers': {
-        'django': {
-            'handlers': ['file'],
-            'level': 'ERROR',
-            'propagate': True,
-        },
-    },
-}
-
+if ENVIRONMENT == 'production':
+    # Disable print statements in production
+    def print(*args, **kwargs):
+        pass  # Do nothing
+else:
+    # Redirect print output to stderr for better visibility
+    def print(*args, **kwargs):
+        kwargs['file'] = sys.stderr
+        builtins.print(*args, **kwargs)
 
 
 # Application definition
@@ -239,3 +228,33 @@ SUREPASS_API_KEY = os.getenv("SUREPASS_API_KEY")
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'file': {
+            'level': 'ERROR',
+            'class': 'logging.FileHandler',
+            'filename': 'logs/django_errors.log',
+            'formatter': 'verbose',  # Specify the formatter to use
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file'],
+            'level': 'ERROR',
+            'propagate': True,
+        },
+    },
+}
