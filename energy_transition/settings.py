@@ -231,12 +231,17 @@ LOGGING = {
         },
     },
     'loggers': {
+        'django': {  # General Django logs
+            'handlers': ['file'],
+            'level': 'ERROR',
+            'propagate': True,
+        },
         'django.request': {  # Log unhandled exceptions
             'handlers': ['file'],
             'level': 'ERROR',
-            'propagate': False,
+            'propagate': True,
         },
-        'django': {  # General Django logs
+        'django.server': {  # Log internal server errors with timestamp
             'handlers': ['file'],
             'level': 'ERROR',
             'propagate': True,
