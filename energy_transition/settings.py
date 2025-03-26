@@ -239,12 +239,12 @@ LOGGING = {
         'django.request': {  # Log unhandled exceptions
             'handlers': ['file'],
             'level': 'ERROR',
-            'propagate': True,
+            'propagate': False,
         },
         'django.server': {  # Log internal server errors with timestamp
             'handlers': ['file'],
             'level': 'ERROR',
-            'propagate': True,
+            'propagate': False,
         },
     },
 }
