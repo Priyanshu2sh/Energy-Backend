@@ -48,8 +48,7 @@ class RegisterUser(APIView):
 
     @staticmethod
     def send_sms_otp(mobile_number, otp):
-        print('otp sent')
-        print(mobile_number)
+        
         # Twilio Client initialization
         client = Client(settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
 
@@ -61,13 +60,10 @@ class RegisterUser(APIView):
             from_=settings.TWILIO_PHONE_NUMBER,
             to=f'+91{mobile_number}'
         )
-        print(f"Message SID: {message.sid}")
-        # except Exception as e:
-        #     print(f"Failed to send OTP via SMS: {e}")
+        
 
     def post(self, request):
         data = request.data
-        print(data)
         email = data.get('email')
         user_category = data.get('user_category')
         domain = email.split('@')[-1] if email else None
@@ -94,13 +90,12 @@ class RegisterUser(APIView):
         #             response_data = response.json()
         #             # Assuming the API returns a 'company_name' field in the response
         #             response_data = response_data['data']
-        #             print('api response======')
-        #             print(response_data)
+        #             
         #             company_from_api = response_data['company_name'].strip().lower()
         #             company_name = company_name.strip().lower()
 
         #             similarity_score = fuzz.ratio(company_name, company_from_api)
-        #             print(similarity_score)
+        #             
         #             if similarity_score <= 95:
         #                 return Response(
         #                 {'error': 'The provided CIN does not match the company name.'},
