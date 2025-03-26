@@ -46,6 +46,7 @@ LOGGING = {
             'level': 'ERROR',
             'class': 'logging.FileHandler',
             'filename': 'logs/django_errors.log',
+            'formatter': 'verbose',  # Attach the formatter
         },
     },
     'loggers': {
