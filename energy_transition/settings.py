@@ -10,9 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
-import builtins
 import os
-import sys
 from pathlib import Path
 from dotenv import load_dotenv
 import pymysql
@@ -33,19 +31,6 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG") == "True"
-
-# Check if the environment is production
-ENVIRONMENT = os.environ.get('DJANGO_ENV', 'local')
-
-if ENVIRONMENT == 'production':
-    # Disable print statements in production
-    def print(*args, **kwargs):
-        pass  # Do nothing
-else:
-    # Redirect print output to stderr for better visibility
-    def print(*args, **kwargs):
-        kwargs['file'] = sys.stderr
-        builtins.print(*args, **kwargs)
 
 
 # Application definition
