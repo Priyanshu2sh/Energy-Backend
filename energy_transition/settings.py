@@ -219,7 +219,7 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} {message}',
+            'format': '{levelname} {asctime} {module} {message} {exc_info}',
             'style': '{',
         },
         'simple': {
@@ -232,7 +232,7 @@ LOGGING = {
             'level': 'ERROR',
             'class': 'logging.FileHandler',
             'filename': 'logs/django_errors.log',
-            'formatter': 'verbose',  # Specify the formatter to use
+            'formatter': 'verbose',
         },
     },
     'loggers': {
