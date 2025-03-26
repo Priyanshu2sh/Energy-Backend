@@ -167,7 +167,7 @@ class GenerationPortfolioAPI(APIView):
         # Handle Base64-encoded file
         file_data = request.data.get("hourly_data")
         if file_data:
-            try:
+            # try:
                 # Decode Base64 file
                 decoded_file = base64.b64decode(file_data)
                 # Define a file name (customize as needed)
@@ -185,6 +185,9 @@ class GenerationPortfolioAPI(APIView):
                         
                         # Read the Excel file into a DataFrame
                         df = pd.read_excel(file_stream)
+
+                        # Convert only the second column to float (keeping NaN values)
+                        df.iloc[:, 1] = pd.to_numeric(df.iloc[:, 1], errors='coerce')
                     except Exception as e:
                         return Response({"error": f"Invalid file format: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -201,12 +204,27 @@ class GenerationPortfolioAPI(APIView):
                             },
                             status=status.HTTP_400_BAD_REQUEST,
                         )
+                
+                # Get the maximum value from the second column (ignoring NaNs)
+                max_value = df.iloc[:, 1].max(skipna=True)
+
+                # Get available capacity
+                available_capacity = float(request.data.get("available_capacity"))  # Ensure `available_capacity` exists in the model
+
+                # Check if max_value exceeds 80% of available_capacity
+                if float(max_value) > (0.8 * available_capacity):
+                    return Response(
+                        {
+                            "error": f"Uploaded data exceeds 80% of available capacity. Max value: {max_value}, Allowed: {0.8 * available_capacity}"
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
                 # Add the validated file to the request data
                 request.data["hourly_data"] = file_content
 
-            except Exception as e:
-                return Response({"error": f"{str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            # except Exception as e:
+            #     return Response({"error": f"{str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
 
         serializer = serializer_class(instance, data=request.data)
@@ -500,7 +518,7 @@ class CSVFileAPI(APIView):
 
             # Process each row in the CSV file
             for row in csv_reader:
-                print(row)
+                
                 try:
                     monthly_consumption = MonthlyConsumptionData.objects.get(requirement=requirement, month=row['Month'])
                     
@@ -518,7 +536,7 @@ class CSVFileAPI(APIView):
             return Response({'message': 'Success'}, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            print(str(e))
+            
             return Response(
                 {"error": f"An error occurred while processing the file: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -644,9 +662,7 @@ class MatchingIPPAPI(APIView):
                 Q(state=requirement.state) | Q(connectivity="CTU"),
             ).values("user", "user__username", "state", "available_capacity", "updated")
         
-            print('solar.....', solar_data)
-            print('wind.....', wind_data)
-            print('ess.....', ess_data)
+            
             # Combine all data
             combined_data = list(chain(solar_data, wind_data, ess_data))
 
@@ -659,8 +675,7 @@ class MatchingIPPAPI(APIView):
 
             # Extract the unique entries and sort by capacity in descending order
             unique_data = list(unique_users.values())
-            print('unique data...........')
-            print(unique_data)
+            
             # Check if users have an active subscription
             filtered_data = []
             for entry in unique_data:
@@ -675,15 +690,14 @@ class MatchingIPPAPI(APIView):
                     WindPortfolio.objects.filter(user=user_id, updated=False).exists() or
                     ESSPortfolio.objects.filter(user=user_id, updated=False).exists()
                 )
-                print(has_not_updated)
                 
                 if not is_subscribed:
-                    print('not subscribed...........')
+                    
                     # Send notification to user
                     message = f"Your subscription is inactive. Please subscribe to start receiving and accepting offers."
                     send_notification(user.id, message) 
                 elif has_not_updated:
-                    print('not updated...........')
+                    
                     # Send notification for outdated portfolio
                     message = f"Your portfolios are not updated yet. Please update them to start receiving and accepting offers."
                     send_notification(user.id, message) 
@@ -705,8 +719,7 @@ class MatchingIPPAPI(APIView):
 
             # Get only the top 3 matches
             top_three_matches = sorted_data[:3]
-            print('top three matched...........')
-            print(top_three_matches)
+            
 
             # Extract user IDs from the top three matches
             user_ids = [match["user"] for match in top_three_matches]
@@ -719,8 +732,7 @@ class MatchingIPPAPI(APIView):
             # Return the top three matches as the response
             return Response(top_three_matches, status=status.HTTP_200_OK)
         except Exception as e:
-            print('error====')
-            print(e)
+            
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class MatchingConsumerAPI(APIView):
@@ -798,12 +810,10 @@ class MatchingConsumerAPI(APIView):
 
                 # Exclude users who do not have monthly consumption data for all 12 months
                 users_with_complete_consumption = MonthlyConsumptionData.objects.filter(requirement=requirement)
-                print('monthly ', len(users_with_complete_consumption))
-
+                
                 # Check if hourly demand data is available for any requirement
                 users_with_hourly_demand = HourlyDemand.objects.filter(requirement=requirement)
-                print('hourly ', users_with_hourly_demand)
-
+                
                 if len(users_with_complete_consumption) != 12 and not users_with_hourly_demand:
 
                     # Add the consumer to the notification list
@@ -942,8 +952,7 @@ class OptimizeCapacityAPI(APIView):
         # Update the HourlyDemand model
         consumer_demand.set_hourly_data_from_list(all_hourly_data)
         consumer_demand.save()
-        print('-----------all_hourly_data-----------')
-        print(all_hourly_data)
+        
         # Return the data in the desired flat format
         return pd.Series(all_hourly_data)
 
@@ -1021,7 +1030,7 @@ class OptimizeCapacityAPI(APIView):
                         cod__lte=consumer_requirement.procurement_date
                     )
 
-
+                    
                     # separating combinations based on connectivity 
                     solar_data = solar_data.filter(connectivity=connectivity)
                     wind_data = wind_data.filter(connectivity=connectivity)
@@ -1030,11 +1039,7 @@ class OptimizeCapacityAPI(APIView):
                     solar_project = []
                     wind_project = []
                     ess_project = []
-                    print('matched======')
-                    print(solar_data)
-                    print(wind_data)
-                    print(ess_data)
-                    print('matched======')
+                    
 
                     # Initialize data for the current generator
                     input_data[generator.username] = {}
@@ -1093,8 +1098,7 @@ class OptimizeCapacityAPI(APIView):
                                 "capital_cost": ess.capital_cost,
                             }
 
-                print('===================input data===================')
-                print(input_data)
+                pri
                 # Extract generator name and project lists
                 # gen = next(iter(input_data.keys()))
                 # solar_projects = list(input_data[gen]['Solar'].keys()) if 'Solar' in input_data[gen] else []
@@ -1140,8 +1144,7 @@ class OptimizeCapacityAPI(APIView):
                         # monthly data conversion in hourly data
                         hourly_demand = self.calculate_hourly_demand(consumer_requirement)
 
-                    print('hourly demand=========')
-                    print(hourly_demand)
+                    
                 
                     # 8760 rows should be there if more then remove extra and if less then show error
                     if len(hourly_demand) > 8760:
@@ -1155,9 +1158,7 @@ class OptimizeCapacityAPI(APIView):
                         for combination_key, details in response_data.items():
                         # Extract user and components from combination_key
                             components = combination_key.split('-')
-                            print('components==========')
-                            print(components)
-                            print('components==========')
+                            
 
                             # Safely extract components, ensuring that we have enough elements
                             username = components[0] if len(components) > 0 else None  # Example: 'IPP241'
@@ -1252,7 +1253,7 @@ class OptimizeCapacityAPI(APIView):
                             OA_cost = (details["Final Cost"] - details['Per Unit Cost']) / 1000
                             details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
                             details['Final Cost'] = details['Final Cost'] / 1000
-                            details["Annual Demand Met"] = (details["Annual Demand Met"] * 24) / 1000000
+                            details["Annual Demand Met"] = (details["Annual Demand Met"] * 24) / 1000
 
                            # Update the aggregated response dictionary
                             if combination_key not in aggregated_response:
@@ -1269,8 +1270,7 @@ class OptimizeCapacityAPI(APIView):
                             else:
                                 # Merge the details if combination already exists
                                 aggregated_response[combination_key].update(details)
-                            print('===================aggregated_response===================')
-                            print(aggregated_response[combination_key])
+                            
                     
                     # Handle missing valid_combinations that are not in response_data
             #         for combination_key in valid_combinations:
@@ -1329,9 +1329,7 @@ class OptimizeCapacityAPI(APIView):
                 return Response({"error": "The demand cannot be met by the IPPs."}, status=status.HTTP_200_OK)
             elif not aggregated_response and optimize_capacity_user=='Generator':
                 return Response({"error": "The demand cannot be made by your projects."}, status=status.HTTP_200_OK)
-            print('==============')
-            print(aggregated_response)
-            print('==============')
+            
 
             # Extract top 3 records with the smallest "Per Unit Cost"
             top_three_records = sorted(aggregated_response.items(), key=lambda x: x[1]['Per Unit Cost'])[:3]
@@ -1343,7 +1341,7 @@ class OptimizeCapacityAPI(APIView):
                 key: round_values(value) for key, value in top_three_records
             }   
 
-            print(top_three_records_rounded)
+            
 
             return Response(top_three_records_rounded, status=status.HTTP_200_OK)
 
@@ -1373,8 +1371,18 @@ class ConsumptionPatternAPI(APIView):
             # Convert the month data to sorted month names (e.g., "Jan", "Feb", "Mar", ...)
             sorted_data = sorted(consumption_data, key=lambda x: datetime.strptime(x['month'], '%B'))
 
+            consumption = MonthlyConsumptionData.objects.filter(requirement=pk).first()
+            consumer = consumption.requirement.user
+
+            # Extract relevant consumer details
+            consumer_details = {
+                "username": consumer.username,
+                "credit_rating": consumer.credit_rating
+            }
+
             # Prepare response with the sorted monthly consumption data
             response_data = {
+                "consumer_details": consumer_details,
                 "monthly_consumption": [
                     {
                         "month": datetime.strptime(entry["month"], '%B').strftime('%b'),  # Convert to short month name (e.g., Jan, Feb)
@@ -1413,7 +1421,7 @@ class StandardTermsSheetAPI(APIView):
                         
                 # Combine the two record sets
                 all_records = records_from_consumer | records_from_generator
-                print(len(all_records), '11111111111')
+                
 
                 if not all_records.exists():
                     return Response({"error": "No Record found."}, status=status.HTTP_404_NOT_FOUND)
@@ -1643,11 +1651,11 @@ class SubscriptionEnrolledAPIView(APIView):
         try:
             user = get_admin_user(pk)
             pk = user.id
-            print(pk)
+            
             subscription = SubscriptionEnrolled.objects.filter(user=pk)
-            print(subscription)
+            
             subscription = SubscriptionEnrolled.objects.filter(user=pk).order_by('start_date').first()
-            print(subscription)
+            
             data = {
                 "id": subscription.id,
                 "user": subscription.user.id,
@@ -1656,7 +1664,7 @@ class SubscriptionEnrolledAPIView(APIView):
                 "end_date": subscription.end_date,
                 "status": subscription.status,
             }
-            print(data)
+            
             return Response(data, status=status.HTTP_200_OK)
         except SubscriptionEnrolled.DoesNotExist:
             return Response({"message": "No subscription found for this user."}, status=status.HTTP_404_NOT_FOUND)
@@ -1773,15 +1781,14 @@ class NegotiateTariffView(APIView):
 
         # Get current time in timezone-aware format
         now_time = timezone.now()
-        print(now_time)
+        
         # Calculate the negotiation window start time (tomorrow at 10:00 AM)
         next_day_date = (now_time + timedelta(days=1)).date()
         next_day_10_am = datetime.combine(next_day_date, time(10, 0))
         next_day_10_am_aware = timezone.make_aware(next_day_10_am, timezone=timezone.get_current_timezone())
         # Define the end time for the negotiation window (e.g., 1 hour after start time)
         end_time = next_day_10_am_aware + timedelta(hours=1)
-        print(next_day_10_am_aware)
-        print(end_time)
+        
         
         # Only consumers can initiate the negotiation
         if user.user_category == 'Generator':
@@ -1829,7 +1836,7 @@ class NegotiateTariffView(APIView):
 
                 # Notify recipients
                 for recipient in matching_ipps:
-                    print(recipient, "recipient")
+                    
                     if recipient.id == user.id:
                         continue
                     try:
@@ -1857,8 +1864,7 @@ class NegotiateTariffView(APIView):
                         )
 
                         invitation = NegotiationInvitation.objects.create(negotiation_window=negotiation_window, user=recipient_user)
-                        print(invitation)
-                        print('invited!!!!!!!!!!!!!!')
+                        
 
                     except User.DoesNotExist:
                         continue
@@ -1980,8 +1986,7 @@ class NegotiateTariffView(APIView):
                     )
 
                     invitation = NegotiationInvitation.objects.create(negotiation_window=negotiation_window, user=recipient_user)
-                    print(invitation)
-                    print('invited!!!!!!!!!!!!!!')
+                    
                     
                 except User.DoesNotExist:
                     continue
@@ -2030,13 +2035,14 @@ class NegotiationWindowListAPI(APIView):
         response_data = []
         for window in negotiation_windows:
             tariff = Tariffs.objects.get(terms_sheet=window.terms_sheet.id)
+            combination = Combination.objects.get(id=window.terms_sheet.combination.id)
             response_data.append({
                 "window_id": window.id,
                 "window_name": window.name,
                 "terms_sheet_id": window.terms_sheet.id,
                 "tariff_id": tariff.id,
                 "offer_tariff": round(tariff.offer_tariff, 2),
-                "tariff_status": tariff.window_status,
+                "tariff_status": "upcoming" if window.start_time > timezone.now() else tariff.window_status,
                 "start_time": localtime(window.start_time).strftime('%Y-%m-%d %H:%M:%S'),
                 "end_time": localtime(window.end_time).strftime('%Y-%m-%d %H:%M:%S'),
                 "t_consumer": window.terms_sheet.consumer.id,
@@ -2056,6 +2062,9 @@ class NegotiationWindowListAPI(APIView):
                 "rq_procurement_date": window.terms_sheet.combination.requirement.procurement_date,
                 "rq_consumption_unit": window.terms_sheet.combination.requirement.consumption_unit,
                 "rq_annual_electricity_consumption": window.terms_sheet.combination.requirement.annual_electricity_consumption,
+                "c_optimal_solar_capacity": round(combination.optimal_solar_capacity, 2),
+                "c_optimal_wind_capacity": round(combination.optimal_wind_capacity, 2),
+                "c_optimal_battery_capacity": round(combination.optimal_battery_capacity, 2),
             })
 
 
@@ -2182,7 +2191,7 @@ class AnnualSavingsView(APIView):
             return Response({"error": "Grid tariff data not found for the state"}, status=status.HTTP_404_NOT_FOUND)
 
         except Exception as e:
-            print(e)
+            
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
 class WhatWeOfferAPI(APIView):
@@ -2385,7 +2394,7 @@ class RazorpayClient():
             order_data = client.order.create(data=data)
             return order_data
         except Exception as e:
-            print(str(e))
+            
             raise ValidationError(
                 {
                     "message": e
@@ -2454,7 +2463,7 @@ class PaymentTransactionAPI(APIView):
             }
             
             subscription_response = requests.post(
-                "http://192.168.1.34:8001/api/energy/subscriptions",
+                "http://127.0.0.1:8000/api/energy/subscriptions",
                 json=subscription_data
             )
 
@@ -2465,8 +2474,6 @@ class PaymentTransactionAPI(APIView):
                 )
             else:
                 # Debugging: Print response status and content
-                print(f"Response Status Code: {subscription_response.status_code}")
-                print(f"Response Content: {subscription_response.text}")
                 try:
                     response_json = subscription_response.json()
                 except requests.exceptions.JSONDecodeError:
@@ -2538,7 +2545,6 @@ class PerformaInvoiceAPI(APIView):
                     performa_invoice = serializer.save()
                     message = "Performa Invoice created successfully"
                 else:
-                    print(serializer.errors)
                     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
             # Serialize the invoice (updated or newly created)
@@ -2650,8 +2656,7 @@ class CapacitySizingAPI(APIView):
         # Update the HourlyDemand model
         generator_demand.set_hourly_data_from_list(all_hourly_data)
         generator_demand.save()
-        print('-----------all_hourly_data-----------')
-        print(all_hourly_data)
+        
         # Return the data in the desired flat format
         return pd.Series(all_hourly_data)
 
@@ -2716,7 +2721,7 @@ class CapacitySizingAPI(APIView):
                     monthly_consumption.monthly_bill_amount=float(row['Monthly Bill Amount'])
                     monthly_consumption.save()
             except Exception as e:
-                print(e)
+                
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         else:
@@ -2797,13 +2802,11 @@ class CapacitySizingAPI(APIView):
                         "marginal_cost": ess.marginal_cost,
                         "capital_cost": ess.capital_cost,
                     }
-            print('===================input data===================')
-            print(input_data)
+            
             
             valid_combinations = []  
 
-            print('nnnnnnn')
-            print(consumption_name)
+            
             GeneratorHourlyDemand.objects.get_or_create(consumption=consumption_name)
             hourly_demand = GeneratorHourlyDemand.objects.get(consumption=consumption_name)
 
@@ -2818,8 +2821,6 @@ class CapacitySizingAPI(APIView):
             else:
                 # monthly data conversion in hourly data
                 hourly_demand = self.calculate_hourly_demand(consumption_name)
-            print('hourly demand=========')
-            print(hourly_demand)
         
             # 8760 rows should be there if more then remove extra and if less then show error
             if len(hourly_demand) > 8760:
@@ -2849,9 +2850,6 @@ class CapacitySizingAPI(APIView):
                     # Merge the details if combination already exists
                     aggregated_response[combination_key].update(details)                
             
-            print('==============')
-            print(aggregated_response)
-            print('==============')
 
             # Extract top 3 records with the smallest "Per Unit Cost"
             records = sorted(aggregated_response.items(), key=lambda x: x[1]['Per Unit Cost'])
