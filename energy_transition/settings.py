@@ -220,20 +220,26 @@ LOGGING = {
         'verbose': {
             'format': '{levelname} {asctime} {module} {message}',
             'style': '{',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
         },
     },
     'handlers': {
         'file': {
-            'level': 'ERROR',  # Only log ERROR level messages
+            'level': 'ERROR',
             'class': 'logging.FileHandler',
-            'filename': 'logs/django_errors.log',  # Ensure this path is correct
+            'filename': 'logs/django_errors.log',
             'formatter': 'verbose',
         },
     },
     'loggers': {
-        'django': {
+        'django.request': {  # Log unhandled exceptions
             'handlers': ['file'],
-            'level': 'ERROR',  # Only log ERROR level messages
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        'django': {  # General Django logs
+            'handlers': ['file'],
+            'level': 'ERROR',
             'propagate': True,
         },
     },
