@@ -1,5 +1,9 @@
 import numpy as np
 import pandas as pd
+import logging
+
+logger = logging.getLogger('debug_logger')  # Use the new debug logger
+
 def analyze_network_results(network=None, sell_curtailment_percentage=None, curtailment_selling_price=None,
                             solar_profile=None, wind_profile=None, results_dict=None, OA_cost=None,
                             ess_name=None, solar_name=None, wind_name=None, ipp_name=None):
@@ -145,23 +149,23 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
       })
 
       # Print outputs
-      # print(f"\nOptimal Capacities:")
-      # print(f"Optimal Solar Capacity: {solar_capacity:.2f} MW")
-      # print(f"Optimal Wind Capacity: {wind_capacity:.2f} MW")
-      # print(f"Optimal Battery Capacity: {ess_capacity:.2f} MW")
-      # print(f"Annual Demand Offset: {annual_demand_offset:.2f}%")
-      # print(f"Annual Demand: {annual_demand :.2f}")
-      # print(f"Annual Generation: {annual_generation:.2f}")
-      # print(f"Annual Demand met: {annual_demand_met:.2f}")
-      # print(f"Total Solar Cost: {total_solar_cost:.2f} (Capital: {solar_capital_cost:.2f}, Marginal: {solar_marginal_cost:.2f})")
-      # print(f"Total Wind Cost: {total_wind_cost:.2f} (Capital: {wind_capital_cost:.2f}, Marginal: {wind_marginal_cost:.2f})")
-      # print(f"Total ESS Cost: {total_ess_cost:.2f} (Capital: {ess_capital_cost:.2f}, Marginal: {ess_marginal_cost:.2f})")
-      # print(f"Total Curtailment Cost: {total_curtailment_cost:.2f}")
-      # print(f"Total Cost: {total_cost:.2f}")
-      # print(f"Per unit cost: {per_unit_cost:.2f}")
-      # print(f"Final Cost: {Final_cost:.2f}")
-      # print(f"Annual Curtailment: {excess_percentage:.2f}%")
-      # print(f"Total objective cost: {objective_for_aggregate_cost:.2f}")
+      logger.debug(f"\nOptimal Capacities:")
+      logger.debug(f"Optimal Solar Capacity: {solar_capacity:.2f} MW")
+      logger.debug(f"Optimal Wind Capacity: {wind_capacity:.2f} MW")
+      logger.debug(f"Optimal Battery Capacity: {ess_capacity:.2f} MW")
+      logger.debug(f"Annual Demand Offset: {annual_demand_offset:.2f}%")
+      logger.debug(f"Annual Demand: {annual_demand :.2f}")
+      logger.debug(f"Annual Generation: {annual_generation:.2f}")
+      logger.debug(f"Annual Demand met: {annual_demand_met:.2f}")
+      logger.debug(f"Total Solar Cost: {total_solar_cost:.2f} (Capital: {solar_capital_cost:.2f}, Marginal: {solar_marginal_cost:.2f})")
+      logger.debug(f"Total Wind Cost: {total_wind_cost:.2f} (Capital: {wind_capital_cost:.2f}, Marginal: {wind_marginal_cost:.2f})")
+      logger.debug(f"Total ESS Cost: {total_ess_cost:.2f} (Capital: {ess_capital_cost:.2f}, Marginal: {ess_marginal_cost:.2f})")
+      logger.debug(f"Total Curtailment Cost: {total_curtailment_cost:.2f}")
+      logger.debug(f"Total Cost: {total_cost:.2f}")
+      logger.debug(f"Per unit cost: {per_unit_cost:.2f}")
+      logger.debug(f"Final Cost: {Final_cost:.2f}")
+      logger.debug(f"Annual Curtailment: {excess_percentage:.2f}%")
+      logger.debug(f"Total objective cost: {objective_for_aggregate_cost:.2f}")
 
       if solar_name is not None and wind_name is None and ess_name is not None:
         key =f"{ipp_name}-{solar_name}-{ess_name}"
@@ -191,18 +195,16 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
 
               }
       # results_df.to_excel(f"results_{key}.xlsx", index=False)
-      # print(f"{key} - Optimization successful.")
-      # print(results_dict)
+      logger.debug(f"{key} - Optimization successful.")
+      logger.debug(results_dict)
 
-      # print("Optimization completed successfully.")
+      logger.debug("Optimization completed successfully.")
 
   except ValueError as ve:
-    pass
-      # print(" ")
+    logger.debug(" ")
 
   except Exception as e:
-    pass
-      # print(f"An unexpected error occurred during optimization: {e}")
+    logger.debug(f"An unexpected error occurred during optimization: {e}")
 
 
 
