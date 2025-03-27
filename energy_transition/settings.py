@@ -223,18 +223,33 @@ LOGGING = {
             'format': '%(levelname)s %(asctime)s %(module)s %(message)s',
             'datefmt': '%Y-%m-%d %H:%M:%S',
         },
+        'simple': {  # Simple format for debugging
+            'format': '%(levelname)s %(asctime)s %(message)s',
+            'datefmt': '%Y-%m-%d %H:%M:%S',
+        },
     },
     'handlers': {
-        'file': {
+        'file': {  # Error logs
             'level': 'ERROR',
             'class': 'logging.FileHandler',
             'filename': 'logs/django_errors.log',
             'formatter': 'verbose',
         },
+        'debug_file': {  # Debug logs (to capture print statements)
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': 'logs/django_debug.log',  # Separate file for debug logs
+            'formatter': 'simple',
+        },
+        'console': {  # Optional: log to console as well
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
     },
     'loggers': {
         'django': {  # General Django logs
-            'handlers': ['file'],
+            'handlers': ['file', 'debug_file'],
             'level': 'ERROR',
             'propagate': True,
         },
@@ -243,9 +258,14 @@ LOGGING = {
             'level': 'ERROR',
             'propagate': False,
         },
-        'django.server': {  # Log internal server errors with timestamp
+        'django.server': {  # Log internal server errors
             'handlers': ['file'],
             'level': 'ERROR',
+            'propagate': False,
+        },
+        'debug_logger': {  # New logger for debug and print statements
+            'handlers': ['debug_file', 'console'],  # Logs to both file and console
+            'level': 'DEBUG',
             'propagate': False,
         },
     },

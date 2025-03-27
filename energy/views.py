@@ -47,7 +47,10 @@ import logging
 import traceback
 
 # Get the logger that is configured in the settings
-logger = logging.getLogger('django')
+traceback_logger = logging.getLogger('django')
+import logging
+
+logger = logging.getLogger('debug_logger')  # Use the new debug logger
 
 # Create your views here.
 
@@ -2225,7 +2228,7 @@ class AnnualSavingsView(APIView):
 
         except Exception as e:
             tb = traceback.format_exc()  # Get the full traceback
-            logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
+            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
 class WhatWeOfferAPI(APIView):
