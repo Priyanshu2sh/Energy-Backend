@@ -43,6 +43,11 @@ from django.db.models import Count, Q
 import secrets
 from django_celery_beat.models import PeriodicTask, ClockedSchedule, CrontabSchedule
 import json
+import logging
+import traceback
+
+# Get the logger that is configured in the settings
+logger = logging.getLogger('django')
 
 # Create your views here.
 
@@ -2219,7 +2224,8 @@ class AnnualSavingsView(APIView):
             return Response({"error": "Grid tariff data not found for the state"}, status=status.HTTP_404_NOT_FOUND)
 
         except Exception as e:
-            
+            tb = traceback.format_exc()  # Get the full traceback
+            logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
 class WhatWeOfferAPI(APIView):
