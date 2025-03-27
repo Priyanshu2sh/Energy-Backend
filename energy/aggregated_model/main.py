@@ -75,7 +75,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                         ess_name = ess_system
 
                         # Process combination of Solar, Wind, and Battery
-                        print(f"IPP : {ipp} Combination of Solar: {solar_project}, Wind: {wind_project}, Battery: {ess_name}")
+                        # print(f"IPP : {ipp} Combination of Solar: {solar_project}, Wind: {wind_project}, Battery: {ess_name}")
 
                         # if f'{ipp}-{solar_project}-{wind_project}-{ess_name}' in valid_combinations:
                         #     continue
@@ -113,7 +113,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
 
 
                         # Process combination of Solar, Wind, and Battery
-                    print(f"IPP : {ipp} Combination of Solar: {solar_project}, Wind: {wind_project}")
+                    # print(f"IPP : {ipp} Combination of Solar: {solar_project}, Wind: {wind_project}")
 
                     # if f'{ipp}-{solar_project}-{wind_project}' in valid_combinations:
                     #         continue
@@ -161,7 +161,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                         ess_name = ess_system
 
                         # Process combination of Solar, Wind, and Battery
-                        print(f"IPP : {ipp} Combination of Solar: {solar_project}, Battery: {ess_name}")
+                        # print(f"IPP : {ipp} Combination of Solar: {solar_project}, Battery: {ess_name}")
 
                         # if f'{ipp}-{solar_project}-{ess_name}' in valid_combinations:
                         #     continue
@@ -208,7 +208,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                         ess_name = ess_system
 
                         # Process combination of Solar, Wind, and Battery
-                        print(f"IPP : {ipp} Combination of Wind: {wind_project}, Battery: {ess_name}")
+                        # print(f"IPP : {ipp} Combination of Wind: {wind_project}, Battery: {ess_name}")
 
                         # if f'{ipp}-{wind_project}-{ess_name}' in valid_combinations:
                         #     continue
@@ -241,7 +241,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                 Wind_maxCapacity = wind_projects[wind_project]['max_capacity']
                 wind_name=wind_project
 
-                print(f"IPP : {ipp} Combination of wind: {wind_project}")
+                # print(f"IPP : {ipp} Combination of wind: {wind_project}")
 
                 # if f'{ipp}-{wind_project}' in valid_combinations:
                 #             continue
@@ -270,7 +270,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                 Solar_maxCapacity = solar_projects[solar_project]['max_capacity']
                 solar_name=solar_project
 
-                print(f"IPP : {ipp} Combination of Solar: {solar_project}")
+                # print(f"IPP : {ipp} Combination of Solar: {solar_project}")
 
                 # if f'{ipp}-{solar_project}' in valid_combinations:
                 #             continue
@@ -307,6 +307,6 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
       sorted_dict = sorted_results.to_dict(orient="index")
       return sorted_dict
     else:
-      print("The demand cannot be met by the IPPs")
+    #   print("The demand cannot be met by the IPPs")
       return "The demand cannot be met by the IPPs"
 

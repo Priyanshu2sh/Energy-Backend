@@ -17,8 +17,8 @@ User = get_user_model()
 
 
 class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
-    ALLOWED_START_TIME = time(9, 0)
-    ALLOWED_END_TIME = time(14, 43)
+    ALLOWED_START_TIME = time(10, 0)
+    ALLOWED_END_TIME = time(20, 0)
 
     async def connect(self):
         """Handles WebSocket connection.
@@ -58,8 +58,6 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
                 await self.close()
                 return
 
-        print('self.tariff_id')
-        print(self.tariff_id)
         status = await self.check_window_status(self.tariff_id)
         if status == 'Rejected':
             if user.user_category == 'Generator':
@@ -434,8 +432,8 @@ class TermsSheetConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({"unread_count": event["unread_count"]}))
 
     async def mark_terms_sheet_read(self, event):
-        """Clear unread count when user views terms sheets"""
-        await self.send(text_data=json.dumps({"unread_count": 0}))
+        """Handle mark_terms_sheet_read event sent via group_send"""
+        await self.send(text_data=json.dumps({"type": "mark_terms_sheet_read", "unread_count": 0}))
 
     @sync_to_async
     def get_unread_count(self):
