@@ -981,7 +981,10 @@ class OptimizeCapacityAPI(APIView):
 
          # Check optimize_capacity value
         if optimize_capacity_user == "Consumer":
-            matching_ipps = MatchingIPP.objects.get(requirement=id)
+            try:
+                matching_ipps = MatchingIPP.objects.get(requirement=id)
+            except MatchingIPP.DoesNotExist:
+                return Response({"error": "Failed to fetch IPP, Please select requirement and try again."}, status=status.HTTP_404_NOT_FOUND)
             generator_id = matching_ipps.generator_ids
         elif optimize_capacity_user == "Generator":
             generator_id = [user_id]  # Normalize to a list for consistent processing
@@ -1359,8 +1362,8 @@ class OptimizeCapacityAPI(APIView):
         except ConsumerRequirements.DoesNotExist:
             return Response({"error": "Consumer requirements not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # except Exception as e:
-        #     return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 class ConsumptionPatternAPI(APIView):
     def get(self, request, pk):
@@ -2639,8 +2642,8 @@ class CapacitySizingAPI(APIView):
     
 
     @staticmethod
-    def calculate_hourly_demand(consumption_name, state="Madhya Pradesh"):
-        generator_demand = GeneratorHourlyDemand.objects.get(consumption=consumption_name)
+    def calculate_hourly_demand(generator, state="Madhya Pradesh"):
+        generator_demand = GeneratorHourlyDemand.objects.get(generator=generator)
 
         # Define the state-specific hours
         state_hours = {
@@ -2651,7 +2654,7 @@ class CapacitySizingAPI(APIView):
             }
         }
 
-        monthly_consumptions = GeneratorMonthlyConsumption.objects.filter(name=consumption_name)
+        monthly_consumptions = GeneratorMonthlyConsumption.objects.filter(generator=generator)
 
         # Get state-specific hours
         hours = state_hours[state]
@@ -2703,24 +2706,6 @@ class CapacitySizingAPI(APIView):
         # Return the data in the desired flat format
         return pd.Series(all_hourly_data)
 
-    @staticmethod
-    def get_next_consumption_name(generator):
-        # Count existing records grouped by name
-        existing_names = (
-            GeneratorMonthlyConsumption.objects.filter(generator=generator)
-            .values('name')
-            .annotate(month_count=Count('month'))
-        )
-
-        # Find the lowest available index
-        name_counts = {entry['name']: entry['month_count'] for entry in existing_names}
-        
-        index = 1
-        while f"consumption_{index}" in name_counts and name_counts[f"consumption_{index}"] == 12:
-            index += 1
-
-        return f"consumption_{index}"
-
     def post(self, request):
         data = request.data
         user_id = data.get("user_id")
@@ -2736,49 +2721,29 @@ class CapacitySizingAPI(APIView):
         re_replacement = int(data.get("re_replacement")) if data.get("re_replacement") else None
         if re_replacement == 0:
             return Response({"message": "No available capacity."}, status=status.HTTP_200_OK)
-
-        consumption_name = self.get_next_consumption_name(generator)
-        if csv_file:
-            try:
-                # Decode the Base64 file
-                decoded_file = base64.b64decode(csv_file)
-                file_name = f"csv_file_{generator}.csv"
-                csv_file_content = ContentFile(decoded_file, name=file_name)
-            except Exception as e:
-                return Response({"error": f"Invalid Base64 file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
-
-            try:
-                # Read the CSV content
-                file_data = csv_file_content.read().decode('utf-8').splitlines()
-                csv_reader = csv.DictReader(file_data)
-
-                # Process each row in the CSV file
-                for row in csv_reader:
-                    monthly_consumption = GeneratorMonthlyConsumption()
-                    monthly_consumption.generator=generator
-                    monthly_consumption.name = consumption_name
-                    monthly_consumption.month=row['Month']
-                    monthly_consumption.monthly_consumption=float(row['Monthly Consumption'])
-                    monthly_consumption.peak_consumption=float(row['Peak Consumption'])
-                    monthly_consumption.off_peak_consumption=float(row['Off Peak Consumption'])
-                    monthly_consumption.monthly_bill_amount=float(row['Monthly Bill Amount'])
-                    monthly_consumption.save()
-            except Exception as e:
-                
-                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        else:
-
-            for entry in request.data["data"]:
-                monthly_consumption = GeneratorMonthlyConsumption()
-                monthly_consumption.generator = generator
-                monthly_consumption.name = consumption_name
-                monthly_consumption.month = entry["month"]
-                monthly_consumption.monthly_consumption = entry["monthly_consumption"]
-                monthly_consumption.peak_consumption = entry["peak_consumption"]
-                monthly_consumption.off_peak_consumption = entry["off_peak_consumption"]
-                monthly_consumption.monthly_bill_amount = entry["monthly_bill_amount"]
+        
+        try:
+            # Decode the Base64 file
+            decoded_file = base64.b64decode(csv_file)
+            file_name = f"csv_file_{generator}.csv"
+            csv_file_content = ContentFile(decoded_file, name=file_name)
+        except Exception as e:
+            return Response({"error": f"Invalid Base64 file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            # Read the CSV content
+            file_data = csv_file_content.read().decode('utf-8').splitlines()
+            csv_reader = csv.DictReader(file_data)
+            # Process each row in the CSV file
+            for row in csv_reader:
+                GeneratorMonthlyConsumption.objects.get_or_create(generator=generator, month=row['Month'])
+                monthly_consumption = GeneratorMonthlyConsumption.objects.get(generator=generator, month=row['Month'])
+                monthly_consumption.monthly_consumption=float(row['Monthly Consumption'])
+                monthly_consumption.peak_consumption=float(row['Peak Consumption'])
+                monthly_consumption.off_peak_consumption=float(row['Off Peak Consumption'])
+                monthly_consumption.monthly_bill_amount=float(row['Monthly Bill Amount'])
                 monthly_consumption.save()
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             # Initialize final aggregated response
@@ -2850,8 +2815,8 @@ class CapacitySizingAPI(APIView):
             valid_combinations = []  
 
             
-            GeneratorHourlyDemand.objects.get_or_create(consumption=consumption_name)
-            hourly_demand = GeneratorHourlyDemand.objects.get(consumption=consumption_name)
+            GeneratorHourlyDemand.objects.get_or_create(generator=generator)
+            hourly_demand = GeneratorHourlyDemand.objects.get(generator=generator)
 
             if hourly_demand and hourly_demand.hourly_demand is not None:
                 # Split the comma-separated string into a list of values
@@ -2863,7 +2828,7 @@ class CapacitySizingAPI(APIView):
                 # Print the numeric Series with index numbers
             else:
                 # monthly data conversion in hourly data
-                hourly_demand = self.calculate_hourly_demand(consumption_name)
+                hourly_demand = self.calculate_hourly_demand(generator)
         
             # 8760 rows should be there if more then remove extra and if less then show error
             if len(hourly_demand) > 8760:
@@ -2903,6 +2868,23 @@ class CapacitySizingAPI(APIView):
             records_rounded = {
                 key: round_values(value) for key, value in records
             }
+
+            # Fetch MonthlyConsumptionData for the consumer
+            consumption_data = GeneratorMonthlyConsumption.objects.filter(generator=generator).values('month', 'monthly_consumption', 'peak_consumption', 'off_peak_consumption', 'monthly_bill_amount')
+
+            # Convert the month data to sorted month names (e.g., "Jan", "Feb", "Mar", ...)
+            sorted_data = sorted(consumption_data, key=lambda x: datetime.strptime(x['month'], '%B'))
+            records_rounded['monthly_consumption'] = [
+                {
+                    "month": datetime.strptime(entry["month"], '%B').strftime('%b'),  # Convert to short month name
+                    "consumption": entry["monthly_consumption"],
+                    "peak_consumption": entry["peak_consumption"],
+                    "off_peak_consumption": entry["off_peak_consumption"],
+                    "monthly_bill_amount": entry["monthly_bill_amount"],
+                }
+                for entry in sorted_data
+            ]
+
 
             return Response(records_rounded, status=status.HTTP_200_OK)
 

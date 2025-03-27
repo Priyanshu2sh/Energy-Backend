@@ -576,7 +576,6 @@ class PaymentTransaction(models.Model):
     
 class GeneratorMonthlyConsumption(models.Model):
     generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'})
-    name = models.CharField(max_length=255, null=True, blank=True)
     month = models.CharField(max_length=255, null=True, blank=True)
     monthly_consumption = models.FloatField(null=True, blank=True)
     peak_consumption = models.FloatField(null=True, blank=True)
@@ -585,11 +584,11 @@ class GeneratorMonthlyConsumption(models.Model):
     bill = models.FileField(upload_to='bills/', blank=True, null=True)
 
 class GeneratorHourlyDemand(models.Model):
-    consumption = models.CharField(max_length=255)
+    generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'})
     hourly_demand = models.TextField(blank=True, null=True)  # Stores a single string of values
 
     def __str__(self):
-        return f"{self.consumption}"
+        return f"{self.generator}"
 
     def get_hourly_data_as_list(self):
         """Convert the stored string of values into a list of floats."""
