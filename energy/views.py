@@ -2490,7 +2490,7 @@ class PaymentTransactionAPI(APIView):
             }
             
             subscription_response = requests.post(
-                "http://127.0.0.1:8000/api/energy/subscriptions",
+                "http://http://15.207.188.206:8000/api/energy/subscriptions",
                 json=subscription_data
             )
 
