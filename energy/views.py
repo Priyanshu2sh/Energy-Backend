@@ -2145,6 +2145,7 @@ class AnnualSavingsView(APIView):
         re = 3.67  # Initially RE value will be taken from Master Table that is provided by the client.
         requirement_id = request.data.get('requirement_id')
         generator_id = request.data.get('generator_id')
+        average_savings = 0
         
         try:
             requirement = ConsumerRequirements.objects.get(id=requirement_id)
@@ -2183,7 +2184,7 @@ class AnnualSavingsView(APIView):
             # Prepare response data
             response_data = {
                 "annual_savings": round(annual_savings, 2),
-                "average_savings": record.average_savings,
+                "average_savings": record.average_savings if record else average_savings,
                 "re_replacement": re_replacement,
                 "state": requirement.state,
                 "procurement_date": requirement.procurement_date,
