@@ -1098,7 +1098,6 @@ class OptimizeCapacityAPI(APIView):
                                 "capital_cost": ess.capital_cost,
                             }
 
-                pri
                 # Extract generator name and project lists
                 # gen = next(iter(input_data.keys()))
                 # solar_projects = list(input_data[gen]['Solar'].keys()) if 'Solar' in input_data[gen] else []
@@ -1461,6 +1460,21 @@ class StandardTermsSheetAPI(APIView):
                             "per_unit_cost": round(record.combination.per_unit_cost, 2),
                             "final_cost": round(record.combination.final_cost, 2),
                             # Add more fields as required
+                        }
+
+                    if hasattr(record, 'combination') and record.combination:
+                        serialized_record['downloadable'] = {
+                            "consumer": record.consumer.username,
+                            "generator": record.combination.generator.username,
+                            "consumer_state": record.combination.requirement.state,
+                            "generator_state": record.combination.state,
+                            "cod": record.combination.state,
+                            "term_of_ppa": record.term_of_ppa,
+                            "lock_in_period": record.lock_in_period,
+                            "minimum_generation_obligation": round(record.combination.annual_demand_met * 0.8, 2),
+                            "voltage_level_of_generation": record.combination.requirement.voltage_level,
+                            "tariff_finalized": offer_tariff.offer_tariff,
+                            "payment_security_day": record.payment_security_day,
                         }
 
                     transaction_window = NegotiationWindow.objects.filter(terms_sheet=record.id).first()
@@ -2065,6 +2079,19 @@ class NegotiationWindowListAPI(APIView):
                 "c_optimal_solar_capacity": round(combination.optimal_solar_capacity, 2),
                 "c_optimal_wind_capacity": round(combination.optimal_wind_capacity, 2),
                 "c_optimal_battery_capacity": round(combination.optimal_battery_capacity, 2),
+                "downloadable": {
+                    "consumer": window.terms_sheet.consumer.username,
+                    "generator": window.terms_sheet.combination.generator.username,
+                    "consumer_state": window.terms_sheet.combination.requirement.state,
+                    "generator_state": window.terms_sheet.combination.state,
+                    "cod": window.terms_sheet.combination.state,
+                    "term_of_ppa": window.terms_sheet.term_of_ppa,
+                    "lock_in_period": window.terms_sheet.lock_in_period,
+                    "minimum_generation_obligation": round(window.terms_sheet.combination.annual_demand_met * 0.8, 2),
+                    "voltage_level_of_generation": window.terms_sheet.combination.requirement.voltage_level,
+                    "tariff_finalized": tariff.offer_tariff,
+                    "payment_security_day": window.terms_sheet.payment_security_day,
+                }
             })
 
 
