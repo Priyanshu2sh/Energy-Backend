@@ -2489,10 +2489,16 @@ class PaymentTransactionAPI(APIView):
                 "start_date": str(datetime.today().date())
             }
             
-            subscription_response = requests.post(
-                "http://http://15.207.188.206:8000/api/energy/subscriptions",
-                json=subscription_data
-            )
+            if settings.ENVIRONMENT == 'local':
+                subscription_response = requests.post(
+                    "http://127.0.0.1:8001/api/energy/subscriptions",
+                    json=subscription_data
+                )
+            else:
+                subscription_response = requests.post(
+                    "http://15.207.188.206:8000/api/energy/subscriptions",
+                    json=subscription_data
+                )
 
             if subscription_response.status_code == 201:
                 return Response(
