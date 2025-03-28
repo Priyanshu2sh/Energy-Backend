@@ -10,7 +10,7 @@ import fitz
 from django.shortcuts import get_object_or_404
 import pytz
 import requests
-from accounts.models import User
+from accounts.models import GeneratorConsumerMapping, User
 from accounts.views import JWTAuthentication
 from .models import GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GridTariff, Industry, NegotiationInvitation, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
 from django.conf import settings
@@ -62,8 +62,23 @@ def get_admin_user(user_id):
         # Determine the admin user for the logged-in user
         admin_user_id = logged_in_user.parent if logged_in_user.parent else logged_in_user
         # admin_user = User.objects.get(id=admin_user_id)
-
         return admin_user_id
+
+def generate_unique_username():
+    """Generate a unique consumer username in the format CONxxxx"""
+    while True:
+        new_id = f"CON{random.randint(1000, 9999)}"
+        if not GeneratorConsumerMapping.objects.filter(mapped_username=new_id).exists():
+            return new_id
+
+def get_mapped_username(generator, consumer):
+    """Get or create a unique username mapping for the generator-consumer pair"""
+    mapping, created = GeneratorConsumerMapping.objects.get_or_create(
+        generator=generator, consumer=consumer,
+        defaults={'mapped_username': generate_unique_username()}
+    )
+    return mapping.mapped_username
+
 
 class StateListAPI(APIView):
     def get(self, request):
@@ -811,10 +826,7 @@ class MatchingConsumerAPI(APIView):
 
                     # Send a notification (customize this part as per your notification system)
                     message = f"Please activate your subscription to access matching services."
-                    Notifications.objects.create(
-                        user_id=requirement.user.id,
-                        message=message,
-                    )
+                    send_notification(requirement.user.id, message)
 
                 # Exclude users who do not have monthly consumption data for all 12 months
                 users_with_complete_consumption = MonthlyConsumptionData.objects.filter(requirement=requirement)
@@ -829,21 +841,46 @@ class MatchingConsumerAPI(APIView):
 
                     # Send a notification (customize this part as per your notification system)
                     message = f"Please complete your profile to access matching services."
-                    Notifications.objects.create(
-                        user_id=requirement.user.id,
-                        message=message,
-                    )
+                    send_notification(requirement.user.id, message)
 
 
             # Exclude consumers without a subscription from the response
             filtered_data = filtered_data.exclude(user__in=exclude_consumers)
             filtered_data = filtered_data.exclude(id__in=exclude_requirements)
 
-            # Annotate and prepare the final response
-            response_data = (
-                filtered_data.values("id", "user__username", "state", "industry")
+            # # Annotate and prepare the final response
+            # response_data = (
+            #     filtered_data.values("id", "user__username", "state", "industry")
+            #     .annotate(total_contracted_demand=Sum("contracted_demand"))
+            # )
+
+            # Annotate before mapping to group by consumer
+            annotated_data = (
+                filtered_data
+                .values("id", "user__username", "state", "industry")
                 .annotate(total_contracted_demand=Sum("contracted_demand"))
             )
+
+            # Map usernames per generator
+            response_data = []
+
+            # Assuming 'current_generator' is the generator making the request
+            for item in annotated_data:
+                id = item["id"]
+                consumer = User.objects.get(username=item["user__username"])  # Get the consumer instance
+                
+                # Map the consumer username specific to the generator
+                mapped_username = get_mapped_username(user, consumer)
+
+                # Append the result with the mapped username
+                response_data.append({
+                    "id": id,
+                    "user__username": mapped_username,   # Mapped consumer username
+                    "state": item["state"],
+                    "industry": item["industry"],
+                    "total_contracted_demand": item["total_contracted_demand"]
+                })
+
 
             # Convert QuerySet to a list for JSON response
             return Response(list(response_data), status=status.HTTP_200_OK)
@@ -1463,7 +1500,7 @@ class StandardTermsSheetAPI(APIView):
                         serialized_record['combination'] = {
                             "combination": record.combination.combination,
                             "re_replacement": record.combination.re_replacement,
-                            "state": ast.literal_eval(record.combination.state),
+                            "state": record.combination.state,
                             "optimal_solar_capacity": round(record.combination.optimal_solar_capacity, 2),
                             "optimal_wind_capacity": round(record.combination.optimal_wind_capacity, 2),
                             "optimal_battery_capacity": round(record.combination.optimal_battery_capacity, 2),
@@ -1473,9 +1510,10 @@ class StandardTermsSheetAPI(APIView):
                             # Add more fields as required
                         }
 
+                    mapped_username = get_mapped_username(record.combination.generator, record.consumer)
                     if hasattr(record, 'combination') and record.combination:
                         serialized_record['downloadable'] = {
-                            "consumer": record.consumer.username,
+                            "consumer": mapped_username,
                             "generator": record.combination.generator.username,
                             "consumer_state": record.combination.requirement.state,
                             "generator_state": record.combination.state,
@@ -1717,24 +1755,18 @@ def send_notification(user_id, message):
     """
     Ensures notification is created and triggers WebSocket update only for new notifications.
     """
-    notification, created = Notifications.objects.get_or_create(
-        user_id=user_id,
-        message=message,
-        defaults={"is_read": False}
+    notification = Notifications.objects.create(user_id=user_id, message=message)
+
+    unread_count = Notifications.objects.filter(user_id=user_id, is_read=False).count()
+    print('unread_count====', unread_count)
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f"notifications_{user_id}",
+        {
+            "type": "send_unread_count",
+            "unread_count": unread_count,
+        }
     )
-
-    # Only trigger WebSocket update if a new notification was created
-    if created:
-        unread_count = Notifications.objects.filter(user_id=user_id, is_read=False).count()
-
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"user_{user_id}",
-            {
-                "type": "send_notification",
-                "unread_count": unread_count,
-            }
-        )
 
     return notification
         
@@ -1755,7 +1787,7 @@ class NotificationsAPI(APIView):
             # Send real-time update to WebSocket
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
-                f"user_{user_id}",
+                f"notifications_{user_id}",
                 {
                     "type": "mark_notifications_read",
                     "unread_count": 0,
@@ -2061,6 +2093,7 @@ class NegotiationWindowListAPI(APIView):
         for window in negotiation_windows:
             tariff = Tariffs.objects.get(terms_sheet=window.terms_sheet.id)
             combination = Combination.objects.get(id=window.terms_sheet.combination.id)
+            mapped_username = get_mapped_username(window.terms_sheet.combination.generator, window.terms_sheet.consumer)
             response_data.append({
                 "window_id": window.id,
                 "window_name": window.name,
@@ -2091,7 +2124,7 @@ class NegotiationWindowListAPI(APIView):
                 "c_optimal_wind_capacity": round(combination.optimal_wind_capacity, 2),
                 "c_optimal_battery_capacity": round(combination.optimal_battery_capacity, 2),
                 "downloadable": {
-                    "consumer": window.terms_sheet.consumer.username,
+                    "consumer": mapped_username,
                     "generator": window.terms_sheet.combination.generator.username,
                     "consumer_state": window.terms_sheet.combination.requirement.state,
                     "generator_state": window.terms_sheet.combination.state,
@@ -2639,77 +2672,14 @@ class CapacitySizingAPI(APIView):
         profile = df_cleaned.fillna(0).reset_index(drop=True)
                 
         return profile
-    
-
-    @staticmethod
-    def calculate_hourly_demand(generator, state="Madhya Pradesh"):
-        generator_demand = GeneratorHourlyDemand.objects.get(generator=generator)
-
-        # Define the state-specific hours
-        state_hours = {
-            "Madhya Pradesh": {
-                "peak_hours_1": (6, 9),  # 6 AM to 9 AM
-                "peak_hours_2": (17, 22),  # 5 PM to 10 PM
-                "off_peak_hours": (22, 6),  # 10 PM to 6 AM
-            }
-        }
-
-        monthly_consumptions = GeneratorMonthlyConsumption.objects.filter(generator=generator)
-
-        # Get state-specific hours
-        hours = state_hours[state]
-        peak_hours_1 = hours["peak_hours_1"]
-        peak_hours_2 = hours["peak_hours_2"]
-        off_peak_hours = hours["off_peak_hours"]
-        total_hours = 24
-
-        # Calculate total hours for all ranges
-        peak_hours_total = (peak_hours_1[1] - peak_hours_1[0]) + (peak_hours_2[1] - peak_hours_2[0])
-        off_peak_hours_total = off_peak_hours[1] - off_peak_hours[0]
-        normal_hours = total_hours - peak_hours_total - off_peak_hours_total
-
-        # Initialize a list to store hourly data
-        all_hourly_data = []
-
-        for month_data in monthly_consumptions:
-            # Extract month details and convert month name to number
-            month_name = month_data.month
-            month_number = list(calendar.month_name).index(month_name)
-            if month_number == 0:
-                raise ValueError(f"Invalid month name: {month_name}")
-
-            # Get the number of days in the month
-            days_in_month = monthrange(2025, month_number)[-1]  # Update year dynamically
-
-            # Calculate consumption values
-            normal_consumption = month_data.monthly_consumption - (
-                month_data.peak_consumption + month_data.off_peak_consumption
-            )
-            normal_hour_value = round(normal_consumption / (normal_hours * days_in_month), 3)
-            peak_hour_value = round(month_data.peak_consumption / ((peak_hours_total) * days_in_month), 3)
-            off_peak_hour_value = round(month_data.off_peak_consumption / ((off_peak_hours_total) * days_in_month), 3)
-
-            # Distribute values across the hours of each day
-            for day in range(1, days_in_month + 1):
-                for hour in range(24):
-                    if peak_hours_1[0] <= hour < peak_hours_1[1] or peak_hours_2[0] <= hour < peak_hours_2[1]:
-                        all_hourly_data.append(peak_hour_value)
-                    elif off_peak_hours[0] <= hour < off_peak_hours[1]:
-                        all_hourly_data.append(off_peak_hour_value)
-                    else:
-                        all_hourly_data.append(normal_hour_value)
-
-        # Update the HourlyDemand model
-        generator_demand.set_hourly_data_from_list(all_hourly_data)
-        generator_demand.save()
-        
-        # Return the data in the desired flat format
-        return pd.Series(all_hourly_data)
 
     def post(self, request):
         data = request.data
         user_id = data.get("user_id")
         csv_file = data.get("csv_file")
+        curtailment_selling_price = data.get("curtailment_selling_price")
+        sell_curtailment_percentage = data.get("sell_curtailment_percentage")
+        annual_curtailment_limit = data.get("annual_curtailment_limit")
 
         try:
             # Fetch the user
@@ -2733,15 +2703,28 @@ class CapacitySizingAPI(APIView):
             # Read the CSV content
             file_data = csv_file_content.read().decode('utf-8').splitlines()
             csv_reader = csv.DictReader(file_data)
-            # Process each row in the CSV file
-            for row in csv_reader:
-                GeneratorMonthlyConsumption.objects.get_or_create(generator=generator, month=row['Month'])
-                monthly_consumption = GeneratorMonthlyConsumption.objects.get(generator=generator, month=row['Month'])
-                monthly_consumption.monthly_consumption=float(row['Monthly Consumption'])
-                monthly_consumption.peak_consumption=float(row['Peak Consumption'])
-                monthly_consumption.off_peak_consumption=float(row['Off Peak Consumption'])
-                monthly_consumption.monthly_bill_amount=float(row['Monthly Bill Amount'])
-                monthly_consumption.save()
+
+            # Validate CSV format
+            rows = list(csv_reader)
+            if len(rows) != 8760:
+                return Response({"error": "The CSV must contain exactly 8760 rows."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Extract 'Expected Demand' values
+            hourly_values = [row['Expected Demand'] for row in rows]
+
+            # Convert to a comma-separated string
+            hourly_demand_str = ','.join(hourly_values)
+
+            # Save the data in one record
+            obj, created = GeneratorHourlyDemand.objects.get_or_create(
+                generator=generator,
+                defaults={"hourly_demand": hourly_demand_str}
+            )
+
+            if not created:
+                obj.hourly_demand = hourly_demand_str
+                obj.save()
+                
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -2814,21 +2797,11 @@ class CapacitySizingAPI(APIView):
             
             valid_combinations = []  
 
-            
-            GeneratorHourlyDemand.objects.get_or_create(generator=generator)
             hourly_demand = GeneratorHourlyDemand.objects.get(generator=generator)
 
-            if hourly_demand and hourly_demand.hourly_demand is not None:
-                # Split the comma-separated string into a list of values
-                hourly_demand_list = hourly_demand.hourly_demand.split(',')
-                # Convert list to a Pandas Series (ensures it has an index)
-                hourly_demand_series = pd.Series(hourly_demand_list)
-                # Convert all values to numeric (float), coercing errors to NaN
-                hourly_demand = pd.to_numeric(hourly_demand_series, errors='coerce')
-                # Print the numeric Series with index numbers
-            else:
-                # monthly data conversion in hourly data
-                hourly_demand = self.calculate_hourly_demand(generator)
+            hourly_demand_list = hourly_demand.hourly_demand.split(',')
+            hourly_demand_series = pd.Series(hourly_demand_list)
+            hourly_demand = pd.to_numeric(hourly_demand_series, errors='coerce')
         
             # 8760 rows should be there if more then remove extra and if less then show error
             if len(hourly_demand) > 8760:
@@ -2837,7 +2810,7 @@ class CapacitySizingAPI(APIView):
                 padding_length = 8760 - len(hourly_demand)
                 hourly_demand = pd.concat([hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
 
-            response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations)
+            response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, curtailment_selling_price=curtailment_selling_price, sell_curtailment_percentage=sell_curtailment_percentage, annual_curtailment_limit=annual_curtailment_limit)
             
             if response_data == 'The demand cannot be met by the IPPs':
                 return Response({"error": "The demand cannot be met by the IPPs."}, status=status.HTTP_200_OK)
@@ -2868,22 +2841,6 @@ class CapacitySizingAPI(APIView):
             records_rounded = {
                 key: round_values(value) for key, value in records
             }
-
-            # Fetch MonthlyConsumptionData for the consumer
-            consumption_data = GeneratorMonthlyConsumption.objects.filter(generator=generator).values('month', 'monthly_consumption', 'peak_consumption', 'off_peak_consumption', 'monthly_bill_amount')
-
-            # Convert the month data to sorted month names (e.g., "Jan", "Feb", "Mar", ...)
-            sorted_data = sorted(consumption_data, key=lambda x: datetime.strptime(x['month'], '%B'))
-            records_rounded['monthly_consumption'] = [
-                {
-                    "month": datetime.strptime(entry["month"], '%B').strftime('%b'),  # Convert to short month name
-                    "consumption": entry["monthly_consumption"],
-                    "peak_consumption": entry["peak_consumption"],
-                    "off_peak_consumption": entry["off_peak_consumption"],
-                    "monthly_bill_amount": entry["monthly_bill_amount"],
-                }
-                for entry in sorted_data
-            ]
 
 
             return Response(records_rounded, status=status.HTTP_200_OK)

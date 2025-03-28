@@ -80,3 +80,11 @@ class User(AbstractUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
+    
+class GeneratorConsumerMapping(models.Model):
+    generator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='generator_mappings')
+    consumer = models.ForeignKey(User, on_delete=models.CASCADE, related_name='consumer_mappings')
+    mapped_username = models.CharField(max_length=255, unique=True)
+
+    def __str__(self):
+        return f"{self.generator.username} -> {self.mapped_username}"

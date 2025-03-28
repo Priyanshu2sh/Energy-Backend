@@ -10,9 +10,9 @@ class UserSerializer(serializers.ModelSerializer):
         extra_kwargs = {'cin_number': {'required': False}, 'last_visited_page': {'required': False}, 'selected_requirement_id': {'required': False}, 'password': {'write_only': True}, 'otp': {'read_only': True}, 'verified_at': {'read_only': True}, 'role': {'read_only': True}}
 
     def generate_username(self, user_category):
-        prefix = 'con' if user_category == 'Consumer' else 'IPP'
+        prefix = 'CON' if user_category == 'Consumer' else 'IPP'
         while True:
-            random_number = random.randint(100, 999)
+            random_number = random.randint(1000, 9999)
             username = f"{prefix}{random_number}"
             if not User.objects.filter(username=username).exists():
                 return username
@@ -29,10 +29,8 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "name",
-            "user_category",
+            "email",
+            "mobile",
             "company",
             "company_representative",
-            "cin_number",
-            "mobile",
         ]
