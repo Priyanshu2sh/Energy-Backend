@@ -1,7 +1,10 @@
+import traceback
 import numpy as np
 import pandas as pd
 import logging
 
+# Get the logger that is configured in the settings
+traceback_logger = logging.getLogger('django')
 logger = logging.getLogger('debug_logger')  # Use the new debug logger
 
 def analyze_network_results(network=None, sell_curtailment_percentage=None, curtailment_selling_price=None,
@@ -204,6 +207,8 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
     logger.debug(" ")
 
   except Exception as e:
+    tb = traceback.format_exc()  # Get the full traceback
+    traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
     logger.debug(f"An unexpected error occurred during optimization: {e}")
 
 
