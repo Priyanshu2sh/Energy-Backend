@@ -1202,6 +1202,8 @@ class OptimizeCapacityAPI(APIView):
                     elif len(hourly_demand) < 8760:
                         padding_length = 8760 - len(hourly_demand)
                         hourly_demand = pd.concat([hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
+                    logger.debug(re_replacement)
+                    logger.debug(input_data)
                     response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations)
 
                     if response_data != 'The demand cannot be met by the IPPs':
