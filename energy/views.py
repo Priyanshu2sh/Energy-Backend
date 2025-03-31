@@ -752,8 +752,11 @@ class MatchingIPPAPI(APIView):
             matching_ipp.generator_ids = user_ids
             matching_ipp.save()
 
-            # Return the top three matches as the response
-            return Response(top_three_matches, status=status.HTTP_200_OK)
+            if top_three_matches:
+                # Return the top three matches as the response
+                return Response(top_three_matches, status=status.HTTP_200_OK)
+            else:
+                return Response({"message": "No matching IPP found."}, status=status.HTTP_200_OK)
         except Exception as e:
             tb = traceback.format_exc()  # Get the full traceback
             traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
