@@ -1770,7 +1770,6 @@ def send_notification(user_id, message):
     notification = Notifications.objects.create(user_id=user_id, message=message)
 
     unread_count = Notifications.objects.filter(user_id=user_id, is_read=False).count()
-    print('unread_count====', unread_count)
     channel_layer = get_channel_layer()
     async_to_sync(channel_layer.group_send)(
         f"notifications_{user_id}",
