@@ -886,6 +886,8 @@ class MatchingConsumerAPI(APIView):
             return Response(list(response_data), status=status.HTTP_200_OK)
 
         except Exception as e:
+            tb = traceback.format_exc()  # Get the full traceback
+            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class PortfolioUpdateStatusView(APIView):
@@ -1403,11 +1405,13 @@ class OptimizeCapacityAPI(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 class ConsumptionPatternAPI(APIView):
-    def get(self, request, pk):
+    def get(self, request, pk, user_id):
         try:
             
             # Fetch MonthlyConsumptionData for the consumer
             consumption_data = MonthlyConsumptionData.objects.filter(requirement=pk).values('month', 'monthly_consumption', 'peak_consumption', 'off_peak_consumption', 'monthly_bill_amount')
+
+            user = User.objects.get(id=user_id)
 
             # Check if consumption data exists
             if not consumption_data.exists():
@@ -1421,9 +1425,14 @@ class ConsumptionPatternAPI(APIView):
             consumption = MonthlyConsumptionData.objects.filter(requirement=pk).first()
             consumer = consumption.requirement.user
 
+            if user.user_category == 'Generator':
+                username = get_mapped_username(user, consumer)
+            else:
+                username = consumer.username
+
             # Extract relevant consumer details
             consumer_details = {
-                "username": consumer.username,
+                "username": username,
                 "credit_rating": consumer.credit_rating
             }
 
@@ -1443,6 +1452,8 @@ class ConsumptionPatternAPI(APIView):
             }
 
             return Response(response_data, status=status.HTTP_200_OK)
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
         except Exception as e:
             return Response(
