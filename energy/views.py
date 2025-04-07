@@ -1174,6 +1174,9 @@ class OptimizeCapacityAPI(APIView):
                             # Extract profile data from file
                             profile_data = self.extract_profile_data(solar.hourly_data.path)
 
+                            # Divide all rows by 5
+                            profile_data = profile_data / solar.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity
+
                             input_data[generator.username]["Solar"][solar.project] = {
                                 "profile": profile_data,
                                 "max_capacity": solar.available_capacity,
@@ -1193,6 +1196,9 @@ class OptimizeCapacityAPI(APIView):
 
                             # Extract profile data from file
                             profile_data = self.extract_profile_data(wind.hourly_data.path)
+
+                            # Divide all rows by 5
+                            profile_data = profile_data / wind.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity
                             
                             input_data[generator.username]["Wind"][wind.project] = {
                                 "profile": profile_data,
@@ -1246,33 +1252,34 @@ class OptimizeCapacityAPI(APIView):
                 if new_list != generator_id:
 
                     HourlyDemand.objects.get_or_create(requirement=consumer_requirement)
-                    hourly_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
+                    hourly_demand_instance = HourlyDemand.objects.get(requirement=consumer_requirement)
 
-                    if hourly_demand and hourly_demand.hourly_demand is not None:
+                    if hourly_demand_instance and hourly_demand_instance.hourly_demand is not None:
                         # Split the comma-separated string into a list of values
-                        hourly_demand_list = hourly_demand.hourly_demand.split(',')
+                        hourly_demand_list = hourly_demand_instance.hourly_demand.split(',')
                         # Convert list to a Pandas Series (ensures it has an index)
                         hourly_demand_series = pd.Series(hourly_demand_list)
                         # Convert all values to numeric (float), coercing errors to NaN
-                        hourly_demand = pd.to_numeric(hourly_demand_series, errors='coerce')
+                        numeric_hourly_demand = pd.to_numeric(hourly_demand_series, errors='coerce')
                         # Print the numeric Series with index numbers
                     else:
                         # monthly data conversion in hourly data
-                        hourly_demand = self.calculate_hourly_demand(consumer_requirement, consumer_requirement.state)
+                        numeric_hourly_demand = self.calculate_hourly_demand(consumer_requirement, consumer_requirement.state)
 
                     
-                
+                    logger.debug('Hourly Demand:')
+                    logger.debug(numeric_hourly_demand)
                     # 8760 rows should be there if more then remove extra and if less then show error
-                    if len(hourly_demand) > 8760:
+                    if len(numeric_hourly_demand) > 8760:
                         hourly_demand = hourly_demand.iloc[:8760]
-                    elif len(hourly_demand) < 8760:
-                        padding_length = 8760 - len(hourly_demand)
-                        hourly_demand = pd.concat([hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
+                    elif len(numeric_hourly_demand) < 8760:
+                        padding_length = 8760 - len(numeric_hourly_demand)
+                        numeric_hourly_demand = pd.concat([numeric_hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
                     
-                    logger.debug(f'length: {len(hourly_demand)}')
+                    logger.debug(f'length: {len(numeric_hourly_demand)}')
                     logger.debug(re_replacement)
                     logger.debug(input_data)
-                    response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations)
+                    response_data = optimization_model(input_data, hourly_demand=numeric_hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations)
 
                     if response_data != 'The demand cannot be met by the IPPs':
                         for combination_key, details in response_data.items():
@@ -2895,6 +2902,8 @@ class CapacitySizingAPI(APIView):
                         continue
                     # Extract profile data from file
                     profile_data = self.extract_profile_data(solar.hourly_data.path)
+                    # Divide all rows by 5
+                    profile_data = profile_data / solar.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity 
                     input_data[generator.username]["Solar"][solar.project] = {
                         "profile": profile_data,
                         "max_capacity": solar.available_capacity,
@@ -2910,6 +2919,8 @@ class CapacitySizingAPI(APIView):
                         continue
                     # Extract profile data from file
                     profile_data = self.extract_profile_data(wind.hourly_data.path)
+                    # Divide all rows by 5
+                    profile_data = profile_data / wind.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity
                     input_data[generator.username]["Wind"][wind.project] = {
                         "profile": profile_data,
                         "max_capacity": wind.available_capacity,
