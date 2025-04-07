@@ -12,7 +12,7 @@ import pytz
 import requests
 from accounts.models import GeneratorConsumerMapping, User
 from accounts.views import JWTAuthentication
-from .models import GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GridTariff, Industry, NegotiationInvitation, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
+from .models import GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GridTariff, Industry, NegotiationInvitation, PeakHours, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -45,10 +45,12 @@ from django_celery_beat.models import PeriodicTask, ClockedSchedule, CrontabSche
 import json
 import logging
 import traceback
+import chardet
+from decimal import Decimal
 
 # Get the logger that is configured in the settings
-traceback_logger = logging.getLogger('django')
 import logging
+traceback_logger = logging.getLogger('django')
 
 logger = logging.getLogger('debug_logger')  # Use the new debug logger
 
@@ -67,7 +69,7 @@ def get_admin_user(user_id):
 def generate_unique_username():
     """Generate a unique consumer username in the format CONxxxx"""
     while True:
-        new_id = f"CON{random.randint(1000, 9999)}"
+        new_id = f"CUD{random.randint(1000, 9999)}"
         if not GeneratorConsumerMapping.objects.filter(mapped_username=new_id).exists():
             return new_id
 
@@ -190,7 +192,7 @@ class GenerationPortfolioAPI(APIView):
         # Handle Base64-encoded file
         file_data = request.data.get("hourly_data")
         if file_data:
-            # try:
+            try:
                 # Decode Base64 file
                 decoded_file = base64.b64decode(file_data)
                 # Define a file name (customize as needed)
@@ -200,12 +202,6 @@ class GenerationPortfolioAPI(APIView):
                 # Validate the file content
                 with io.BytesIO(decoded_file) as file_stream:
                     try:
-                        # Read the Excel file into a DataFrame, retrieving sheet names
-                        xls = pd.ExcelFile(file_stream)
-                        if energy_type not in xls.sheet_names:
-                            return Response({"error": "Wrong uploaded file: Sheet name does not match energy type."}, 
-                                            status=status.HTTP_400_BAD_REQUEST)
-                        
                         # Read the Excel file into a DataFrame
                         df = pd.read_excel(file_stream)
 
@@ -216,8 +212,10 @@ class GenerationPortfolioAPI(APIView):
 
                     # Check for the required number of rows
                     current_year = datetime.now().year
-                    is_leap_year = (current_year % 4 == 0 and current_year % 100 != 0) or (current_year % 400 == 0)
-                    required_rows = 8786 if is_leap_year else 8762
+                    # is_leap_year = (current_year % 4 == 0 and current_year % 100 != 0) or (current_year % 400 == 0)
+                    required_rows = 8760
+                    logger.debug(f'shape= {df.shape[0]}')
+                    logger.debug(f'df= {df}')
 
                     # Verify row count
                     if df.shape[0] != required_rows:
@@ -234,27 +232,26 @@ class GenerationPortfolioAPI(APIView):
                 # Get available capacity
                 available_capacity = float(request.data.get("available_capacity"))  # Ensure `available_capacity` exists in the model
 
+                message = None
                 # Check if max_value exceeds 80% of available_capacity
-                if float(max_value) > (0.8 * available_capacity):
-                    return Response(
-                        {
-                            "error": f"Uploaded data exceeds 80% of available capacity. Max value: {max_value}, Allowed: {0.8 * available_capacity}"
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+                if float(max_value) < (0.8 * available_capacity):
+                    message = f"Uploaded data is below 80% of available capacity. Max value: {max_value}, Threshold: {0.8 * available_capacity}"
 
                 # Add the validated file to the request data
                 request.data["hourly_data"] = file_content
 
-            # except Exception as e:
-            #     return Response({"error": f"{str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            except Exception as e:
+                tb = traceback.format_exc()  # Get the full traceback
+                traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
+                return Response({"error": f"{str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
-
+        logger.debug(f"request.message= {message}")
         serializer = serializer_class(instance, data=request.data)
         if serializer.is_valid():
             serializer.save()
             response_data = serializer.data
             response_data['energy_type'] = energy_type
+            response_data['message'] = message
             return Response(response_data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
@@ -527,7 +524,13 @@ class CSVFileAPI(APIView):
 
         try:
             # Read the CSV content
-            file_data = csv_file_content.read().decode('utf-8').splitlines()
+            raw_data = csv_file_content.read()
+            result = chardet.detect(raw_data)
+            encoding = result['encoding']
+
+            # Decode the content with detected encoding
+            file_data = raw_data.decode(encoding, errors='replace').splitlines()
+
             csv_reader = csv.DictReader(file_data)
 
             # Get the ConsumerRequirement object
@@ -541,7 +544,9 @@ class CSVFileAPI(APIView):
 
             # Process each row in the CSV file
             for row in csv_reader:
-                
+                logger.debug(row)
+                # Clean column names (remove extra spaces and non-breaking spaces)
+                row = {key.strip(): value.strip().replace('\xa0', '').replace(',', '') for key, value in row.items()}
                 try:
                     monthly_consumption = MonthlyConsumptionData.objects.get(requirement=requirement, month=row['Month'])
                     
@@ -550,16 +555,18 @@ class CSVFileAPI(APIView):
                     monthly_consumption.requirement=requirement
                     monthly_consumption.month=row['Month']
 
-                monthly_consumption.monthly_consumption=float(row['Monthly Consumption'])
-                monthly_consumption.peak_consumption=float(row['Peak Consumption'])
-                monthly_consumption.off_peak_consumption=float(row['Off Peak Consumption'])
-                monthly_consumption.monthly_bill_amount=float(row['Monthly Bill Amount'])
+                monthly_consumption.monthly_consumption=float(row['Monthly Consumption (MWh)'].replace(',', ''))
+                monthly_consumption.peak_consumption=float(row['Peak Consumption (MWh)'].replace(',', ''))
+                monthly_consumption.off_peak_consumption=float(row['Off Peak Consumption (MWh)'].replace(',', ''))
+                monthly_consumption.monthly_bill_amount=float(row['Monthly Bill Amount (INR cr)'].replace(',', ''))
                 monthly_consumption.save()
+                # OptimizeCapacityAPI.calculate_hourly_demand(requirement)
                 
             return Response({'message': 'Success'}, status=status.HTTP_201_CREATED)
 
         except Exception as e:
-            
+            tb = traceback.format_exc()  # Get the full traceback
+            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
             return Response(
                 {"error": f"An error occurred while processing the file: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -638,9 +645,9 @@ class UploadMonthlyConsumptionBillAPI(APIView):
                 )
 
             # Calculate required values
-            peak_consumption = round(float(extracted_data["TOD 1"]))  # TOD 1
-            off_peak_consumption = round(float(extracted_data["TOD 3"]))  # TOD 3
-            monthly_consumption = round(peak_consumption + round(float(extracted_data["TOD 2"])) + off_peak_consumption, 2)  # TOD 1 + TOD 2 + TOD 3
+            peak_consumption = round(float(extracted_data["TOD 1"]) / 1000)  # TOD 1
+            off_peak_consumption = round(float(extracted_data["TOD 3"]) / 1000)  # TOD 3
+            monthly_consumption = round(peak_consumption + round(float(extracted_data["TOD 2"]) / 1000) + off_peak_consumption, 2)  # TOD 1 + TOD 2 + TOD 3
             monthly_bill_amount = extracted_data["Current Month Bill"]  # Current Month Bill
 
             # Update instance with extracted data
@@ -649,6 +656,7 @@ class UploadMonthlyConsumptionBillAPI(APIView):
             instance.monthly_consumption = monthly_consumption
             instance.monthly_bill_amount = monthly_bill_amount
             instance.save()
+            # OptimizeCapacityAPI.calculate_hourly_demand(requirement)
 
         return Response(
             {
@@ -861,7 +869,7 @@ class MatchingConsumerAPI(APIView):
             # Annotate before mapping to group by consumer
             annotated_data = (
                 filtered_data
-                .values("id", "user__username", "state", "industry")
+                .values("id", "user__username", "state", "industry", "voltage_level")
                 .annotate(total_contracted_demand=Sum("contracted_demand"))
             )
 
@@ -882,6 +890,7 @@ class MatchingConsumerAPI(APIView):
                     "user__username": mapped_username,   # Mapped consumer username
                     "state": item["state"],
                     "industry": item["industry"],
+                    "voltage_level": item["voltage_level"],
                     "total_contracted_demand": item["total_contracted_demand"]
                 })
 
@@ -928,46 +937,63 @@ class OptimizeCapacityAPI(APIView):
     # permission_classes = [IsAuthenticated]
 
     @staticmethod
-    def extract_profile_data(file_path, sheet):
+    def extract_profile_data(file_path):
                 
         # Read the specified sheet from the Excel file
-        df = pd.read_excel(file_path, sheet_name=sheet)
+        df = pd.read_excel(file_path)
+        logger.debug('df')
+        logger.debug(df)
 
-        # Select only the relevant column (B) and start from the 4th row (index 3)
-        df_cleaned = df.iloc[3:, 1].reset_index(drop=True)  # Column B corresponds to index 1
+        df_cleaned = df.iloc[0:, 1].reset_index(drop=True)
+        logger.debug('df cleaned')
+        logger.debug(df_cleaned)
+
 
         # Fill NaN values with 0
         profile = df_cleaned.fillna(0).reset_index(drop=True)
+        logger.debug('Profile:')
+        logger.debug(profile)
                 
         return profile
     
 
     @staticmethod
-    def calculate_hourly_demand(consumer_requirement, state="Madhya Pradesh"):
+    def calculate_hourly_demand(consumer_requirement, state="Maharashtra"):
         consumer_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
 
-        # Define the state-specific hours
-        state_hours = {
-            "Madhya Pradesh": {
-                "peak_hours_1": (6, 9),  # 6 AM to 9 AM
-                "peak_hours_2": (17, 22),  # 5 PM to 10 PM
-                "off_peak_hours": (22, 6),  # 10 PM to 6 AM
-            }
-        }
+        # # Define the state-specific hours
+        # state_hours = {
+        #     "Madhya Pradesh": {
+        #         "peak_hours_1": (6, 9),  # 6 AM to 9 AM
+        #         "peak_hours_2": (17, 22),  # 5 PM to 10 PM
+        #         "off_peak_hours": (22, 6),  # 10 PM to 6 AM
+        #     }
+        # }
+        hours = PeakHours.objects.filter(state__name=state).first()
+        if not hours:
+            return Response({"error": f"No peak hours data found for state {state}."}, status=status.HTTP_404_NOT_FOUND)
 
         monthly_consumptions = MonthlyConsumptionData.objects.filter(requirement=consumer_requirement)
 
         # Get state-specific hours
-        hours = state_hours[state]
-        peak_hours_1 = hours["peak_hours_1"]
-        peak_hours_2 = hours["peak_hours_2"]
-        off_peak_hours = hours["off_peak_hours"]
-        total_hours = 24
+        # Get state-specific peak and off-peak hours
+        peak_hours_1 = (hours.peak_start_1.hour, hours.peak_end_1.hour)
+        peak_hours_2 = (hours.peak_start_2.hour, hours.peak_end_2.hour) if hours.peak_start_2 and hours.peak_end_2 else (0, 0)
+        off_peak_hours = (hours.off_peak_start.hour, hours.off_peak_end.hour) if hours.off_peak_start and hours.off_peak_end else (0, 0)
+        logger.debug(peak_hours_1)
+        logger.debug(peak_hours_2)
+        logger.debug(off_peak_hours)
+
 
         # Calculate total hours for all ranges
-        peak_hours_total = (peak_hours_1[1] - peak_hours_1[0]) + (peak_hours_2[1] - peak_hours_2[0])
-        off_peak_hours_total = off_peak_hours[1] - off_peak_hours[0]
+        total_hours = 24
+        peak_hours_total = hours.calculate_peak_hours()
+        off_peak_hours_total = hours.calculate_off_peak_hours()
         normal_hours = total_hours - peak_hours_total - off_peak_hours_total
+        logger.debug(f'normal_hours = {total_hours} - {peak_hours_total} - {off_peak_hours_total}')
+        logger.debug(f'Total peak hours: {peak_hours_total}')
+        logger.debug(f'Total off peak hours: {off_peak_hours_total}')
+        logger.debug(f'Normal hours: {normal_hours}')
 
         # Initialize a list to store hourly data
         all_hourly_data = []
@@ -990,13 +1016,24 @@ class OptimizeCapacityAPI(APIView):
             peak_hour_value = round(month_data.peak_consumption / ((peak_hours_total) * days_in_month), 3)
             off_peak_hour_value = round(month_data.off_peak_consumption / ((off_peak_hours_total) * days_in_month), 3)
 
+            logger.debug(f'normal_consumption = month_data.monthly_consumption - (month_data.peak_consumption + month_data.off_peak_consumption)')
+            logger.debug(f'normal_consumption = {month_data.monthly_consumption} - ({month_data.peak_consumption} + {month_data.off_peak_consumption}) = {normal_consumption}')
+            logger.debug(f'Normal hour value: {normal_hour_value}')
+            logger.debug(f'Peak hour value: {peak_hour_value}')
+            logger.debug(f'Off peak hour value: {off_peak_hour_value}')
+
             # Distribute values across the hours of each day
             for day in range(1, days_in_month + 1):
                 for hour in range(24):
+                    if hour == 24:
+                        hour = 0
+                    # Peak hours condition
                     if peak_hours_1[0] <= hour < peak_hours_1[1] or peak_hours_2[0] <= hour < peak_hours_2[1]:
                         all_hourly_data.append(peak_hour_value)
-                    elif off_peak_hours[0] <= hour < off_peak_hours[1]:
+                    # Off-peak hours condition (split into two cases)
+                    elif (off_peak_hours[0] <= hour < 24) or (0 <= hour < off_peak_hours[1]):
                         all_hourly_data.append(off_peak_hour_value)
+                    # Normal hours condition
                     else:
                         all_hourly_data.append(normal_hour_value)
 
@@ -1012,14 +1049,12 @@ class OptimizeCapacityAPI(APIView):
         optimize_capacity_user = data.get("optimize_capacity_user") #consumer or generator
         user_id = data.get("user_id")
         id = data.get("requirement_id")
-
         if data.get("re_replacement"):
             re_replacement = int(data.get("re_replacement"))
+        elif data.get("re_replacement") == 0:
+            return Response({"error": "No available capacity."}, status=status.HTTP_200_OK)
         else:
             re_replacement = None
-
-        if re_replacement == 0:
-            return Response({"message": "No available capacity."}, status=status.HTTP_200_OK)
         
 
          # Check optimize_capacity value
@@ -1041,6 +1076,9 @@ class OptimizeCapacityAPI(APIView):
             # Fetch consumer details
             # consumer = User.objects.get(email=consumer_email)
             consumer_requirement = ConsumerRequirements.objects.get(id=id)
+            grid_tariff = GridTariff.objects.get(state=consumer_requirement.state, tariff_category=consumer_requirement.tariff_category)
+            master_record = MasterTable.objects.get(state=consumer_requirement.state)
+            record = RETariffMasterTable.objects.filter(industry=consumer_requirement.industry).first()
             # Initialize final aggregated response
             aggregated_response = {}
 
@@ -1054,6 +1092,16 @@ class OptimizeCapacityAPI(APIView):
             
                 for id in generator_id:
                     generator = User.objects.get(id=id)
+                    last_10_combinations = Combination.objects.filter(requirement__industry = consumer_requirement.industry, generator=generator).order_by('-id')[:10]
+                    # Check if there are 10 or more records
+                    if last_10_combinations.count() >= 10:
+                        # Calculate the average
+                        average_per_unit_cost = last_10_combinations.aggregate(Avg('per_unit_cost'))['per_unit_cost__avg']
+                        re = round(average_per_unit_cost/2)
+                    elif record:
+                        re = record.re_tariff
+                    else:
+                        re = 4
 
                     if optimize_capacity_user == "consumer":
 
@@ -1084,6 +1132,21 @@ class OptimizeCapacityAPI(APIView):
                         cod__lte=consumer_requirement.procurement_date
                     )
 
+                    portfolios = list(chain(solar_data, wind_data, ess_data))
+
+                    include_ISTS = False
+                    for p in portfolios:
+                        if p.connectivity == "CTU":
+                            include_ISTS = True
+                            break
+                        elif p.state == consumer_requirement.state:
+                            include_ISTS = False
+                            break
+
+                    if not portfolios:
+                        include_ISTS = True
+
+                    ISTS_charges = master_record.ISTS_charges if include_ISTS else 0
                     
                     # separating combinations based on connectivity 
                     solar_data = solar_data.filter(connectivity=connectivity)
@@ -1109,7 +1172,7 @@ class OptimizeCapacityAPI(APIView):
                                 continue
 
                             # Extract profile data from file
-                            profile_data = self.extract_profile_data(solar.hourly_data.path, 'Solar')
+                            profile_data = self.extract_profile_data(solar.hourly_data.path)
 
                             input_data[generator.username]["Solar"][solar.project] = {
                                 "profile": profile_data,
@@ -1129,8 +1192,8 @@ class OptimizeCapacityAPI(APIView):
                                 continue
 
                             # Extract profile data from file
-                            profile_data = self.extract_profile_data(wind.hourly_data.path, 'Wind')
-
+                            profile_data = self.extract_profile_data(wind.hourly_data.path)
+                            
                             input_data[generator.username]["Wind"][wind.project] = {
                                 "profile": profile_data,
                                 "max_capacity": wind.available_capacity,
@@ -1195,7 +1258,7 @@ class OptimizeCapacityAPI(APIView):
                         # Print the numeric Series with index numbers
                     else:
                         # monthly data conversion in hourly data
-                        hourly_demand = self.calculate_hourly_demand(consumer_requirement)
+                        hourly_demand = self.calculate_hourly_demand(consumer_requirement, consumer_requirement.state)
 
                     
                 
@@ -1205,6 +1268,8 @@ class OptimizeCapacityAPI(APIView):
                     elif len(hourly_demand) < 8760:
                         padding_length = 8760 - len(hourly_demand)
                         hourly_demand = pd.concat([hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
+                    
+                    logger.debug(f'length: {len(hourly_demand)}')
                     logger.debug(re_replacement)
                     logger.debug(input_data)
                     response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations)
@@ -1309,8 +1374,10 @@ class OptimizeCapacityAPI(APIView):
                             details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
                             details['Final Cost'] = details['Final Cost'] / 1000
                             details["Annual Demand Met"] = (details["Annual Demand Met"] * 24) / 1000
-
-                           # Update the aggregated response dictionary
+                            logger.debug('=============')
+                            logger.debug(f'{grid_tariff.cost} - {re} - {ISTS_charges} - {master_record.state_charges}')
+                            logger.debug('=============')
+                            # Update the aggregated response dictionary
                             if combination_key not in aggregated_response:
                                 aggregated_response[combination_key] = {
                                     **details,
@@ -1321,6 +1388,7 @@ class OptimizeCapacityAPI(APIView):
                                     "sent_from_you": sent_from_you,
                                     "connectivity": connectivity,
                                     "re_index": re_index,
+                                    "per_unit_savings": grid_tariff.cost - re - ISTS_charges - master_record.state_charges,
                                 }
                             else:
                                 # Merge the details if combination already exists
@@ -1408,6 +1476,8 @@ class OptimizeCapacityAPI(APIView):
             return Response({"error": "Consumer requirements not found."}, status=status.HTTP_404_NOT_FOUND)
 
         except Exception as e:
+            tb = traceback.format_exc()  # Get the full traceback
+            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 class ConsumptionPatternAPI(APIView):
@@ -1541,6 +1611,9 @@ class StandardTermsSheetAPI(APIView):
                             "voltage_level_of_generation": record.combination.requirement.voltage_level,
                             "tariff_finalized": offer_tariff.offer_tariff,
                             "payment_security_day": record.payment_security_day,
+                            "solar": record.combination.optimal_solar_capacity,
+                            "wind": record.combination.optimal_wind_capacity,
+                            "ess": record.combination.optimal_battery_capacity,
                         }
 
                     transaction_window = NegotiationWindow.objects.filter(terms_sheet=record.id).first()
@@ -1931,7 +2004,7 @@ class NegotiateTariffView(APIView):
                         send_mail(
                             "Negotiation Invitation",
                             email_message,
-                            settings.DEFAULT_FROM_EMAIL,
+                            f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
                             [recipient_user.email],
                             fail_silently=False,
                         )
@@ -1960,7 +2033,7 @@ class NegotiateTariffView(APIView):
                 send_mail(
                     "Negotiation Invitation",
                     email_message,
-                    settings.DEFAULT_FROM_EMAIL,
+                    f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
                     [recipient_user.email],
                     fail_silently=False,
                 )
@@ -1981,7 +2054,7 @@ class NegotiateTariffView(APIView):
                 send_mail(
                     "Negotiation Invitation",
                     email_message,
-                    settings.DEFAULT_FROM_EMAIL,
+                    f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
                     [recipient_user.email],
                     fail_silently=False,
                 )
@@ -2053,7 +2126,7 @@ class NegotiateTariffView(APIView):
                     send_mail(
                         "Negotiation Invitation",
                         email_message,
-                        settings.DEFAULT_FROM_EMAIL,
+                        f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
                         [recipient_user.email],
                         fail_silently=False,
                     )
@@ -2078,7 +2151,7 @@ class NegotiateTariffView(APIView):
             send_mail(
                 "Negotiation Invitation",
                 email_message,
-                settings.DEFAULT_FROM_EMAIL,
+                f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
                 [recipient_user.email],
                 fail_silently=False,
             )
@@ -2151,6 +2224,9 @@ class NegotiationWindowListAPI(APIView):
                     "voltage_level_of_generation": window.terms_sheet.combination.requirement.voltage_level,
                     "tariff_finalized": tariff.offer_tariff,
                     "payment_security_day": window.terms_sheet.payment_security_day,
+                    "solar": window.terms_sheet.combination.optimal_solar_capacity,
+                    "wind": window.terms_sheet.combination.optimal_wind_capacity,
+                    "ess": window.terms_sheet.combination.optimal_battery_capacity,
                 }
             })
 
@@ -2206,7 +2282,7 @@ class AnnualSavingsView(APIView):
         requirement_id = request.data.get('requirement_id')
         generator_id = request.data.get('generator_id')
         average_savings = 0
-        
+        logger.debug(f'generator_id = {generator_id}')
         try:
             requirement = ConsumerRequirements.objects.get(id=requirement_id)
             combination = Combination.objects.filter(requirement__industry = requirement.industry, generator=generator_id)
@@ -2217,7 +2293,7 @@ class AnnualSavingsView(APIView):
             if combination.count() >= 10:
                 # Calculate the average
                 average_per_unit_cost = combination.aggregate(Avg('per_unit_cost'))['per_unit_cost__avg']
-                re = average_per_unit_cost
+                re = round(average_per_unit_cost/2)
             elif record:
                 re = record.re_tariff
             else:
@@ -2237,14 +2313,53 @@ class AnnualSavingsView(APIView):
             else:
                 moving_average = sum(last_10_values) / len(last_10_values)
                 re_replacement = round(moving_average, 2)
+
+            # --- START OF ISTS Charges Logic ---
+
+            portfolios = list(SolarPortfolio.objects.filter(
+                cod__lte=requirement.procurement_date
+            ).filter(
+                Q(state=requirement.state) | Q(connectivity="CTU")
+            ).values("state", "connectivity"))
+
+            portfolios += list(WindPortfolio.objects.filter(
+                cod__lte=requirement.procurement_date
+            ).filter(
+                Q(state=requirement.state) | Q(connectivity="CTU")
+            ).values("state", "connectivity"))
+
+            portfolios += list(ESSPortfolio.objects.filter(
+                cod__lte=requirement.procurement_date
+            ).filter(
+                Q(state=requirement.state) | Q(connectivity="CTU")
+            ).values("state", "connectivity"))
+
+            include_ISTS = False
+            for p in portfolios:
+                if p["connectivity"] == "CTU":
+                    include_ISTS = True
+                    break
+                elif p["state"] == requirement.state:
+                    include_ISTS = False
+                    break
+
+            # Fallback in case no portfolio matched (safe default)
+            if not portfolios:
+                include_ISTS = True
+
+            ISTS_charges = master_record.ISTS_charges if include_ISTS else 0
+
+            # --- END OF ISTS Charges Logic ---
             
             # Calculate annual savings
-            annual_savings = (grid_tariff.cost - re - master_record.ISTS_charges - master_record.state_charges) * re_replacement * requirement.annual_electricity_consumption * 1000
+            annual_savings = (grid_tariff.cost - re - ISTS_charges - master_record.state_charges) * round(re_replacement/100, 2) * requirement.annual_electricity_consumption * 1000
+            logger.debug(f'annual_savings = ({grid_tariff.cost} - {re} - {ISTS_charges} - {master_record.state_charges}) * {round(re_replacement/100, 2)} * {requirement.annual_electricity_consumption} * 1000 = {annual_savings}')
+            logger.debug(round(annual_savings, 2))
 
             # Prepare response data
             response_data = {
                 "annual_savings": round(annual_savings, 2),
-                "average_savings": record.average_savings if record else average_savings,
+                "average_savings": record.average_savings*requirement.contracted_demand if record else average_savings,
                 "re_replacement": re_replacement,
                 "state": requirement.state,
                 "procurement_date": requirement.procurement_date,
@@ -2257,7 +2372,7 @@ class AnnualSavingsView(APIView):
                 "contracted_demand": round(requirement.contracted_demand, 2),
                 "electricity_tariff": round(grid_tariff.cost, 2),
                 "potential_re_tariff": round(re, 2),
-                "ISTS_charges": round(master_record.ISTS_charges, 2),
+                "ISTS_charges": round(ISTS_charges, 2),
                 "state_charges": round(master_record.state_charges, 2),
                 "per_unit_savings_potential": round(grid_tariff.cost - re - master_record.ISTS_charges - master_record.state_charges, 2),
                 "potential_re_replacement": round(re_replacement, 2),
@@ -2336,7 +2451,7 @@ class WhatWeOfferAPI(APIView):
                 re = 4
             
             # Calculate annual savings
-            annual_savings = (re - master_record.ISTS_charges - master_record.state_charges) * re_replacement * requirement.annual_electricity_consumption * 1000
+            annual_savings = (re - master_record.ISTS_charges - master_record.state_charges) * round(re_replacement/100) * requirement.annual_electricity_consumption * 1000
 
             amount_saved_annually += annual_savings
 
@@ -2475,6 +2590,9 @@ class GeneratorDashboardAPI(APIView):
 
 class RazorpayClient():
     def create_order(self, amount, currency):
+        if amount > 500000:
+            raise ValidationError({"message": "Maximum allowed amount is ₹5,00,000."})
+
         data = {
             "amount": amount * 100,
             "currency": currency,
@@ -2553,7 +2671,7 @@ class PaymentTransactionAPI(APIView):
             
             if settings.ENVIRONMENT == 'local':
                 subscription_response = requests.post(
-                    "http://127.0.0.1:8001/api/energy/subscriptions",
+                    "http://127.0.0.1:8000/api/energy/subscriptions",
                     json=subscription_data
                 )
             else:
@@ -2676,13 +2794,13 @@ class CapacitySizingAPI(APIView):
     # permission_classes = [IsAuthenticated]
 
     @staticmethod
-    def extract_profile_data(file_path, sheet):
+    def extract_profile_data(file_path):
                 
         # Read the specified sheet from the Excel file
-        df = pd.read_excel(file_path, sheet_name=sheet)
+        df = pd.read_excel(file_path)
 
         # Select only the relevant column (B) and start from the 4th row (index 3)
-        df_cleaned = df.iloc[3:, 1].reset_index(drop=True)  # Column B corresponds to index 1
+        df_cleaned = df.iloc[1:, 1].reset_index(drop=True)  # Column B corresponds to index 1
 
         # Fill NaN values with 0
         profile = df_cleaned.fillna(0).reset_index(drop=True)
@@ -2776,7 +2894,7 @@ class CapacitySizingAPI(APIView):
                     if not solar.hourly_data:
                         continue
                     # Extract profile data from file
-                    profile_data = self.extract_profile_data(solar.hourly_data.path, 'Solar')
+                    profile_data = self.extract_profile_data(solar.hourly_data.path)
                     input_data[generator.username]["Solar"][solar.project] = {
                         "profile": profile_data,
                         "max_capacity": solar.available_capacity,
@@ -2791,7 +2909,7 @@ class CapacitySizingAPI(APIView):
                     if not wind.hourly_data:
                         continue
                     # Extract profile data from file
-                    profile_data = self.extract_profile_data(wind.hourly_data.path, 'Wind')
+                    profile_data = self.extract_profile_data(wind.hourly_data.path)
                     input_data[generator.username]["Wind"][wind.project] = {
                         "profile": profile_data,
                         "max_capacity": wind.available_capacity,
@@ -2868,5 +2986,449 @@ class CapacitySizingAPI(APIView):
         except ConsumerRequirements.DoesNotExist:
             return Response({"error": "Consumer requirements not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # except Exception as e:
-        #     return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class SensitivityAPI(APIView):
+
+    @staticmethod
+    def extract_profile_data(file_path):
+                
+        # Read the specified sheet from the Excel file
+        df = pd.read_excel(file_path)
+        logger.debug('df')
+        logger.debug(df)
+
+        df_cleaned = df.iloc[1:, 1].reset_index(drop=True)
+        logger.debug('df cleaned')
+        logger.debug(df)
+
+
+        # Fill NaN values with 0
+        profile = df_cleaned.fillna(0).reset_index(drop=True)
+        logger.debug('Profile:')
+        logger.debug(profile)
+                
+        return profile
+    
+
+    @staticmethod
+    def calculate_hourly_demand(consumer_requirement, state="Maharashtra"):
+        consumer_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
+
+        # # Define the state-specific hours
+        # state_hours = {
+        #     "Madhya Pradesh": {
+        #         "peak_hours_1": (6, 9),  # 6 AM to 9 AM
+        #         "peak_hours_2": (17, 22),  # 5 PM to 10 PM
+        #         "off_peak_hours": (22, 6),  # 10 PM to 6 AM
+        #     }
+        # }
+        hours = PeakHours.objects.filter(state__name=state).first()
+        if not hours:
+            return Response({"error": f"No peak hours data found for state {state}."}, status=status.HTTP_404_NOT_FOUND)
+
+        monthly_consumptions = MonthlyConsumptionData.objects.filter(requirement=consumer_requirement)
+
+        # Get state-specific hours
+        # Get state-specific peak and off-peak hours
+        peak_hours_1 = (hours.peak_start_1.hour, hours.peak_end_1.hour)
+        peak_hours_2 = (hours.peak_start_2.hour, hours.peak_end_2.hour) if hours.peak_start_2 and hours.peak_end_2 else (0, 0)
+        off_peak_hours = (hours.off_peak_start.hour, hours.off_peak_end.hour) if hours.off_peak_start and hours.off_peak_end else (0, 0)
+        logger.debug(peak_hours_1)
+        logger.debug(peak_hours_2)
+        logger.debug(off_peak_hours)
+
+
+        # Calculate total hours for all ranges
+        total_hours = 24
+        peak_hours_total = hours.calculate_peak_hours()
+        off_peak_hours_total = hours.calculate_off_peak_hours()
+        normal_hours = total_hours - peak_hours_total - off_peak_hours_total
+        logger.debug(f'normal_hours = {total_hours} - {peak_hours_total} - {off_peak_hours_total}')
+        logger.debug(f'Total peak hours: {peak_hours_total}')
+        logger.debug(f'Total off peak hours: {off_peak_hours_total}')
+        logger.debug(f'Normal hours: {normal_hours}')
+
+        # Initialize a list to store hourly data
+        all_hourly_data = []
+
+        for month_data in monthly_consumptions:
+            # Extract month details and convert month name to number
+            month_name = month_data.month
+            month_number = list(calendar.month_name).index(month_name)
+            if month_number == 0:
+                raise ValueError(f"Invalid month name: {month_name}")
+
+            # Get the number of days in the month
+            days_in_month = monthrange(2025, month_number)[-1]  # Update year dynamically
+
+            # Calculate consumption values
+            normal_consumption = month_data.monthly_consumption - (
+                month_data.peak_consumption + month_data.off_peak_consumption
+            )
+            normal_hour_value = round(normal_consumption / (normal_hours * days_in_month), 3)
+            peak_hour_value = round(month_data.peak_consumption / ((peak_hours_total) * days_in_month), 3)
+            off_peak_hour_value = round(month_data.off_peak_consumption / ((off_peak_hours_total) * days_in_month), 3)
+
+            logger.debug(f'normal_consumption = month_data.monthly_consumption - (month_data.peak_consumption + month_data.off_peak_consumption)')
+            logger.debug(f'normal_consumption = {month_data.monthly_consumption} - ({month_data.peak_consumption} + {month_data.off_peak_consumption}) = {normal_consumption}')
+            logger.debug(f'Normal hour value: {normal_hour_value}')
+            logger.debug(f'Peak hour value: {peak_hour_value}')
+            logger.debug(f'Off peak hour value: {off_peak_hour_value}')
+
+            # Distribute values across the hours of each day
+            for day in range(1, days_in_month + 1):
+                for hour in range(24):
+                    if hour == 24:
+                        hour = 0
+                    # Peak hours condition
+                    if peak_hours_1[0] <= hour < peak_hours_1[1] or peak_hours_2[0] <= hour < peak_hours_2[1]:
+                        all_hourly_data.append(peak_hour_value)
+                    # Off-peak hours condition (split into two cases)
+                    elif (off_peak_hours[0] <= hour < 24) or (0 <= hour < off_peak_hours[1]):
+                        all_hourly_data.append(off_peak_hour_value)
+                    # Normal hours condition
+                    else:
+                        all_hourly_data.append(normal_hour_value)
+
+        # Update the HourlyDemand model
+        consumer_demand.set_hourly_data_from_list(all_hourly_data)
+        consumer_demand.save()
+        
+        # Return the data in the desired flat format
+        return pd.Series(all_hourly_data)
+
+    def post(self, request):
+        data = request.data
+        optimize_capacity_user = data.get("optimize_capacity_user") #consumer or generator
+        user_id = data.get("user_id")
+        id = data.get("requirement_id")
+        combinations = data.get("combinations")
+        
+
+         # Check optimize_capacity value
+        # if optimize_capacity_user == "Consumer":
+        #     try:
+        #         matching_ipps = MatchingIPP.objects.get(requirement=id)
+        #     except MatchingIPP.DoesNotExist:
+        #         return Response({"error": "Failed to fetch IPP, Please select requirement and try again."}, status=status.HTTP_404_NOT_FOUND)
+        #     generator_id = matching_ipps.generator_ids
+        # elif optimize_capacity_user == "Generator":
+        #     generator_id = [user_id]  # Normalize to a list for consistent processing
+        # else:
+        #     return Response(
+        #         {"error": "Invalid value for 'optimize_capacity'. Must be 'consumer' or 'generator'."},
+        #         status=status.HTTP_400_BAD_REQUEST,
+        #     )
+
+        generator_id = [user_id]  # Normalize to a list for consistent processing
+        try:
+            # Fetch consumer details
+            consumer_requirement = ConsumerRequirements.objects.get(id=id)
+            # Initialize final aggregated response
+            aggregated_response = {}
+
+            for combination in combinations:
+                input_data = {}  # Initialize the final dictionary
+                new_list = []
+                
+                for id in generator_id:
+                    generator = User.objects.get(id=id)
+
+                    match = re.match(r'^(IPP\d+)(?:-(.+))?$', combination)
+
+                    if match:
+                        ipp_id = match.group(1)  # First part (IPP ID)
+                        components = match.group(2).split('-') if match.group(2) else []  # Remaining parts
+                        # Normalize component types from the list (extract just 'Solar', 'Wind', etc.)
+                        component_types = {comp.split('_')[0].lower():comp for comp in components}
+                        logger.debug(component_types)
+
+                    # Query generator's portfolios
+                    solar_data = SolarPortfolio.objects.filter(user=generator, project=component_types['solar']) if 'solar' in component_types else None
+                    wind_data = WindPortfolio.objects.filter(user=generator, project=component_types['wind']) if 'wind' in component_types else None
+                    ess_data = ESSPortfolio.objects.filter(user=generator, project=component_types['ess']) if 'ess' in component_types else None
+
+                    logger.debug(f'solar_data: {solar_data}')
+                    logger.debug(f'wind_data: {wind_data}')
+                    logger.debug(f'ess_data: {ess_data}')
+
+                    if solar_data.first().connectivity == 'CTU' or wind_data.first().connectivity == 'CTU' or ess_data.first().connectivity == 'CTU':
+                        connectivity = 'CTU'
+                    else:
+                        connectivity = 'STU'
+                    
+                    solar_project = []
+                    wind_project = []
+                    ess_project = []
+                    
+                    # Initialize data for the current generator
+                    input_data[generator.username] = {}
+
+                    # Add Solar projects if solar_data exists
+                    if solar_data:
+                        if solar_data.exists():
+                            input_data[generator.username]["Solar"] = {}
+                            for solar in solar_data:
+
+                                solar_project.append(solar.project)
+
+                                if not solar.hourly_data:
+                                    continue
+
+                                # Extract profile data from file
+                                profile_data = self.extract_profile_data(solar.hourly_data.path)
+
+                                input_data[generator.username]["Solar"][solar.project] = {
+                                    "profile": profile_data,
+                                    "max_capacity": solar.available_capacity,
+                                    "marginal_cost": solar.marginal_cost,
+                                    "capital_cost": solar.capital_cost,
+                                }
+
+                    # Add Wind projects if wind_data exists
+                    if wind_data:
+                        if wind_data.exists():
+                            input_data[generator.username]["Wind"] = {}
+                            for wind in wind_data:
+
+                                wind_project.append(wind.project)
+
+                                if not wind.hourly_data:
+                                    continue
+
+                                # Extract profile data from file
+                                profile_data = self.extract_profile_data(wind.hourly_data.path)
+
+                                input_data[generator.username]["Wind"][wind.project] = {
+                                    "profile": profile_data,
+                                    "max_capacity": wind.available_capacity,
+                                    "marginal_cost": wind.marginal_cost,
+                                    "capital_cost": wind.capital_cost,
+                                }
+
+                    # Add ESS projects if ess_data exists
+                    if ess_data:
+                        if ess_data.exists():
+                            input_data[generator.username]["ESS"] = {}
+                            for ess in ess_data:
+
+                                ess_project.append(ess.project)
+
+                                input_data[generator.username]["ESS"][ess.project] = {
+                                    "DoD": ess.efficiency_of_dispatch,
+                                    "efficiency": ess.efficiency_of_dispatch,
+                                    "marginal_cost": ess.marginal_cost,
+                                    "capital_cost": ess.capital_cost,
+                                }
+
+                valid_combinations = []
+
+                if new_list != generator_id:
+
+                    HourlyDemand.objects.get_or_create(requirement=consumer_requirement)
+                    hourly_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
+
+                    if hourly_demand and hourly_demand.hourly_demand is not None:
+                        # Split the comma-separated string into a list of values
+                        hourly_demand_list = hourly_demand.hourly_demand.split(',')
+                        # Convert list to a Pandas Series (ensures it has an index)
+                        hourly_demand_series = pd.Series(hourly_demand_list)
+                        # Convert all values to numeric (float), coercing errors to NaN
+                        hourly_demand = pd.to_numeric(hourly_demand_series, errors='coerce')
+                        # Print the numeric Series with index numbers
+                    else:
+                        # monthly data conversion in hourly data
+                        hourly_demand = self.calculate_hourly_demand(consumer_requirement)
+
+                    
+                
+                    # 8760 rows should be there if more then remove extra and if less then show error
+                    if len(hourly_demand) > 8760:
+                        hourly_demand = hourly_demand.iloc[:8760]
+                    elif len(hourly_demand) < 8760:
+                        padding_length = 8760 - len(hourly_demand)
+                        hourly_demand = pd.concat([hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
+                    
+                    logger.debug(f'length: {len(hourly_demand)}')
+                    re_replacement = 25
+                    for i in range(1, 11):
+                        if i == 7:
+                            re_replacement = 80
+                        elif i == 8:
+                            re_replacement = 85
+                        elif i == 9:
+                            re_replacement = 90
+                        elif i == 10:
+                            re_replacement = 95
+                            
+                        logger.debug(re_replacement)
+                        logger.debug(input_data)
+                        response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations)
+
+                        if response_data != 'The demand cannot be met by the IPPs':
+                            for combination_key, details in response_data.items():
+                            # Extract user and components from combination_key
+                                components = combination_key.split('-')
+
+
+                                # Safely extract components, ensuring that we have enough elements
+                                username = components[0] if len(components) > 0 else None  # Example: 'IPP241'
+                                component_1 = components[1] if len(components) > 1 else None  # Example: 'Solar_1' (if present)
+                                component_2 = components[2] if len(components) > 2 else None  # Example: 'Wind_1' (if present)
+                                component_3 = components[3] if len(components) > 3 else None  # Example: 'ESS_1' (if present)
+
+                                generator = User.objects.get(username=username)
+
+                                solar = wind = ess = None
+                                solar_state = wind_state = ess_state = None
+
+                                # Helper function to fetch the component and its COD
+                                def get_component_and_cod(component_name, generator, portfolio_model):
+                                    try:
+                                        portfolio = portfolio_model.objects.get(user=generator, project=component_name)
+                                        return portfolio, portfolio.cod, portfolio.state
+                                    except portfolio_model.DoesNotExist:
+                                        return None, None, None
+
+                                # Fetch solar, wind, and ESS components and their CODs
+                                if component_1:
+                                    if 'Solar' in component_1:
+                                        solar, solar_cod, solar_state  = get_component_and_cod(component_1, generator, SolarPortfolio)
+                                    elif 'Wind' in component_1:
+                                        wind, wind_cod, wind_state  = get_component_and_cod(component_1, generator, WindPortfolio)
+                                    elif 'ESS' in component_1:
+                                        ess, ess_cod, ess_state  = get_component_and_cod(component_1, generator, ESSPortfolio)
+
+                                if component_2:
+                                    if 'Wind' in component_2:
+                                        wind, wind_cod, wind_state  = get_component_and_cod(component_2, generator, WindPortfolio)
+                                    elif 'ESS' in component_2:
+                                        ess, ess_cod, ess_state  = get_component_and_cod(component_2, generator, ESSPortfolio)
+
+                                if component_3:
+                                    if 'ESS' in component_3:
+                                        ess, ess_cod, ess_state  = get_component_and_cod(component_3, generator, ESSPortfolio)
+
+                                # Determine the greatest COD
+                                cod_dates = [solar_cod if solar else None, wind_cod if wind else None, ess_cod if ess else None]
+                                cod_dates = [date for date in cod_dates if date is not None]
+                                greatest_cod = max(cod_dates) if cod_dates else None
+
+                                # Map each portfolio to its state
+                                state = {}
+                                if solar:
+                                    state[solar.project] = solar_state
+                                if wind:
+                                    state[wind.project] = wind_state
+                                if ess:
+                                    state[ess.project] = ess_state
+
+                                annual_demand_met = (details["Annual Demand Met"] * 24) / 1000000
+
+                                combo = Combination.objects.filter(combination=combination_key, requirement=consumer_requirement, annual_demand_offset=details["Annual Demand Offset"]).first()
+                                terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
+
+                                terms_sheet_sent = False
+                                if combo:
+                                    terms_sheet_sent = combo.terms_sheet_sent
+                                else:
+                                    # Save to Combination table
+                                    combo = Combination.objects.get_or_create(
+                                        requirement=consumer_requirement,
+                                        generator=generator,
+                                        re_replacement=re_replacement if re_replacement else 65,
+                                        combination=combination_key,
+                                        state=state,
+                                        optimal_solar_capacity=details["Optimal Solar Capacity (MW)"],
+                                        optimal_wind_capacity=details["Optimal Wind Capacity (MW)"],
+                                        optimal_battery_capacity=details["Optimal Battery Capacity (MW)"],
+                                        per_unit_cost=details["Per Unit Cost"]/1000,
+                                        final_cost=details['Final Cost'] / 1000,
+                                        annual_demand_offset=details["Annual Demand Offset"],
+                                        annual_demand_met=annual_demand_met,
+                                        annual_curtailment=details["Annual Curtailment"],
+                                        connectivity=connectivity
+                                    )
+
+                                sent_from_you = False
+                                if terms_sheet:
+                                    if terms_sheet.from_whom == optimize_capacity_user:
+                                        sent_from_you = True
+                                    else:
+                                        sent_from_you = False
+
+                                re_index = generator.re_index
+
+                                if re_index is None:
+                                    re_index = 0
+
+                                OA_cost = (details["Final Cost"] - details['Per Unit Cost']) / 1000
+                                details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
+                                details['Final Cost'] = details['Final Cost'] / 1000
+                                details["Annual Demand Met"] = (details["Annual Demand Met"] * 24) / 1000
+
+                                # Update the aggregated response dictionary
+                                if combination_key not in aggregated_response:
+                                    aggregated_response[combination_key] = {}
+                                aggregated_response[combination_key][re_replacement] = {
+                                    **details,
+                                    'OA_cost': OA_cost,
+                                    "state": state,
+                                    "greatest_cod": greatest_cod,
+                                    "terms_sheet_sent": terms_sheet_sent,
+                                    "sent_from_you": sent_from_you,
+                                    "connectivity": connectivity,
+                                    "re_index": re_index,
+                                    "re_replacement": re_replacement,
+                                }
+                        else:
+                            if combination_key not in aggregated_response:
+                                aggregated_response[combination_key] = {}
+                            aggregated_response[combination_key][re_replacement] = "The demand cannot be met"
+
+                        re_replacement += 10        
+                            
+            if not aggregated_response and optimize_capacity_user=='Consumer':
+                return Response({"error": "The demand cannot be met by the IPPs."}, status=status.HTTP_200_OK)
+            elif not aggregated_response and optimize_capacity_user=='Generator':
+                return Response({"error": "The demand cannot be made by your projects."}, status=status.HTTP_200_OK)
+            
+
+            # Extract top 3 records with the smallest "Per Unit Cost"
+            # top_three_records = sorted(aggregated_response.items(), key=lambda x: x[1]['Per Unit Cost'])[:3]
+            # Function to round values to 2 decimal places
+            def round_nested_output(data, precision=2):
+                for outer_key, inner_dict in data.items():
+                    for re_key, value in inner_dict.items():
+                        # Skip if value is not a dictionary (e.g., a string)
+                        if not isinstance(value, dict):
+                            continue
+                        
+                        for k, v in value.items():
+                            if isinstance(v, (int, float)):
+                                value[k] = round(v, precision)
+                            elif isinstance(v, dict):
+                                # If it's another dict (like 'state'), leave it unchanged
+                                continue
+                            # Leave datetime, bool, and other non-number values as-is
+                return data
+
+            rounded_data = round_nested_output(aggregated_response, precision=2)
+
+
+
+            return Response(rounded_data, status=status.HTTP_200_OK)
+
+
+        except User.DoesNotExist:
+            return Response({"error": "Consumer or generator not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        except ConsumerRequirements.DoesNotExist:
+            return Response({"error": "Consumer requirements not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        except Exception as e:
+            tb = traceback.format_exc()  # Get the full traceback
+            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

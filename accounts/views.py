@@ -149,7 +149,7 @@ class RegisterUser(APIView):
                 send_mail(
                     'Your OTP for Registration',
                     f'Your OTP is {email_otp}',
-                    'noreply@example.com',
+                    f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
                     [existing_user.email],
                     fail_silently=False,
                 )
@@ -162,11 +162,11 @@ class RegisterUser(APIView):
 
             # Check if any existing user has the same email domain
             existing_user_with_domain = User.objects.filter(email__icontains=f'@{domain}').first()
-            if existing_user_with_domain:
-                return Response(
-                    {'error': f"An admin for the domain '{domain}' already exists. Please contact them to add sub-users."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # if existing_user_with_domain:
+            #     return Response(
+            #         {'error': f"An admin for the domain '{domain}' already exists. Please contact them to add sub-users."},
+            #         status=status.HTTP_400_BAD_REQUEST
+            #     )
 
             if serializer.is_valid():
                 user = serializer.save()
@@ -186,7 +186,7 @@ class RegisterUser(APIView):
                 send_mail(
                     'Your OTP for Registration',
                     f'Your OTP is {email_otp}',
-                    'noreply@example.com',
+                    f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
                     [user.email],
                     fail_silently=False,
                 )
@@ -277,7 +277,7 @@ class LoginUser(APIView):
             send_mail(
                 'Set Up Your Account Password',
                 f'Please set your new password using the following link:\n\n{registration_link}\n\nIf you did not request this, please ignore this email.\n\nThank You',
-                'noreply@example.com',
+                f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
                 [email],
                 fail_silently=False,
             )
@@ -358,7 +358,7 @@ class AddSubUser(APIView):
         send_mail(
             'Complete Your Registration',
             f'You have been added as a {role}. Please set your password using the following link: {registration_link}',
-            'noreply@example.com',
+            f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
             [email],
             fail_silently=False,
         )

@@ -26,3 +26,5 @@ class MonthAheadPredictionAdmin(admin.ModelAdmin):
     list_display = ['date', 'hour', 'mcv_prediction', 'mcp_prediction']
 
 admin.site.register(Notifications)
+admin.site.register(MonthAheadGeneration)
+admin.site.register(MonthAheadGenerationDistribution)

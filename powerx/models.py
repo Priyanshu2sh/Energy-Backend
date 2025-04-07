@@ -4,18 +4,32 @@ from django.db import models
 
 # Create your models here.
 class ConsumerDayAheadDemand(models.Model):
+    STATUS_CHOICES = [
+        ('Draft', 'Draft'),
+        ('submitted to trader', 'submitted to trader'),
+        ('Trade Executed', 'Trade Executed'),
+        ('Trade Failed', 'Trade Failed'),
+    ]
     requirement = models.ForeignKey('energy.ConsumerRequirements', on_delete=models.CASCADE)
     date = models.DateField()
     start_time = models.TimeField() 
     end_time = models.TimeField() 
     demand = models.IntegerField()
     price_details = models.JSONField(blank=True, null=True)  # Stores prices as JSON: {"Solar": 20, "Non-Solar": 10}
+    status = models.CharField(max_length=200, choices=STATUS_CHOICES, default="Draft")
 
 class ConsumerMonthAheadDemand(models.Model):
+    STATUS_CHOICES = [
+        ('Draft', 'Draft'),
+        ('submitted to trader', 'submitted to trader'),
+        ('Trade Executed', 'Trade Executed'),
+        ('Trade Failed', 'Trade Failed'),
+    ]
     requirement = models.ForeignKey('energy.ConsumerRequirements', on_delete=models.CASCADE)
     date = models.DateField()
     demand = models.FloatField()  # Single demand value for all energy types
     price_details = models.JSONField()  # Stores prices as JSON: {"Solar": 20, "Non-Solar": 10}
+    status = models.CharField(max_length=200, choices=STATUS_CHOICES, default="Draft")
 
 class ConsumerMonthAheadDemandDistribution(models.Model):
     month_ahead_demand = models.ForeignKey(ConsumerMonthAheadDemand, on_delete=models.CASCADE, related_name="distributions")

@@ -8,6 +8,7 @@ from channels.layers import get_channel_layer
 from django.db.models import Count
 import json
 import asyncio
+from datetime import datetime, timedelta
 
 from accounts.models import User
 # Create your models here.
@@ -226,6 +227,7 @@ class ConsumerRequirements(models.Model):
     user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Consumer'}) # Restrict to users with user_category='Consumer'
     state = models.CharField(max_length=255)  # State/Location where the company is located
     industry = models.CharField(max_length=255)  # Industry your company is involved in (e.g., IT, Manufacturing)
+    sub_industry = models.CharField(max_length=255)
     contracted_demand = models.FloatField()  # Total energy requirement for the consumer
     tariff_category = models.CharField(max_length=255)  # Select the tariff category applicable to your company (e.g., HT Commercial, LT Industrial).
     voltage_level = models.IntegerField()  # Select the voltage level of the electricity being supplied to your company.
@@ -234,7 +236,7 @@ class ConsumerRequirements(models.Model):
     annual_electricity_consumption = models.FloatField(blank=True, null=True)
 
     def __str__(self):
-        return f"Demand for {self.user} - {self.state} - {self.industry} - {self.consumption_unit} - {self.contracted_demand} kWh"
+        return f"Demand for {self.user} - {self.state} - {self.industry} - {self.sub_industry} - {self.consumption_unit} - {self.contracted_demand} kWh"
 
 class ScadaFile(models.Model):
     requirement = models.OneToOneField(ConsumerRequirements, on_delete=models.CASCADE, related_name="scada_file", unique=True)  # Ensures only one file per requirement
@@ -289,6 +291,7 @@ class Combination(models.Model):
     annual_curtailment = models.FloatField()
     request_sent = models.BooleanField(default=False)
     terms_sheet_sent = models.BooleanField(default=False)
+    connectivity = models.CharField(max_length=255, blank=True, null=True)
 
     def __str__(self):
         return f"{self.combination}"
@@ -597,3 +600,38 @@ class GeneratorHourlyDemand(models.Model):
     def set_hourly_data_from_list(self, data_list):
         """Convert a list of floats into a comma-separated string and save it."""
         self.hourly_demand = ','.join(map(str, data_list))
+
+class PeakHours(models.Model):
+    state = models.ForeignKey(State, on_delete=models.CASCADE, related_name="peak_hours")
+    peak_start_1 = models.TimeField()  # Start time of peak hours 1
+    peak_end_1 = models.TimeField()    # End time of peak hours 1
+    peak_start_2 = models.TimeField(null=True, blank=True)  # Start time of peak hours 2
+    peak_end_2 = models.TimeField(null=True, blank=True)    # End time of peak hours 2
+    off_peak_start = models.TimeField(null=True, blank=True)  # Start time of off-peak hours
+    off_peak_end = models.TimeField(null=True, blank=True)    # End time of off-peak hours
+
+    def calculate_hours(self, start_time, end_time):
+        """Calculate duration between two time fields, handling cases where end time is past midnight"""
+        if not start_time or not end_time:  # Handle missing values
+            return 0
+
+        start_dt = datetime.combine(datetime.today(), start_time)
+        end_dt = datetime.combine(datetime.today(), end_time)
+
+        if end_dt < start_dt:
+            end_dt += timedelta(days=1)  # Adjust for midnight crossing
+
+        return (end_dt - start_dt).total_seconds() / 3600  # Convert seconds to hours
+
+    def calculate_peak_hours(self):
+        """Returns total peak hours"""
+        peak_hours_1 = self.calculate_hours(self.peak_start_1, self.peak_end_1)
+        peak_hours_2 = self.calculate_hours(self.peak_start_2, self.peak_end_2) if self.peak_start_2 and self.peak_end_2 else 0
+        return peak_hours_1 + peak_hours_2
+
+    def calculate_off_peak_hours(self):
+        """Returns total off-peak hours"""
+        return self.calculate_hours(self.off_peak_start, self.off_peak_end) if self.off_peak_start and self.off_peak_end else 0
+
+    def __str__(self):
+        return f"{self.state} - Peak: {self.calculate_peak_hours()} hrs, Off-Peak: {self.calculate_off_peak_hours()} hrs"

@@ -21,6 +21,11 @@ from powerx.AI_Model.model_scheduling import run_predictions, run_month_ahead_mo
 from powerx.AI_Model.manualdates import process_and_store_data
 from rest_framework.decorators import api_view
 from django.utils import timezone
+# Get the logger that is configured in the settings
+import logging
+traceback_logger = logging.getLogger('django')
+
+logger = logging.getLogger('debug_logger')  # Use the new debug logger
 
 class CleanDataAPI(APIView):
     def post(self, request):
@@ -587,7 +592,7 @@ class MonthAheadGenerationAPI(APIView):
     def post(self, request):
         data = request.data
         portfolio_id = data.get("portfolio_id")  # Object ID (Solar/Wind)
-        portfolio_type = data.get("portfolio_type")  # "solar" or "wind"
+        portfolio_type = data.get("portfolio_type")  # "solar" or "non_solar"
         date = data.get("date")
         generation = data.get("generation")
         price = data.get("price")
@@ -602,7 +607,7 @@ class MonthAheadGenerationAPI(APIView):
                 portfolio = SolarPortfolio.objects.get(id=portfolio_id)
             except SolarPortfolio.DoesNotExist:
                 return Response({"error": "Invalid SolarPortfolio ID"}, status=status.HTTP_400_BAD_REQUEST)
-        elif portfolio_type.lower() == "wind":
+        elif portfolio_type.lower() == "non_solar":
             try:
                 content_type = ContentType.objects.get_for_model(WindPortfolio)
                 portfolio = WindPortfolio.objects.get(id=portfolio_id)
@@ -756,3 +761,49 @@ class ModelStatisticsMonthAPI(APIView):
         }
 
         return Response(response_data)
+    
+class TrackDemandStatusAPI(APIView):
+    def get(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        result = []
+
+        # Day Ahead
+        day_ahead = ConsumerDayAheadDemand.objects.filter(requirement__user = user)
+        for entry in day_ahead:
+            req = entry.requirement
+            result.append({
+                "demand": entry.demand,
+                "demand_date": entry.date.strftime("%d-%m-%Y"),
+                "consumption_unit_details": {
+                        "state": req.state,
+                        "industry": req.industry,
+                        "contracted_demand": req.contracted_demand,
+                        "consumption_unit": req.consumption_unit
+                    },
+                "status": entry.status.lower()
+            })
+
+        # Month Ahead
+        month_ahead = ConsumerMonthAheadDemand.objects.filter(requirement__user = user)
+        for entry in month_ahead:
+            req = entry.requirement
+            result.append({
+                "demand": entry.demand,
+                "demand_date": entry.date.strftime("%d-%m-%Y"),
+                "consumption_unit_details": {
+                        "state": req.state,
+                        "industry": req.industry,
+                        "contracted_demand": req.contracted_demand,
+                        "consumption_unit": req.consumption_unit
+                    },
+                "status": entry.status.lower()
+            })
+
+        # Sort by date (optional)
+        result.sort(key=lambda x: datetime.strptime(x['demand_date'], "%d-%m-%Y"))
+
+        return Response(result, status=status.HTTP_200_OK)
