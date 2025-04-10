@@ -10,7 +10,7 @@ import logging
 logger = logging.getLogger('debug_logger')  # Use the new debug logger
 
 
-def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None, re_replacement=None, valid_combinations=None, curtailment_selling_price=None, sell_curtailment_percentage=None, annual_curtailment_limit=None):
+def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None, re_replacement=None, valid_combinations=None, OA_cost=None, curtailment_selling_price=None, sell_curtailment_percentage=None, annual_curtailment_limit=None):
     
     if consumer_demand_path != None:
         demand_file = pd.read_excel(consumer_demand_path)
@@ -38,7 +38,11 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
         curtailment_selling_price = curtailment_selling_price
         sell_curtailment_percentage = sell_curtailment_percentage
         annual_curtailment_limit = annual_curtailment_limit
-    OA_cost=1000
+    
+    if OA_cost is None: 
+        OA_cost=1000
+    else:
+        OA_cost=OA_cost
 
 
     results_dict = {}

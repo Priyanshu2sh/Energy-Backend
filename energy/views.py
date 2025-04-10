@@ -191,6 +191,7 @@ class GenerationPortfolioAPI(APIView):
 
         # Handle Base64-encoded file
         file_data = request.data.get("hourly_data")
+        message = None
         if file_data:
             try:
                 # Decode Base64 file
@@ -232,7 +233,7 @@ class GenerationPortfolioAPI(APIView):
                 # Get available capacity
                 available_capacity = float(request.data.get("available_capacity"))  # Ensure `available_capacity` exists in the model
 
-                message = None
+                
                 # Check if max_value exceeds 80% of available_capacity
                 if float(max_value) < (0.8 * available_capacity):
                     message = f"Uploaded data is below 80% of available capacity. Max value: {max_value}, Threshold: {0.8 * available_capacity}"
@@ -245,7 +246,7 @@ class GenerationPortfolioAPI(APIView):
                 traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
                 return Response({"error": f"{str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
-        logger.debug(f"request.message= {message}")
+        # logger.debug(f"request.message= {message}")
         serializer = serializer_class(instance, data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -742,8 +743,27 @@ class MatchingIPPAPI(APIView):
                         ESSPortfolio.objects.filter(user=user_id).aggregate(Sum("available_capacity"))["available_capacity__sum"] or 0
                     )
 
+                    # Sum installed capacity for all portfolios of this user
+                    installed_capacity = (
+                        SolarPortfolio.objects.filter(user=user_id).aggregate(Sum("total_install_capacity"))["total_install_capacity__sum"] or 0
+                    ) + (
+                        WindPortfolio.objects.filter(user=user_id).aggregate(Sum("total_install_capacity"))["total_install_capacity__sum"] or 0
+                    ) + (
+                        ESSPortfolio.objects.filter(user=user_id).aggregate(Sum("total_install_capacity"))["total_install_capacity__sum"] or 0
+                    )
+
+                    # Fetch portfolio details per user
+                    solar_portfolios = SolarPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity")
+                    wind_portfolios = WindPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity")
+                    ess_portfolios = ESSPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity")
+
                     # Update the user's available capacity
                     entry["available_capacity"] = available_capacity
+                    entry["installed_capacity"] = installed_capacity
+                    entry["solar"] = list(solar_portfolios)
+                    entry["wind"] = list(wind_portfolios)
+                    entry["ess"] = list(ess_portfolios)
+
                     filtered_data.append(entry)  # Keep only subscribed users
 
             sorted_data = sorted(filtered_data, key=lambda x: x["available_capacity"], reverse=True)
@@ -786,6 +806,7 @@ class MatchingConsumerAPI(APIView):
 
             # Combine all data
             data = list(chain(solar_data, wind_data, ess_data))
+            logger.debug(data)
 
             # Ensure generation portfolio exists
             if not data:
@@ -797,6 +818,8 @@ class MatchingConsumerAPI(APIView):
             # Separate CTU and non-CTU portfolios
             ctu_portfolios = [p for p in data if p.connectivity == "CTU"]
             non_ctu_portfolios = [p for p in data if p.connectivity != "CTU"]
+            logger.debug(f'ctu=== {ctu_portfolios}')
+            logger.debug(f'non ctu=== {non_ctu_portfolios}')
 
             # Collect filtering criteria
             states = set(p.state for p in non_ctu_portfolios)
@@ -808,10 +831,14 @@ class MatchingConsumerAPI(APIView):
             if ctu_portfolios:
                 # Match procurement date only for CTU projects
                 ctu_cod_dates = [p.cod for p in ctu_portfolios if p.cod]
+                logger.debug(ctu_cod_dates)
 
                 ctu_filtered_data = ConsumerRequirements.objects.filter(
                     procurement_date__gte=min(ctu_cod_dates),  # Use earliest COD from CTU projects
                 )
+
+                logger.debug('dfdsfsd')
+                logger.debug(ctu_filtered_data)
 
                 # Merge with existing filter
                 filtered_data = filtered_data | ctu_filtered_data
@@ -822,9 +849,11 @@ class MatchingConsumerAPI(APIView):
                     state__in=states,
                     procurement_date__gte=min(cod_dates),  # Use earliest COD from non-CTU projects
                 )
+                logger.debug(state_filtered_data)
 
                 # Merge both results (CTU + State-wise matching)
                 filtered_data   = filtered_data | state_filtered_data
+                logger.debug(filtered_data)
             
             # Check for subscription and notify consumers without a subscription
             exclude_consumers = []
@@ -893,6 +922,9 @@ class MatchingConsumerAPI(APIView):
                     "voltage_level": item["voltage_level"],
                     "total_contracted_demand": item["total_contracted_demand"]
                 })
+                
+            if response_data == []:
+                return Response({"message": "No matching consumers found."}, status=status.HTTP_404_NOT_FOUND)          
 
 
             # Convert QuerySet to a list for JSON response
@@ -908,24 +940,27 @@ class PortfolioUpdateStatusView(APIView):
     def get(self, request, user_id):
         try:
             user = get_admin_user(user_id)
-            user_id = user.id
+            # user_id = user.id
             # Fetch records for the given user in all three models
-            solar_records = SolarPortfolio.objects.filter(user_id=user_id)
-            wind_records = WindPortfolio.objects.filter(user_id=user_id)
-            ess_records = ESSPortfolio.objects.filter(user_id=user_id)
+            solar_records = SolarPortfolio.objects.filter(user__id=user.id)
+            wind_records = WindPortfolio.objects.filter(user__id=user.id)
+            ess_records = ESSPortfolio.objects.filter(user__id=user.id)
 
             # Combine all records into a single list
             all_records = list(solar_records) + list(wind_records) + list(ess_records)
 
             # Check if any record is not updated
             all_updated = all(record.updated for record in all_records)
+            logger.debug(all_updated)
 
             return Response({
-                "user_id": user_id,
+                "user_id": user.id,
                 "all_updated": all_updated
             }, status=status.HTTP_200_OK)
 
         except Exception as e:
+            tb = traceback.format_exc()  # Get the full traceback
+            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
             return Response({
                 "error": "An error occurred.",
                 "details": str(e)
@@ -1279,7 +1314,7 @@ class OptimizeCapacityAPI(APIView):
                     logger.debug(f'length: {len(numeric_hourly_demand)}')
                     logger.debug(re_replacement)
                     logger.debug(input_data)
-                    response_data = optimization_model(input_data, hourly_demand=numeric_hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations)
+                    response_data = optimization_model(input_data, hourly_demand=numeric_hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, OA_cost=(ISTS_charges + master_record.state_charges)*1000)
 
                     if response_data != 'The demand cannot be met by the IPPs':
                         for combination_key, details in response_data.items():
@@ -1339,7 +1374,7 @@ class OptimizeCapacityAPI(APIView):
                             if ess:
                                 state[ess.project] = ess_state
 
-                            annual_demand_met = (details["Annual Demand Met"] * 24) / 1000000
+                            annual_demand_met = (details["Annual Demand Met"]) / 1000
 
                             combo = Combination.objects.filter(combination=combination_key, requirement=consumer_requirement, annual_demand_offset=details["Annual Demand Offset"]).first()
                             terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
@@ -1349,7 +1384,7 @@ class OptimizeCapacityAPI(APIView):
                                 terms_sheet_sent = combo.terms_sheet_sent
                             else:
                                 # Save to Combination table
-                                combo = Combination.objects.get_or_create(
+                                combo, created = Combination.objects.get_or_create(
                                     requirement=consumer_requirement,
                                     generator=generator,
                                     re_replacement=re_replacement if re_replacement else 65,
@@ -1380,22 +1415,46 @@ class OptimizeCapacityAPI(APIView):
                             OA_cost = (details["Final Cost"] - details['Per Unit Cost']) / 1000
                             details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
                             details['Final Cost'] = details['Final Cost'] / 1000
-                            details["Annual Demand Met"] = (details["Annual Demand Met"] * 24) / 1000
+                            details["Annual Demand Met"] = (details["Annual Demand Met"]) / 1000
                             logger.debug('=============')
                             logger.debug(f'{grid_tariff.cost} - {re} - {ISTS_charges} - {master_record.state_charges}')
                             logger.debug('=============')
+
+                            if optimize_capacity_user == "Consumer":
+                                mapped_username = consumer_requirement.user.username
+                            else:
+                                # Map the consumer username specific to the generator
+                                mapped_username = get_mapped_username(generator, consumer_requirement.user)
                             # Update the aggregated response dictionary
                             if combination_key not in aggregated_response:
                                 aggregated_response[combination_key] = {
                                     **details,
-                                    'OA_cost': OA_cost,
+                                    'OA_cost': ISTS_charges + master_record.state_charges,
+                                    'ISTS_charges': ISTS_charges,
+                                    'state_charges': master_record.state_charges,
                                     "state": state,
                                     "greatest_cod": greatest_cod,
                                     "terms_sheet_sent": terms_sheet_sent,
                                     "sent_from_you": sent_from_you,
                                     "connectivity": connectivity,
                                     "re_index": re_index,
-                                    "per_unit_savings": grid_tariff.cost - re - ISTS_charges - master_record.state_charges,
+                                    "per_unit_savings": grid_tariff.cost - details['Per Unit Cost'] - ISTS_charges - master_record.state_charges,
+                                    "downloadable": {
+                                        "consumer": mapped_username,
+                                        "generator": generator.username,
+                                        "consumer_state": consumer_requirement.state,
+                                        # "generator_state": combo.state,
+                                        "cod": {combo.state},
+                                        # "term_of_ppa": record.term_of_ppa,
+                                        # "lock_in_period": record.lock_in_period,
+                                        "minimum_generation_obligation": round(combo.annual_demand_met * 0.8, 2),
+                                        "voltage_level_of_generation": combo.requirement.voltage_level,
+                                        # "tariff_finalized": offer_tariff.offer_tariff,
+                                        # "payment_security_day": record.payment_security_day,
+                                        "solar": round(combo.optimal_solar_capacity, 2),
+                                        "wind": round(combo.optimal_wind_capacity, 2),
+                                        "ess": round(combo.optimal_battery_capacity, 2),
+                                    }
                                 }
                             else:
                                 # Merge the details if combination already exists
@@ -1458,7 +1517,7 @@ class OptimizeCapacityAPI(APIView):
             if not aggregated_response and optimize_capacity_user=='Consumer':
                 return Response({"error": "The demand cannot be met by the IPPs."}, status=status.HTTP_200_OK)
             elif not aggregated_response and optimize_capacity_user=='Generator':
-                return Response({"error": "The demand cannot be made by your projects."}, status=status.HTTP_200_OK)
+                return Response({"error": "The demand cannot be met by your projects."}, status=status.HTTP_200_OK)
             
 
             # Extract top 3 records with the smallest "Per Unit Cost"
@@ -1470,8 +1529,6 @@ class OptimizeCapacityAPI(APIView):
             top_three_records_rounded = {
                 key: round_values(value) for key, value in top_three_records
             }   
-
-            
 
             return Response(top_three_records_rounded, status=status.HTTP_200_OK)
 
@@ -1598,7 +1655,7 @@ class StandardTermsSheetAPI(APIView):
                             "optimal_solar_capacity": round(record.combination.optimal_solar_capacity, 2),
                             "optimal_wind_capacity": round(record.combination.optimal_wind_capacity, 2),
                             "optimal_battery_capacity": round(record.combination.optimal_battery_capacity, 2),
-                            "optimal_battery_capacity": round(record.combination.optimal_battery_capacity, 2),
+                            "re_capacity": round(record.combination.optimal_solar_capacity + record.combination.optimal_wind_capacity + record.combination.optimal_battery_capacity, 2),
                             "per_unit_cost": round(record.combination.per_unit_cost, 2),
                             "final_cost": round(record.combination.final_cost, 2),
                             # Add more fields as required
@@ -1651,6 +1708,7 @@ class StandardTermsSheetAPI(APIView):
         from_whom = request.data.get("from_whom")
         requirement_id = request.data.get("requirement_id")
         combination = request.data.get('combination')
+        offer_tariff = request.data.get('offer_tariff')
 
         if from_whom not in ['Consumer', 'Generator']:
             return Response({"error": "Invalid value for 'from_whom'."}, status=status.HTTP_400_BAD_REQEUST)
@@ -1708,7 +1766,10 @@ class StandardTermsSheetAPI(APIView):
             else:
                 return Response({"error": "Invalid value for 'from_whom'."}, status=status.HTTP_400_BAD_REQUEST)
 
-            Tariffs.objects.get_or_create(terms_sheet=termsheet, offer_tariff=termsheet.combination.per_unit_cost)
+            if from_whom == 'Consumer':
+                Tariffs.objects.get_or_create(terms_sheet=termsheet, offer_tariff=termsheet.combination.per_unit_cost)
+            else:
+                Tariffs.objects.get_or_create(terms_sheet=termsheet, offer_tariff=offer_tariff)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -1947,9 +2008,9 @@ class NegotiateTariffView(APIView):
         if user.user_category == 'Generator':
             # Notify the consumer linked in the terms sheet
             try:
-                response = MatchingIPPAPI.get(self, request, terms_sheet.combination.requirement.id)
-                matching_ipps = response.data
-
+                matching_ipps = MatchingIPP.objects.get(requirement=terms_sheet.combination.requirement)
+                recipients = matching_ipps.generator_ids
+                logger.debug(f'rrrrrrrr {recipients}')
                 # Create the negotiation window record with date and time
                 negotiation_window = NegotiationWindow.objects.create(
                     terms_sheet=terms_sheet,
@@ -1963,6 +2024,8 @@ class NegotiateTariffView(APIView):
                 tariff.offer_tariff = offer_tariff
                 tariff.save()
                 
+                GeneratorOffer.objects.get_or_create(generator=user, tariff=tariff, updated_tariff=offer_tariff)
+
                 # Calculate the execution time (30 min after end_time)
                 # execute_at = negotiation_window.end_time + timedelta(minutes=1)
                 execute_at = datetime.now() + timedelta(minutes=1)
@@ -1986,26 +2049,32 @@ class NegotiateTariffView(APIView):
                 )
 
                 NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=terms_sheet.consumer)
+                NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=user)
 
                 # Notify recipients
-                for recipient in matching_ipps:
-                    
+                for recipient in recipients:
+                    logger.debug(f'========== {recipient}')
                     if recipient.id == user.id:
+                        logger.debug(f'========== generator {recipient}')
                         continue
                     try:
+                        logger.debug(f'==========hhhhhhh')
                         recipient_user = User.objects.get(id=recipient['user'])
+                        # Map the consumer username specific to the generator
+                        mapped_username = get_mapped_username(user, terms_sheet.consumer)
                         message=(
-                            f"Consumer {terms_sheet.consumer} has initiated a negotiation for Terms Sheet {terms_sheet}. "
+                            f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet}. "
                             f"The negotiation window will open tomorrow at 10:00 AM. "
                             f"The starting offer tariff being provided is {offer_tariff}."
                         )
                         send_notification(recipient_user.id, message)
 
+                        logger.debug(f'==========ssssssssss')
                         email_message = (
-                            f"Consumer {user.username} has initiated a negotiation for Terms Sheet {terms_sheet}. "
+                            f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet}. "
                             f"The negotiation window will open tomorrow at 10:00 AM. "
                             f"The starting offer tariff being provided is {offer_tariff}.\n\n"
-                            f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
+                            f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
                         )
                         # Send email with the link
                         send_mail(
@@ -2016,44 +2085,45 @@ class NegotiateTariffView(APIView):
                             fail_silently=False,
                         )
 
+                        logger.debug(f'==========iiiiiiiiii')
                         invitation = NegotiationInvitation.objects.create(negotiation_window=negotiation_window, user=recipient_user)
-                        
+                        logger.debug(f'========== {invitation}')
 
                     except User.DoesNotExist:
                         continue
 
                 
-                GeneratorOffer.objects.get_or_create(generator=user, tariff=tariff)
+                # GeneratorOffer.objects.get_or_create(generator=user, tariff=tariff)
 
                 message=(
-                    f"Generator {user.username} is interested in initiating a negotiation for Terms Sheet {terms_sheet}. "
+                    f"Generator {user.username} is interested in initiating a negotiation window for Terms Sheet {terms_sheet}. "
                     f"The starting offer tariff being provided is {offer_tariff}."
                 )
                 send_notification(terms_sheet.consumer.id, message) 
 
                 email_message=(
-                    f"Generator {user.username} is interested in initiating a negotiation for Terms Sheet {terms_sheet}. "
+                    f"Generator {user.username} is interested in initiating a negotiation window for Terms Sheet {terms_sheet}. "
                     f"The starting offer tariff being provided is {offer_tariff}."
-                    f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
+                    f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{terms_sheet.consumer.id}-{tariff.id}-{token}"
                 )
                 # Send email with the link
                 send_mail(
                     "Negotiation Invitation",
                     email_message,
                     f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
-                    [recipient_user.email],
+                    [terms_sheet.consumer.email],
                     fail_silently=False,
                 )
 
                 #self notification
                 message=(
-                    f"You have initiated negotiation for Terms Sheet {terms_sheet}. "
+                    f"You have initiated negotiation window for Terms Sheet {terms_sheet}. "
                     f"The starting offer tariff being provided is {offer_tariff}."
                 )
                 send_notification(terms_sheet.consumer.id, message) 
 
                 email_message=(
-                    f"You have initiated negotiation for Terms Sheet {terms_sheet}. "
+                    f"You have initiated negotiation window for Terms Sheet {terms_sheet}. "
                     f"The starting offer tariff being provided is {offer_tariff}."
                     f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
                 )
@@ -2062,7 +2132,7 @@ class NegotiateTariffView(APIView):
                     "Negotiation Invitation",
                     email_message,
                     f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
-                    [recipient_user.email],
+                    [user.email],
                     fail_silently=False,
                 )
 
@@ -2087,6 +2157,8 @@ class NegotiateTariffView(APIView):
             tariff = Tariffs.objects.get(terms_sheet=terms_sheet)
             tariff.offer_tariff = offer_tariff
             tariff.save()
+
+            GeneratorOffer.objects.get_or_create(generator=negotiation_window.terms_sheet.combination.generator, tariff=tariff, updated_tariff=offer_tariff)
 
             # Calculate the execution time (30 min after end_time)
             # execute_at = negotiation_window.end_time + timedelta(minutes=1)
@@ -2116,18 +2188,20 @@ class NegotiateTariffView(APIView):
             for recipient in recipients:
                 try:
                     recipient_user = User.objects.get(id=recipient)
+                    # Map the consumer username specific to the generator
+                    mapped_username = get_mapped_username(recipient_user, user)
                     message=(
-                        f"Consumer {user.username} has initiated a negotiation for Terms Sheet {terms_sheet}. "
+                        f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet}. "
                         f"The negotiation window will open tomorrow at 10:00 AM. "
                         f"The starting offer tariff being provided is {offer_tariff}."
                     )
                     send_notification(recipient_user.id, message)
 
                     email_message = (
-                        f"Consumer {user.username} has initiated a negotiation for Terms Sheet {terms_sheet}. "
+                        f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet}. "
                         f"The negotiation window will open tomorrow at 10:00 AM. "
                         f"The starting offer tariff being provided is {offer_tariff}.\n\n"
-                        f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
+                        f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
                     )
                     # Send email with the link
                     send_mail(
@@ -2145,12 +2219,12 @@ class NegotiateTariffView(APIView):
                     continue
                     
             message=(
-                f"Generator {user.username} is interested in initiating a negotiation for Terms Sheet {terms_sheet}. "
+                f"You have initiated a negotiation window for Terms Sheet {terms_sheet}. "
                 f"The starting offer tariff being provided is {offer_tariff}."
             )
             send_notification(terms_sheet.consumer.id, message) 
             email_message=(
-                f"Generator {user.username} is interested in initiating a negotiation for Terms Sheet {terms_sheet}. "
+                f"You have initiated a negotiation window for Terms Sheet {terms_sheet}. "
                 f"The starting offer tariff being provided is {offer_tariff}."
                 f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
             )
@@ -2159,7 +2233,7 @@ class NegotiateTariffView(APIView):
                 "Negotiation Invitation",
                 email_message,
                 f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
-                [recipient_user.email],
+                [user.email],
                 fail_silently=False,
             )
                     
@@ -2509,7 +2583,8 @@ class ConsumerDashboardAPI(APIView):
         offers_received = StandardTermsSheet.objects.filter(consumer=user, from_whom='Generator')
         total_received = 0
         for offer in offers_received:
-            total_received += offer.combination.optimal_solar_capacity + offer.combination.optimal_wind_capacity + offer.combination.optimal_wind_capacity
+            total_received += offer.combination.optimal_solar_capacity + offer.combination.optimal_wind_capacity + offer.combination.optimal_battery_capacity
+
 
         # Total number of portfolios
         total_solar_portfolios = SolarPortfolio.objects.count()
@@ -2540,6 +2615,9 @@ class ConsumerDashboardAPI(APIView):
             'transactions_done': 0,
             'total_portfolios': total_portfolios,
             'total_available_capacity': total_available_capacity,
+            'solar_capacity': solar_capacity,
+            'wind_capacity': wind_capacity,
+            'ess_capacity': ess_capacity,
             'states_covered': states_covered,
             'states': states,
         }
@@ -2871,6 +2949,9 @@ class CapacitySizingAPI(APIView):
 
         try:
             # Initialize final aggregated response
+            # grid_tariff = GridTariff.objects.get(state=consumer_requirement.state, tariff_category=consumer_requirement.tariff_category)
+            # master_record = MasterTable.objects.get(state=consumer_requirement.state)
+            # record = RETariffMasterTable.objects.filter(industry=consumer_requirement.industry).first()
             aggregated_response = {}
             input_data = {}  # Initialize the final dictionary
             
@@ -2965,7 +3046,7 @@ class CapacitySizingAPI(APIView):
                 OA_cost = (details["Final Cost"] - details['Per Unit Cost']) / 1000
                 details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
                 details['Final Cost'] = details['Final Cost'] / 1000
-                details["Annual Demand Met"] = (details["Annual Demand Met"] * 24) / 1000000
+                details["Annual Demand Met"] = (details["Annual Demand Met"]) / 1000
                # Update the aggregated response dictionary
                 if combination_key not in aggregated_response:
                     aggregated_response[combination_key] = {
@@ -3137,6 +3218,9 @@ class SensitivityAPI(APIView):
         try:
             # Fetch consumer details
             consumer_requirement = ConsumerRequirements.objects.get(id=id)
+            grid_tariff = GridTariff.objects.get(state=consumer_requirement.state, tariff_category=consumer_requirement.tariff_category)
+            master_record = MasterTable.objects.get(state=consumer_requirement.state)
+            record = RETariffMasterTable.objects.filter(industry=consumer_requirement.industry).first()
             # Initialize final aggregated response
             aggregated_response = {}
 
@@ -3146,6 +3230,16 @@ class SensitivityAPI(APIView):
                 
                 for id in generator_id:
                     generator = User.objects.get(id=id)
+                    last_10_combinations = Combination.objects.filter(requirement__industry = consumer_requirement.industry, generator=generator).order_by('-id')[:10]
+                    # Check if there are 10 or more records
+                    if last_10_combinations.count() >= 10:
+                        # Calculate the average
+                        average_per_unit_cost = last_10_combinations.aggregate(Avg('per_unit_cost'))['per_unit_cost__avg']
+                        ree = round(average_per_unit_cost/2)
+                    elif record:
+                        ree = record.re_tariff
+                    else:
+                        ree = 4 #this is re but conflicting with re function so used as ree
 
                     match = re.match(r'^(IPP\d+)(?:-(.+))?$', combination)
 
@@ -3160,6 +3254,22 @@ class SensitivityAPI(APIView):
                     solar_data = SolarPortfolio.objects.filter(user=generator, project=component_types['solar']) if 'solar' in component_types else None
                     wind_data = WindPortfolio.objects.filter(user=generator, project=component_types['wind']) if 'wind' in component_types else None
                     ess_data = ESSPortfolio.objects.filter(user=generator, project=component_types['ess']) if 'ess' in component_types else None
+
+                    portfolios = list(chain(*(d for d in [solar_data, wind_data, ess_data] if d is not None)))
+
+                    include_ISTS = False
+                    for p in portfolios:
+                        if p.connectivity == "CTU":
+                            include_ISTS = True
+                            break
+                        elif p.state == consumer_requirement.state:
+                            include_ISTS = False
+                            break
+
+                    if not portfolios:
+                        include_ISTS = True
+
+                    ISTS_charges = master_record.ISTS_charges if include_ISTS else 0
 
                     logger.debug(f'solar_data: {solar_data}')
                     logger.debug(f'wind_data: {wind_data}')
@@ -3190,6 +3300,8 @@ class SensitivityAPI(APIView):
 
                                 # Extract profile data from file
                                 profile_data = self.extract_profile_data(solar.hourly_data.path)
+                                # Divide all rows by 5
+                                profile_data = profile_data / solar.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity
 
                                 input_data[generator.username]["Solar"][solar.project] = {
                                     "profile": profile_data,
@@ -3211,6 +3323,8 @@ class SensitivityAPI(APIView):
 
                                 # Extract profile data from file
                                 profile_data = self.extract_profile_data(wind.hourly_data.path)
+                                # Divide all rows by 5
+                                profile_data = profile_data / wind.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity
 
                                 input_data[generator.username]["Wind"][wind.project] = {
                                     "profile": profile_data,
@@ -3276,7 +3390,7 @@ class SensitivityAPI(APIView):
                             
                         logger.debug(re_replacement)
                         logger.debug(input_data)
-                        response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations)
+                        response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, OA_cost=(ISTS_charges + master_record.state_charges)*1000)
 
                         if response_data != 'The demand cannot be met by the IPPs':
                             for combination_key, details in response_data.items():
@@ -3336,7 +3450,7 @@ class SensitivityAPI(APIView):
                                 if ess:
                                     state[ess.project] = ess_state
 
-                                annual_demand_met = (details["Annual Demand Met"] * 24) / 1000000
+                                annual_demand_met = (details["Annual Demand Met"]) / 1000
 
                                 combo = Combination.objects.filter(combination=combination_key, requirement=consumer_requirement, annual_demand_offset=details["Annual Demand Offset"]).first()
                                 terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
@@ -3346,7 +3460,7 @@ class SensitivityAPI(APIView):
                                     terms_sheet_sent = combo.terms_sheet_sent
                                 else:
                                     # Save to Combination table
-                                    combo = Combination.objects.get_or_create(
+                                    combo, created = Combination.objects.get_or_create(
                                         requirement=consumer_requirement,
                                         generator=generator,
                                         re_replacement=re_replacement if re_replacement else 65,
@@ -3378,14 +3492,16 @@ class SensitivityAPI(APIView):
                                 OA_cost = (details["Final Cost"] - details['Per Unit Cost']) / 1000
                                 details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
                                 details['Final Cost'] = details['Final Cost'] / 1000
-                                details["Annual Demand Met"] = (details["Annual Demand Met"] * 24) / 1000
+                                details["Annual Demand Met"] = (details["Annual Demand Met"]) / 1000
 
                                 # Update the aggregated response dictionary
                                 if combination_key not in aggregated_response:
                                     aggregated_response[combination_key] = {}
                                 aggregated_response[combination_key][re_replacement] = {
                                     **details,
-                                    'OA_cost': OA_cost,
+                                    'OA_cost': ISTS_charges + master_record.state_charges,
+                                    'ISTS_charges': ISTS_charges,
+                                    'state_charges': master_record.state_charges,
                                     "state": state,
                                     "greatest_cod": greatest_cod,
                                     "terms_sheet_sent": terms_sheet_sent,
@@ -3393,6 +3509,7 @@ class SensitivityAPI(APIView):
                                     "connectivity": connectivity,
                                     "re_index": re_index,
                                     "re_replacement": re_replacement,
+                                    "per_unit_savings": grid_tariff.cost - details['Per Unit Cost'] - ISTS_charges - master_record.state_charges,
                                 }
                         else:
                             if combination_key not in aggregated_response:
