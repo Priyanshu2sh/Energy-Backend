@@ -1113,7 +1113,7 @@ class OptimizeCapacityAPI(APIView):
             consumer_requirement = ConsumerRequirements.objects.get(id=id)
             grid_tariff = GridTariff.objects.get(state=consumer_requirement.state, tariff_category=consumer_requirement.tariff_category)
             master_record = MasterTable.objects.get(state=consumer_requirement.state)
-            record = RETariffMasterTable.objects.filter(industry=consumer_requirement.industry).first()
+            record = RETariffMasterTable.objects.filter(industry=consumer_requirement.sub_industry).first()
             # Initialize final aggregated response
             aggregated_response = {}
 
@@ -1127,7 +1127,7 @@ class OptimizeCapacityAPI(APIView):
             
                 for id in generator_id:
                     generator = User.objects.get(id=id)
-                    last_10_combinations = Combination.objects.filter(requirement__industry = consumer_requirement.industry, generator=generator).order_by('-id')[:10]
+                    last_10_combinations = Combination.objects.filter(requirement__sub_industry = consumer_requirement.sub_industry, generator=generator).order_by('-id')[:10]
                     # Check if there are 10 or more records
                     if last_10_combinations.count() >= 10:
                         # Calculate the average
@@ -1443,8 +1443,8 @@ class OptimizeCapacityAPI(APIView):
                                         "consumer": mapped_username,
                                         "generator": generator.username,
                                         "consumer_state": consumer_requirement.state,
-                                        # "generator_state": combo.state,
-                                        "cod": {combo.state},
+                                        "generator_state": combo.state,
+                                        "cod": combo.state,
                                         # "term_of_ppa": record.term_of_ppa,
                                         # "lock_in_period": record.lock_in_period,
                                         "minimum_generation_obligation": round(combo.annual_demand_met * 0.8, 2),
@@ -2054,18 +2054,18 @@ class NegotiateTariffView(APIView):
                 # Notify recipients
                 for recipient in recipients:
                     logger.debug(f'========== {recipient}')
-                    if recipient.id == user.id:
+                    if recipient == user.id:
                         logger.debug(f'========== generator {recipient}')
                         continue
                     try:
                         logger.debug(f'==========hhhhhhh')
-                        recipient_user = User.objects.get(id=recipient['user'])
+                        recipient_user = User.objects.get(id=recipient)
                         # Map the consumer username specific to the generator
                         mapped_username = get_mapped_username(user, terms_sheet.consumer)
                         message=(
                             f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet}. "
                             f"The negotiation window will open tomorrow at 10:00 AM. "
-                            f"The starting offer tariff being provided is {offer_tariff}."
+                            f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
                         )
                         send_notification(recipient_user.id, message)
 
@@ -2073,8 +2073,8 @@ class NegotiateTariffView(APIView):
                         email_message = (
                             f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet}. "
                             f"The negotiation window will open tomorrow at 10:00 AM. "
-                            f"The starting offer tariff being provided is {offer_tariff}.\n\n"
-                            f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
+                            f"The starting offer tariff being provided is {offer_tariff} INR/kWh.\n\n"
+                            f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
                         )
                         # Send email with the link
                         send_mail(
@@ -2097,14 +2097,14 @@ class NegotiateTariffView(APIView):
 
                 message=(
                     f"Generator {user.username} is interested in initiating a negotiation window for Terms Sheet {terms_sheet}. "
-                    f"The starting offer tariff being provided is {offer_tariff}."
+                    f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
                 )
                 send_notification(terms_sheet.consumer.id, message) 
 
                 email_message=(
                     f"Generator {user.username} is interested in initiating a negotiation window for Terms Sheet {terms_sheet}. "
-                    f"The starting offer tariff being provided is {offer_tariff}."
-                    f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{terms_sheet.consumer.id}-{tariff.id}-{token}"
+                    f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
+                    f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{terms_sheet.consumer.id}-{tariff.id}-{token}"
                 )
                 # Send email with the link
                 send_mail(
@@ -2118,14 +2118,14 @@ class NegotiateTariffView(APIView):
                 #self notification
                 message=(
                     f"You have initiated negotiation window for Terms Sheet {terms_sheet}. "
-                    f"The starting offer tariff being provided is {offer_tariff}."
+                    f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
                 )
                 send_notification(terms_sheet.consumer.id, message) 
 
                 email_message=(
                     f"You have initiated negotiation window for Terms Sheet {terms_sheet}. "
-                    f"The starting offer tariff being provided is {offer_tariff}."
-                    f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
+                    f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
+                    f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
                 )
                 # Send email with the link
                 send_mail(
@@ -2201,7 +2201,7 @@ class NegotiateTariffView(APIView):
                         f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet}. "
                         f"The negotiation window will open tomorrow at 10:00 AM. "
                         f"The starting offer tariff being provided is {offer_tariff}.\n\n"
-                        f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
+                        f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
                     )
                     # Send email with the link
                     send_mail(
@@ -2226,7 +2226,7 @@ class NegotiateTariffView(APIView):
             email_message=(
                 f"You have initiated a negotiation window for Terms Sheet {terms_sheet}. "
                 f"The starting offer tariff being provided is {offer_tariff}."
-                f"Click here to join the bidding window directly: http://localhost:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
+                f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
             )
             # Send email with the link
             send_mail(
@@ -2366,9 +2366,9 @@ class AnnualSavingsView(APIView):
         logger.debug(f'generator_id = {generator_id}')
         try:
             requirement = ConsumerRequirements.objects.get(id=requirement_id)
-            combination = Combination.objects.filter(requirement__industry = requirement.industry, generator=generator_id)
+            combination = Combination.objects.filter(requirement__sub_industry = requirement.sub_industry, generator=generator_id)
             master_record = MasterTable.objects.get(state=requirement.state)
-            record = RETariffMasterTable.objects.filter(industry=requirement.industry).first()
+            record = RETariffMasterTable.objects.filter(industry=requirement.sub_industry).first()
 
             # Check if there are 10 or more records
             if combination.count() >= 10:
@@ -2387,7 +2387,7 @@ class AnnualSavingsView(APIView):
                 return Response({"error": "No grid cost data available for the state"}, status=status.HTTP_404_NOT_FOUND)
 
             # Fetch the last 10 values (adjust the ordering field if needed)
-            last_10_values = Combination.objects.filter(requirement__industry=requirement.industry).order_by('-id')[:10].values_list('annual_demand_offset', flat=True)
+            last_10_values = Combination.objects.filter(requirement__sub_industry=requirement.sub_industry).order_by('-id')[:10].values_list('annual_demand_offset', flat=True)
 
             if last_10_values.count() < 10:
                 re_replacement = 65
@@ -2512,9 +2512,9 @@ class WhatWeOfferAPI(APIView):
         for requirement in requirements:
             master_record = MasterTable.objects.filter(state=requirement.state).first()
             grid_tariff = GridTariff.objects.filter(state=requirement.state, tariff_category=requirement.tariff_category).first()
-            record = RETariffMasterTable.objects.filter(industry = requirement.industry).first()
+            record = RETariffMasterTable.objects.filter(industry = requirement.sub_industry).first()
 
-            last_10_values = Combination.objects.filter(requirement__industry=requirement.industry).order_by('-id')[:10].values_list('annual_demand_offset', flat=True)
+            last_10_values = Combination.objects.filter(requirement__sub_industry=requirement.sub_industry).order_by('-id')[:10].values_list('annual_demand_offset', flat=True)
 
             if last_10_values.count() < 10:
                 re_replacement = 65
@@ -2761,7 +2761,7 @@ class PaymentTransactionAPI(APIView):
                 )
             else:
                 subscription_response = requests.post(
-                    "http://15.207.188.206:8000/api/energy/subscriptions",
+                    "http://52.66.186.241:8000/api/energy/subscriptions",
                     json=subscription_data
                 )
 
