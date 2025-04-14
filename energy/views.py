@@ -25,7 +25,7 @@ from django.core.mail import send_mail
 import random
 from django.contrib.auth.hashers import check_password
 from django.utils.timezone import make_aware, now
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, date
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q, Sum
 from .aggregated_model.main import optimization_model
@@ -83,11 +83,17 @@ def get_mapped_username(generator, consumer):
 
 
 class StateListAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
         names = list(State.objects.values_list('name', flat=True))
         return Response(names)
         
 class IndustryListAPI(APIView): 
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
         industries = Industry.objects.prefetch_related('sub_industries').all()
         
@@ -99,12 +105,18 @@ class IndustryListAPI(APIView):
         return Response(industry_data)
     
 class StateTimeSlotAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
     def get(self, request):
         states = StateTimeSlot.objects.all()
         serializer = StateTimeSlotSerializer(states, many=True)
         return Response(serializer.data)
     
 class GenerationPortfolioAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get_serializer_class(self, energy_type):
         """Return the appropriate serializer class based on the energy type."""
         if energy_type == "Solar":
@@ -269,8 +281,8 @@ class GenerationPortfolioAPI(APIView):
 
 
 class ConsumerRequirementsAPI(APIView):
-    # authentication_classes = [JWTAuthentication]
-    # permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
    
 
     def get(self, request, pk):
@@ -319,6 +331,8 @@ class ConsumerRequirementsAPI(APIView):
         return Response({"message": "Profile deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
 class ScadaFileAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, requirement_id):
         try:
@@ -423,8 +437,8 @@ class ScadaFileAPI(APIView):
             )
     
 class MonthlyConsumptionDataAPI(APIView):
-    # authentication_classes = [JWTAuthentication]
-    # permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
    
 
     def get(self, request, pk):
@@ -502,6 +516,9 @@ class MonthlyConsumptionDataAPI(APIView):
         return Response({"message": "Record deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
 
 class CSVFileAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
         requirement_id = request.data.get("requirement_id")
         csv_file = request.data.get("csv_file")
@@ -575,6 +592,9 @@ class CSVFileAPI(APIView):
 
 
 class UploadMonthlyConsumptionBillAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def extract_required_data(self, pdf_path):
         """Extract TOD 1, TOD 2, TOD 3, and Current Month Bill from PDF"""
         extracted_text = ""
@@ -667,8 +687,8 @@ class UploadMonthlyConsumptionBillAPI(APIView):
         )
 
 class MatchingIPPAPI(APIView):
-    # authentication_classes = [JWTAuthentication]
-    # permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
 
@@ -791,14 +811,14 @@ class MatchingIPPAPI(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class MatchingConsumerAPI(APIView):
-    # authentication_classes = [JWTAuthentication]
-    # permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
     
     def get(self, request, pk):
-        user = User.objects.get(id=pk)
-        user = get_admin_user(pk)
 
         try:
+            user = User.objects.get(id=pk)
+            user = get_admin_user(pk)
             # Get all GenerationPortfolio records for the user
             solar_data = SolarPortfolio.objects.filter(user=user)
             wind_data = WindPortfolio.objects.filter(user=user)
@@ -929,13 +949,16 @@ class MatchingConsumerAPI(APIView):
 
             # Convert QuerySet to a list for JSON response
             return Response(list(response_data), status=status.HTTP_200_OK)
-
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             tb = traceback.format_exc()  # Get the full traceback
             traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class PortfolioUpdateStatusView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, user_id):
         try:
@@ -968,8 +991,8 @@ class PortfolioUpdateStatusView(APIView):
 
 
 class OptimizeCapacityAPI(APIView):
-    # authentication_classes = [JWTAuthentication]
-    # permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     @staticmethod
     def extract_profile_data(file_path):
@@ -1545,6 +1568,9 @@ class OptimizeCapacityAPI(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 class ConsumptionPatternAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, pk, user_id):
         try:
             
@@ -1602,6 +1628,8 @@ class ConsumptionPatternAPI(APIView):
             )
         
 class StandardTermsSheetAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
         if pk:
@@ -1790,6 +1818,23 @@ class StandardTermsSheetAPI(APIView):
                     {"message": f"Terms sheet {action.lower()} successfully.", "record": StandardTermsSheetSerializer(record).data},
                     status=status.HTTP_200_OK,
                 )
+            
+            # ✅ Handle Withdraw Action
+            if action == 'Withdraw':
+                # Only allow withdraw if status is not already accepted/rejected
+                if record.consumer_status in ['Accepted', 'Rejected'] or record.generator_status in ['Accepted', 'Rejected']:
+                    return Response(
+                        {"error": "Cannot withdraw an offer that has already been accepted or rejected."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                record.consumer_status = 'Withdrawn'
+                record.generator_status = 'Withdrawn'
+                record.save()
+                return Response(
+                    {"message": "Terms sheet offer withdrawn successfully.", "record": StandardTermsSheetSerializer(record).data},
+                    status=status.HTTP_200_OK,
+                )
 
             # Check if the update limit has been reached
             if record.count >= 4:
@@ -1858,6 +1903,9 @@ class StandardTermsSheetAPI(APIView):
 
     
 class SubscriptionTypeAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, user_type):
         # Get all subscription types
         subscription_types = SubscriptionType.objects.filter(user_type=user_type)
@@ -1868,6 +1916,9 @@ class SubscriptionTypeAPIView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
         
 class SubscriptionEnrolledAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, pk):
         try:
             user = get_admin_user(pk)
@@ -1899,11 +1950,42 @@ class SubscriptionEnrolledAPIView(APIView):
         user = get_admin_user(user)
         user = user.id
 
-        # Check if the user is already enrolled in this subscription
-        existing_subscription = SubscriptionEnrolled.objects.filter(user=user, status='active').first()
+        subscription = request.data.get('subscription')
+        try:
+            subscription_obj = SubscriptionType.objects.get(id=subscription)
+        except SubscriptionType.DoesNotExist:
+            return Response({"error": "Invalid subscription ID."}, status=status.HTTP_400_BAD_REQUEST)
+
+        today = date.today()
+
+        # Check if the user has a subscription whose end_date is in the future
+        existing_subscription = SubscriptionEnrolled.objects.filter(user=user).order_by('-end_date').first()
+        if existing_subscription:
+            if existing_subscription.end_date >= today:
+                return Response(
+                    {"error": "You already have an active subscription."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            else:
+                # Mark the subscription as expired
+                existing_subscription.status = 'expired'
+                existing_subscription.save()
+
+        # Check if user has ever taken the 'FREE' subscription
+        if subscription_obj.subscription_type == 'FREE':
+            previously_taken_free = SubscriptionEnrolled.objects.filter(
+                user=user,
+                subscription__subscription_type='FREE'
+            ).exists()
+
+            if previously_taken_free:
+                return Response(
+                    {"error": "You can take the FREE subscription only once."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
         # If no existing subscription or it has expired, create a new subscription
-        serializer = SubscriptionEnrolledSerializer(instance=existing_subscription, data=request.data, partial=True)
+        serializer = SubscriptionEnrolledSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -1928,7 +2010,9 @@ def send_notification(user_id, message):
     return notification
         
 class NotificationsAPI(APIView):
-    
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, user_id):
         try:
             user = get_admin_user(user_id)
@@ -1963,6 +2047,9 @@ class NotificationsAPI(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 class NegotiateTariffView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, terms_sheet_id):
         try:
             terms_sheet = StandardTermsSheet.objects.get(id=terms_sheet_id)
@@ -2037,16 +2124,16 @@ class NegotiateTariffView(APIView):
                 
 
                 # Create a unique periodic task that runs one time
-                task, created = PeriodicTask.objects.get_or_create(
-                    name=f'negotiation_reminder_{tariff.id}',  # Unique task name
-                    task='energy.tasks.send_negotiation_reminder',  # Celery task function
-                    defaults={
-                        'args': json.dumps([tariff.id, 1]),  # Pass window ID + attempt count (1st attempt)
-                        'one_off': True,  # Runs only once
-                        'enabled': True,
-                        'clocked': clocked_schedule  # Assign the clocked schedule
-                    }
-                )
+                # task, created = PeriodicTask.objects.get_or_create(
+                #     name=f'negotiation_reminder_{tariff.id}',  # Unique task name
+                #     task='energy.tasks.send_negotiation_reminder',  # Celery task function
+                #     defaults={
+                #         'args': json.dumps([tariff.id, 1]),  # Pass window ID + attempt count (1st attempt)
+                #         'one_off': True,  # Runs only once
+                #         'enabled': True,
+                #         'clocked': clocked_schedule  # Assign the clocked schedule
+                #     }
+                # )
 
                 NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=terms_sheet.consumer)
                 NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=user)
@@ -2171,16 +2258,16 @@ class NegotiateTariffView(APIView):
             
 
             # Create a unique periodic task that runs one time
-            task, created = PeriodicTask.objects.get_or_create(
-                name=f'negotiation_reminder_{tariff.id}',  # Unique task name
-                task='energy.tasks.send_negotiation_reminder',  # Celery task function
-                defaults={
-                    'args': json.dumps([tariff.id, 1]),  # Pass window ID + attempt count (1st attempt)
-                    'one_off': True,  # Runs only once
-                    'enabled': True,
-                    'clocked': clocked_schedule  # Assign the clocked schedule
-                }
-            )
+            # task, created = PeriodicTask.objects.get_or_create(
+            #     name=f'negotiation_reminder_{tariff.id}',  # Unique task name
+            #     task='energy.tasks.send_negotiation_reminder',  # Celery task function
+            #     defaults={
+            #         'args': json.dumps([tariff.id, 1]),  # Pass window ID + attempt count (1st attempt)
+            #         'one_off': True,  # Runs only once
+            #         'enabled': True,
+            #         'clocked': clocked_schedule  # Assign the clocked schedule
+            #     }
+            # )
 
             NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=user)
 
@@ -2241,6 +2328,9 @@ class NegotiateTariffView(APIView):
             return Response({"message": "Negotiation initiated. Notifications sent and negotiation window created."}, status=200)
 
 class NegotiationWindowListAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, user_id):
         user = get_admin_user(user_id)
         user_id = user.id
@@ -2316,6 +2406,9 @@ class NegotiationWindowListAPI(APIView):
 
         
 class NegotiationWindowStatusView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, user_id, window_id):
         user = get_admin_user(user_id)
         user_id = user.id
@@ -2357,6 +2450,9 @@ class NegotiationWindowStatusView(APIView):
     
 
 class AnnualSavingsView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
         # Common logic for both POST (annual savings calculation) and GET (annual report download)
         re = 3.67  # Initially RE value will be taken from Master Table that is provided by the client.
@@ -2480,6 +2576,9 @@ class AnnualSavingsView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
 class WhatWeOfferAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
         # Total number of users with 'Generator' category
         consumer_count = User.objects.filter(user_category='Consumer').count()
@@ -2547,6 +2646,9 @@ class WhatWeOfferAPI(APIView):
         })
 
 class LastVisitedPageAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
         user_id = request.data.get('user_id')
         last_visited_page = request.data.get('last_visited_page') or None
@@ -2563,6 +2665,9 @@ class LastVisitedPageAPI(APIView):
         return Response({'message': 'Success'}, status=status.HTTP_200_OK)
 
 class CheckSubscriptionAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, user_id):
         try:
             user = get_admin_user(user_id)
@@ -2573,6 +2678,9 @@ class CheckSubscriptionAPI(APIView):
             return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
         
 class ConsumerDashboardAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, user_id):
         user = get_admin_user(user_id)
 
@@ -2625,6 +2733,9 @@ class ConsumerDashboardAPI(APIView):
         return Response(response, status=status.HTTP_200_OK)
 
 class GeneratorDashboardAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, user_id):
         user = get_admin_user(user_id)
 
@@ -2674,6 +2785,7 @@ class GeneratorDashboardAPI(APIView):
         return Response(response, status=status.HTTP_200_OK)
 
 class RazorpayClient():
+
     def create_order(self, amount, currency):
         if amount > 500000:
             raise ValidationError({"message": "Maximum allowed amount is ₹5,00,000."})
@@ -2708,6 +2820,9 @@ class RazorpayClient():
 rz_client = RazorpayClient()
 
 class CreateOrderAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
         create_order_serializer = CreateOrderSerializer(
             data = request.data
@@ -2729,6 +2844,9 @@ class CreateOrderAPI(APIView):
             return Response(response, status=status.HTTP_400_BAD_REQUEST)
         
 class PaymentTransactionAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
         subscription = request.data['subscription']
         invoice = request.data['invoice']
@@ -2789,6 +2907,9 @@ class PaymentTransactionAPI(APIView):
             return Response(response, status=status.HTTP_400_BAD_REQUEST)
 
 class PerformaInvoiceAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, user_id):
         try:
             user = get_admin_user(user_id)
@@ -2857,6 +2978,9 @@ class PerformaInvoiceAPI(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class TemplateDownloadedAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
         user_id = request.data.get('user_id')
         solar_template_downloaded = request.data.get('solar_template_downloaded') or False
@@ -2875,8 +2999,8 @@ class TemplateDownloadedAPI(APIView):
         return Response({'message': 'Success'}, status=status.HTTP_200_OK)
 
 class CapacitySizingAPI(APIView):
-    # authentication_classes = [JWTAuthentication]
-    # permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     @staticmethod
     def extract_profile_data(file_path):
@@ -3082,6 +3206,8 @@ class CapacitySizingAPI(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class SensitivityAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     @staticmethod
     def extract_profile_data(file_path):

@@ -304,6 +304,7 @@ class StandardTermsSheet(models.Model):
         ('Counter Offer Received', 'Counter Offer Received'),
         ('Accepted', 'Accepted'),
         ('Rejected', 'Rejected'),
+        ('Withdrawn', 'Withdrawn'),
     ]
 
     USER_CHOICES = [

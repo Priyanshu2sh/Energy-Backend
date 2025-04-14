@@ -273,7 +273,10 @@ class LoginUser(APIView):
             user.save()
 
             # Send email to sub-user with a registration link
-            registration_link = f"{request.scheme}://localhost:3001/email/{registration_token}"
+            if settings.ENVIRONMENT == 'local':
+                registration_link = f"http://localhost:3001/email/{registration_token}"
+            else:
+                registration_link = f"http://52.66.186.241:3001/email/{registration_token}"
             send_mail(
                 'Set Up Your Account Password',
                 f'Please set your new password using the following link:\n\n{registration_link}\n\nIf you did not request this, please ignore this email.\n\nThank You',
@@ -288,8 +291,8 @@ class LoginUser(APIView):
             return Response({'error': 'Email not found.'}, status=status.HTTP_400_BAD_REQUEST)
     
 class UpdateProfileAPI(APIView):
-    # authentication_classes = [JWTAuthentication]
-    # permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def put(self, request, pk):
         user = User.objects.get(id=pk)
@@ -302,8 +305,8 @@ class UpdateProfileAPI(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
 class AddSubUser(APIView):
-    # authentication_classes = [JWTAuthentication]
-    # permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, user_id):
         try:
@@ -354,7 +357,10 @@ class AddSubUser(APIView):
             )
 
         # Send email to sub-user with a registration link
-        registration_link = f"{request.scheme}://localhost:3001/email/{registration_token}"
+        if settings.ENVIRONMENT == 'local':
+            registration_link = f"{request.scheme}://localhost:3001/email/{registration_token}"
+        else:
+            registration_link = f"{request.scheme}://52.66.186.241:3001/email/{registration_token}"
         send_mail(
             'Complete Your Registration',
             f'You have been added as a {role}. Please set your password using the following link: {registration_link}',
@@ -366,6 +372,7 @@ class AddSubUser(APIView):
         return Response({'message': f'Sub-user {email} added successfully. An email has been sent to set their password.'}, status=status.HTTP_201_CREATED)
 
 class SetPassword(APIView):
+
     def post(self, request, token):
         data = request.data
         password = data.get('password')
@@ -389,6 +396,9 @@ class SetPassword(APIView):
         return Response({'message': 'Password set successfully. You can now log in.'}, status=status.HTTP_200_OK)
 
 class SubUsersAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, user_id):
         try:
             user = User.objects.get(id=user_id)
