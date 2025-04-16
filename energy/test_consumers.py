@@ -27,7 +27,7 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
         - Adds the channel to a WebSocket group.
         - Sends previous offers to the user.
         """
-        current_time = datetime.now().time()
+        current_time = timezone.localtime().time()
         
         self.user_id = self.get_query_param('user_id')
         self.tariff_id = self.get_query_param('tariff_id')
@@ -133,7 +133,7 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
 
     async def handle_tariff_update(self, updated_tariff):
         """Handles tariff update logic."""
-        if not self.is_within_allowed_time(datetime.now().time()):
+        if not self.is_within_allowed_time(timezone.localtime().time()):
             await self.send_error('Negotiation window is closed.')
             await self.update_window_status(self.tariff_id, status='Closed')
             await self.close()
