@@ -499,22 +499,7 @@ class MasterTable(models.Model):
     state_charges = models.FloatField()
 
 class RETariffMasterTable(models.Model):
-    INDUSTRY_CHOICES = [
-        ("Retail", "Retail"),
-        ("Energy", "Energy"),
-        ("Materials", "Materials"),
-        ("Industrials", "Industrials"),
-        ("Consumer Discretionary", "Consumer Discretionary"),
-        ("Consumer Staples", "Consumer Staples"),
-        ("Health Care", "Health Care"),
-        ("Financials", "Financials"),
-        ("Information Technology", "Information Technology"),
-        ("Communication Services", "Communication Services"),
-        ("Utilities", "Utilities"),
-        ("Real Estate", "Real Estate"),
-
-    ]
-    industry = models.CharField(max_length=255, choices=INDUSTRY_CHOICES)
+    industry = models.CharField(max_length=255)
     re_tariff = models.FloatField()
     average_savings = models.FloatField()
 

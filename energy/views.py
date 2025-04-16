@@ -2872,15 +2872,23 @@ class PaymentTransactionAPI(APIView):
                 "start_date": str(datetime.today().date())
             }
             
+            # Forward token received from frontend
+            auth_header = request.META.get('HTTP_AUTHORIZATION')  # 'Bearer <token>'
+            headers = {
+                "Authorization": auth_header,
+                "Content-Type": "application/json"
+            }
             if settings.ENVIRONMENT == 'local':
                 subscription_response = requests.post(
                     "http://127.0.0.1:8000/api/energy/subscriptions",
-                    json=subscription_data
+                    json=subscription_data,
+                    headers=headers
                 )
             else:
                 subscription_response = requests.post(
                     "http://52.66.186.241:8000/api/energy/subscriptions",
-                    json=subscription_data
+                    json=subscription_data,
+                    headers=headers
                 )
 
             if subscription_response.status_code == 201:
