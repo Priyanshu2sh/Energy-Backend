@@ -45,8 +45,7 @@ def fetch_previous_2880_blocks():
     if 'hour' in df.columns:
         df['hour'] = pd.to_numeric(df['hour'], errors='coerce')
 
-    # max_date = df['date'].max()
-    max_date = pd.to_datetime("2024-12-31").tz_localize("UTC")
+    max_date = df['date'].max()
     print('maxxxxxxxx')
     # print(max_date)
 
@@ -151,8 +150,10 @@ def feature_selection_and_scaling(latest_data, target):
     column_mapping = {
         "mcp": "MCP (Rs/MWh) "
     }
-
+    import logging
+    logging.info(f'target====== {target}')
     df_selected = df_selected.rename(columns=column_mapping)
+    logging.info(f'{df_selected}')
 
     input_data = scaler.transform(df_selected)
     print("Scaled data shape:", input_data.shape)

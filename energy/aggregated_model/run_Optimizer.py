@@ -30,7 +30,6 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
 
       # Demand profile
       demand = network.loads_t.p_set.sum(axis=1)
-
       # Handle Solar
       if "Solar" in network.generators.index:
           solar_allocation = network.generators_t.p["Solar"]
@@ -150,6 +149,7 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
           "Total Demand met by allocation": gross_energy_allocation,
           "Demand met": demand_met
       })
+      logger.debug(f"Results DataFrame:\n{results_df}")
 
       # Print outputs
       logger.debug(f"\nOptimal Capacities:")

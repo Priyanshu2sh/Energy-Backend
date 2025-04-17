@@ -77,6 +77,13 @@ class Notifications(models.Model):
         return f"Notification for {self.user}"
     
 class DayAheadGeneration(models.Model):
+    STATUS_CHOICES = [
+        ('Draft', 'Draft'),
+        ('submitted to trader', 'submitted to trader'),
+        ('Trade Executed', 'Trade Executed'),
+        ('Trade Failed', 'Trade Failed'),
+    ]
+
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, limit_choices_to={'app_label': 'energy', 'model__in': ['solarportfolio', 'windportfolio']}
     )
     object_id = models.PositiveIntegerField()
@@ -87,8 +94,16 @@ class DayAheadGeneration(models.Model):
     end_time = models.TimeField() 
     generation = models.IntegerField()
     price = models.IntegerField()
+    status = models.CharField(max_length=200, choices=STATUS_CHOICES, default="Draft")
 
 class MonthAheadGeneration(models.Model):
+    STATUS_CHOICES = [
+        ('Draft', 'Draft'),
+        ('submitted to trader', 'submitted to trader'),
+        ('Trade Executed', 'Trade Executed'),
+        ('Trade Failed', 'Trade Failed'),
+    ]
+    
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, limit_choices_to={'app_label': 'energy', 'model__in': ['solarportfolio', 'windportfolio']}
     )
     object_id = models.PositiveIntegerField()
@@ -97,6 +112,7 @@ class MonthAheadGeneration(models.Model):
     date = models.DateField()
     generation = models.FloatField()  # Single generation value for all energy types
     price = models.IntegerField()
+    status = models.CharField(max_length=200, choices=STATUS_CHOICES, default="Draft")
 
 class MonthAheadGenerationDistribution(models.Model):
     month_ahead_generation = models.ForeignKey(MonthAheadGeneration, on_delete=models.CASCADE, related_name="generation_distributions")

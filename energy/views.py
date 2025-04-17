@@ -2150,7 +2150,7 @@ class NegotiateTariffView(APIView):
                         # Map the consumer username specific to the generator
                         mapped_username = get_mapped_username(user, terms_sheet.consumer)
                         message=(
-                            f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet}. "
+                            f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
                             f"The negotiation window will open tomorrow at 10:00 AM. "
                             f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
                         )
@@ -2158,7 +2158,7 @@ class NegotiateTariffView(APIView):
 
                         logger.debug(f'==========ssssssssss')
                         email_message = (
-                            f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet}. "
+                            f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
                             f"The negotiation window will open tomorrow at 10:00 AM. "
                             f"The starting offer tariff being provided is {offer_tariff} INR/kWh.\n\n"
                             f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
@@ -2204,13 +2204,13 @@ class NegotiateTariffView(APIView):
 
                 #self notification
                 message=(
-                    f"You have initiated negotiation window for Terms Sheet {terms_sheet}. "
+                    f"You have initiated negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
                     f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
                 )
                 send_notification(terms_sheet.consumer.id, message) 
 
                 email_message=(
-                    f"You have initiated negotiation window for Terms Sheet {terms_sheet}. "
+                    f"You have initiated negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
                     f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
                     f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
                 )
@@ -2306,12 +2306,12 @@ class NegotiateTariffView(APIView):
                     continue
                     
             message=(
-                f"You have initiated a negotiation window for Terms Sheet {terms_sheet}. "
+                f"You have initiated a negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
                 f"The starting offer tariff being provided is {offer_tariff}."
             )
             send_notification(terms_sheet.consumer.id, message) 
             email_message=(
-                f"You have initiated a negotiation window for Terms Sheet {terms_sheet}. "
+                f"You have initiated a negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
                 f"The starting offer tariff being provided is {offer_tariff}."
                 f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
             )

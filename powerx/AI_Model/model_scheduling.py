@@ -28,6 +28,7 @@ from powerx.AI_Model.month_ahead_model import run_mcv_predictions
 def run_models_sequentially():
     print("Running the Next Day model predictions...")
     run_predictions()
+    run_mcv_predictions()
 
 def run_month_ahead_model():
     print("Running the Month Ahead model predictions...")

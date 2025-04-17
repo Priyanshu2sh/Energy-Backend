@@ -21,6 +21,9 @@ from powerx.AI_Model.model_scheduling import run_predictions, run_month_ahead_mo
 from powerx.AI_Model.manualdates import process_and_store_data
 from rest_framework.decorators import api_view
 from django.utils import timezone
+from collections import defaultdict, Counter
+from accounts.views import JWTAuthentication
+from rest_framework.permissions import IsAuthenticated
 # Get the logger that is configured in the settings
 import logging
 traceback_logger = logging.getLogger('django')
@@ -59,6 +62,8 @@ def get_admin_user(user_id):
         return admin_user_id
 
 class NextDayPredictionAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         next_day = now().date() + timedelta(days=1)
@@ -108,6 +113,9 @@ class NextDayPredictionAPI(APIView):
         return Response(response_data, status=status.HTTP_200_OK)
 
 class MonthAheadPredictionAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
         start_date = now().date() + timedelta(days=1)  # Next day
         end_date = start_date + timedelta(days=29)  # Next 30 days
@@ -178,6 +186,8 @@ class MonthAheadPredictionAPI(APIView):
         return Response({"daily_data": daily_data, "overall_stats": overall_stats}, status=status.HTTP_200_OK)
 
 class ConsumerDayAheadDemandAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, user_id):
         
@@ -288,6 +298,8 @@ class ConsumerDayAheadDemandAPI(APIView):
         return Response({"message": "Data uploaded successfully"}, status=status.HTTP_201_CREATED)
     
 class ConsumerMonthAheadDemandAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, user_id):
         try:
@@ -348,29 +360,53 @@ class ConsumerMonthAheadDemandAPI(APIView):
             demand_record.price_details = price_details
             demand_record.save()
 
-        # If it's a new demand entry, create 15-minute distributions
-        if created:
-            distributions = []
-            start_time = datetime.strptime("00:00", "%H:%M")
-            demand_per_slot = demand / 96  # 96 slots (15 min each)
-
-            for i in range(96):
-                slot_start = (start_time + timedelta(minutes=15 * i)).time()
-                slot_end = (start_time + timedelta(minutes=15 * (i + 1))).time()
-
-                distributions.append(
-                    ConsumerMonthAheadDemandDistribution(
-                        month_ahead_demand=demand_record,
-                        start_time=slot_start,
-                        end_time=slot_end,
-                        distributed_demand=demand_per_slot
-                    )
-                )
-
-            # Bulk insert for efficiency
-            ConsumerMonthAheadDemandDistribution.objects.bulk_create(distributions)
-
         return Response({"message": "Data added successfully"}, status=status.HTTP_201_CREATED)
+
+    def put(self, request):
+        data = request.data
+        requirement = data.get("requirement")
+        file_data = data.get("file")
+
+        try:
+            month_ahead_demand = ConsumerMonthAheadDemand.objects.get(requirement=requirement)
+        except ConsumerMonthAheadDemand.DoesNotExist:
+            return Response({"error": "Month ahead demand not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        data_list = []
+
+        if not file_data:
+            return Response({"error": "No file data provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Process Excel File
+        try:
+            decoded_file = base64.b64decode(file_data)
+            file_name = "uploaded_demand_file.xlsx"
+            file_content = ContentFile(decoded_file, name=file_name)
+            # Read Excel file
+            df = pd.read_excel(file_content)
+            # Required columns in the Excel file
+            required_columns = {'Time Interval', 'Demand'}
+            if not required_columns.issubset(df.columns):
+                return Response({"error": f"Missing required columns: {required_columns}"}, status=status.HTTP_400_BAD_REQUEST)
+            # Extract data from Excel
+            for _, row in df.iterrows():
+                try:
+                    start_time, end_time = row['Time Interval'].split(" - ")
+                    demand = int(row['Demand'])
+                    # Create an entry
+                    data_list.append(ConsumerMonthAheadDemandDistribution(
+                        month_ahead_demand=month_ahead_demand,
+                        start_time=parse_time(start_time),
+                        end_time=parse_time(end_time),
+                        distributed_demand=demand,
+                    ))
+                except Exception as e:
+                    return Response({"error": f"Data processing error: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            # Bulk insert the data
+            ConsumerMonthAheadDemandDistribution.objects.bulk_create(data_list)
+            return Response({"message": "File uploaded successfully"}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"error": f"Invalid Base64 file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
 def send_notification(user_id, message):
     """
@@ -398,6 +434,8 @@ def send_notification(user_id, message):
     return notification
         
 class NotificationsAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
     
     def get(self, request, user_id):
         try:
@@ -433,6 +471,8 @@ class NotificationsAPI(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 class DayAheadGenerationAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, user_id):
         next_day = datetime.now().date() + timedelta(days=1)
@@ -559,6 +599,8 @@ class DayAheadGenerationAPI(APIView):
         return Response({"message": "Data uploaded successfully"}, status=status.HTTP_201_CREATED)
     
 class MonthAheadGenerationAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, user_id):
         try:
@@ -654,12 +696,64 @@ class MonthAheadGenerationAPI(APIView):
 
         return Response({"message": "Data processed successfully"}, status=status.HTTP_201_CREATED)
 
+    def put(self, request):
+        data = request.data
+        id = data.get("id")
+        file_data = data.get("file")
+
+        try:
+            month_ahead_generation = MonthAheadGeneration.objects.get(id=id)
+        except MonthAheadGeneration.DoesNotExist:
+            return Response({"error": "Month ahead generation not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        data_list = []
+
+        if not file_data:
+            return Response({"error": "No file data provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Process Excel File
+        try:
+            decoded_file = base64.b64decode(file_data)
+            file_name = "uploaded_generation_file.xlsx"
+            file_content = ContentFile(decoded_file, name=file_name)
+            # Read Excel file
+            df = pd.read_excel(file_content)
+            # Required columns in the Excel file
+            required_columns = {'Time Interval', 'Generation'}
+            if not required_columns.issubset(df.columns):
+                return Response({"error": f"Missing required columns: {required_columns}"}, status=status.HTTP_400_BAD_REQUEST)
+            # Extract data from Excel
+            for _, row in df.iterrows():
+                try:
+                    start_time, end_time = row['Time Interval'].split(" - ")
+                    distributed_generation = int(row['Generation'])
+                    # Create an entry
+                    data_list.append(MonthAheadGenerationDistribution(
+                        month_ahead_generation=month_ahead_generation,
+                        start_time=parse_time(start_time),
+                        end_time=parse_time(end_time),
+                        distributed_generation=distributed_generation,
+                    ))
+                except Exception as e:
+                    return Response({"error": f"Data processing error: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            # Bulk insert the data
+            MonthAheadGenerationDistribution.objects.bulk_create(data_list)
+            return Response({"message": "File uploaded successfully"}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"error": f"Invalid Base64 file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
 class ConsumerDashboardAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, user_id):
         requirements = ConsumerRequirements.objects.filter(user=user_id).values()
         return Response(list(requirements), status=status.HTTP_200_OK)
 
 class GeneratorDashboardAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, user_id):
         solar_portfolios = SolarPortfolio.objects.filter(user=user_id).values()
         wind_portfolios = WindPortfolio.objects.filter(user=user_id).values()
@@ -667,6 +761,9 @@ class GeneratorDashboardAPI(APIView):
         return Response({"solar": list(solar_portfolios), "wind": list(wind_portfolios), "ess": list(ess_portfolios)}, status=status.HTTP_200_OK)
 
 class ModelStatisticsAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
         today = date.today()
 
@@ -695,8 +792,8 @@ class ModelStatisticsAPI(APIView):
             "next_day_predictions": [
                 {
                     "hour": entry.hour,
-                    "mcv_prediction": round(entry.mcv_prediction, 2),
-                    "mcp_prediction": round(entry.mcp_prediction, 2)
+                    "mcv_prediction": round(entry.mcv_prediction, 2) if entry.mcv_prediction else None,
+                    "mcp_prediction": round(entry.mcp_prediction, 2) if entry.mcp_prediction else None
                 }
                 for entry in next_day_data
             ],
@@ -713,6 +810,9 @@ class ModelStatisticsAPI(APIView):
         return Response(response_data)
 
 class ModelStatisticsMonthAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
         today = date.today()
 
@@ -763,6 +863,9 @@ class ModelStatisticsMonthAPI(APIView):
         return Response(response_data)
     
 class TrackDemandStatusAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
     def get(self, request, user_id):
         try:
             user = User.objects.get(id=user_id)
@@ -771,39 +874,151 @@ class TrackDemandStatusAPI(APIView):
 
         result = []
 
-        # Day Ahead
-        day_ahead = ConsumerDayAheadDemand.objects.filter(requirement__user = user)
+        # === Group Day Ahead by Date ===
+        grouped_day_ahead = defaultdict(list)
+        day_ahead = ConsumerDayAheadDemand.objects.filter(requirement__user=user)
+
         for entry in day_ahead:
-            req = entry.requirement
+            date_key = entry.date.strftime("%d-%m-%Y")
+            grouped_day_ahead[date_key].append(entry)
+
+        for date_key, entries in grouped_day_ahead.items():
+            statuses = [entry.status.lower() for entry in entries]
+            status_counts = Counter(statuses)
+
+            # Decide on status
+            if len(status_counts) == 1:
+                status_to_show = statuses[0]
+            else:
+                status_to_show = "conflict"  # or use: Counter(statuses).most_common(1)[0][0]
+
+            avg_demand = sum(entry.demand for entry in entries) / len(entries)
+            first_req = entries[0].requirement
+
             result.append({
-                "demand": entry.demand,
-                "demand_date": entry.date.strftime("%d-%m-%Y"),
+                "demand_date": date_key,
+                "average_demand": round(avg_demand, 2),
+                "status": status_to_show,
+                "type": "Day Ahead",
                 "consumption_unit_details": {
-                        "state": req.state,
-                        "industry": req.industry,
-                        "contracted_demand": req.contracted_demand,
-                        "consumption_unit": req.consumption_unit
-                    },
-                "status": entry.status.lower()
+                    "state": first_req.state,
+                    "industry": first_req.industry,
+                    "contracted_demand": first_req.contracted_demand,
+                    "consumption_unit": first_req.consumption_unit
+                }
             })
 
-        # Month Ahead
-        month_ahead = ConsumerMonthAheadDemand.objects.filter(requirement__user = user)
+        # === Add Month Ahead Demands (No Grouping) ===
+        month_ahead = ConsumerMonthAheadDemand.objects.filter(requirement__user=user)
         for entry in month_ahead:
+            date_key = entry.date.strftime("%d-%m-%Y")
             req = entry.requirement
+
             result.append({
-                "demand": entry.demand,
-                "demand_date": entry.date.strftime("%d-%m-%Y"),
+                "demand_date": date_key,
+                "average_demand": entry.demand,
+                "status": entry.status.lower(),
+                "type": "Month Ahead",
                 "consumption_unit_details": {
-                        "state": req.state,
-                        "industry": req.industry,
-                        "contracted_demand": req.contracted_demand,
-                        "consumption_unit": req.consumption_unit
-                    },
-                "status": entry.status.lower()
+                    "state": req.state,
+                    "industry": req.industry,
+                    "contracted_demand": req.contracted_demand,
+                    "consumption_unit": req.consumption_unit
+                }
             })
 
-        # Sort by date (optional)
+        # Sort by date
         result.sort(key=lambda x: datetime.strptime(x['demand_date'], "%d-%m-%Y"))
+
+        return Response(result, status=status.HTTP_200_OK)
+
+class TrackGenerationStatusAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        result = []
+
+        # Get all portfolios of the user
+        solar_portfolios = SolarPortfolio.objects.filter(user=user)
+        wind_portfolios = WindPortfolio.objects.filter(user=user)
+
+        # Get content types
+        solar_ct = ContentType.objects.get_for_model(SolarPortfolio)
+        wind_ct = ContentType.objects.get_for_model(WindPortfolio)
+
+        # ===== Grouped Day Ahead Generation =====
+        grouped_day_ahead = defaultdict(list)
+        day_ahead = DayAheadGeneration.objects.filter(
+            Q(content_type=solar_ct, object_id__in=solar_portfolios.values_list('id', flat=True)) |
+            Q(content_type=wind_ct, object_id__in=wind_portfolios.values_list('id', flat=True))
+        )
+
+        for entry in day_ahead:
+            date_key = entry.date.strftime("%d-%m-%Y")
+            portfolio = entry.portfolio
+            technology = "solar" if isinstance(portfolio, SolarPortfolio) else "wind"
+            grouped_day_ahead[date_key].append({
+                "generation": entry.generation,
+                "price": entry.price,
+                "status": entry.status.lower(),
+                "technology": technology,
+                "state": portfolio.state,
+                "connectivity": portfolio.connectivity,
+                "available_capacity": portfolio.available_capacity
+            })
+
+        for date_key, entries in grouped_day_ahead.items():
+            avg_generation = sum(e['generation'] for e in entries) / len(entries)
+            avg_price = sum(e['price'] for e in entries) / len(entries)
+            most_common_status = Counter(e['status'] for e in entries).most_common(1)[0][0]
+            first = entries[0]
+
+            result.append({
+                "generation_date": date_key,
+                "generation": round(avg_generation, 2),
+                "price": round(avg_price, 2),
+                "status": most_common_status,
+                "type": "Day Ahead",
+                "portfolio_details": {
+                    "technology": first['technology'],
+                    "state": first['state'],
+                    "connectivity": first['connectivity'],
+                    "available_capacity": first['available_capacity']
+                }
+            })
+
+        # ===== Ungrouped Month Ahead Generation =====
+        month_ahead = MonthAheadGeneration.objects.filter(
+            Q(content_type=solar_ct, object_id__in=solar_portfolios.values_list('id', flat=True)) |
+            Q(content_type=wind_ct, object_id__in=wind_portfolios.values_list('id', flat=True))
+        )
+
+        for entry in month_ahead:
+            date_key = entry.date.strftime("%d-%m-%Y")
+            portfolio = entry.portfolio
+            technology = "solar" if isinstance(portfolio, SolarPortfolio) else "wind"
+
+            result.append({
+                "generation_date": date_key,
+                "generation": round(entry.generation, 2),
+                "price": round(entry.price, 2),
+                "status": entry.status.lower(),
+                "type": "Month Ahead",
+                "portfolio_details": {
+                    "technology": technology,
+                    "state": portfolio.state,
+                    "connectivity": portfolio.connectivity,
+                    "available_capacity": portfolio.available_capacity
+                }
+            })
+
+        # Sort by date
+        result.sort(key=lambda x: datetime.strptime(x['generation_date'], "%d-%m-%Y"))
 
         return Response(result, status=status.HTTP_200_OK)
