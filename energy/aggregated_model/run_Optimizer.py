@@ -194,7 +194,19 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
                   "Total Cost": total_cost,
                   "Annual Demand Offset": annual_demand_offset,
                   "Annual Demand Met": annual_demand_met,
-                  "Annual Curtailment": excess_percentage
+                  "Annual Curtailment": excess_percentage,
+
+                  "Demand": demand,
+                  "Solar Allocation": solar_allocation if isinstance(solar_allocation, pd.Series) else 0,
+                  "Wind Allocation": wind_allocation if isinstance(wind_allocation, pd.Series) else 0,
+                  "SOC": battery_soc,
+                  "ESS Discharge": ess_discharge,
+                  "ESS Charge": ess_charge,
+                  "Unmet demand": virtual_gen,
+                  "Generation": gross_energy_generation.squeeze(),
+                  "Curtailment": gross_curtailment,
+                  "Total Demand met by allocation": gross_energy_allocation,
+                  "Demand met": demand_met
 
               }
       # results_df.to_excel(f"results_{key}.xlsx", index=False)

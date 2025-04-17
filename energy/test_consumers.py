@@ -235,13 +235,14 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
     async def build_offer_update_message(self, generator_offer):
         """Builds the offer update message."""
         generator_username = await self.get_generator_username(generator_offer.generator_id)
+        generator_re_index = await self.get_generator_re_index(generator_offer.generator_id)
         return {
             'type': 'offer_update',
             'message': {
                 str(generator_offer.generator_id): {
                     'generator_id': generator_offer.generator_id,
                     'generator_username': generator_username,
-                    # 're_index': generator_offer.generator.re_index,
+                    'generator_re_index': generator_re_index,
                     'tariff_id': generator_offer.tariff_id,
                     'updated_tariff': generator_offer.updated_tariff,
                     'timestamp': localtime(generator_offer.updated_at).strftime('%Y-%m-%d %H:%M:%S'),
@@ -280,7 +281,7 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
         offers = GeneratorOffer.objects.filter(tariff_id=tariff_id).values(
             'generator__id',
             'generator__username',
-            # 'generator__re_index',
+            'generator__re_index',
             'updated_tariff',
             'updated_at',
             'generator_id'
@@ -291,7 +292,7 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
             formatted_offers[str(offer['generator_id'])] = {
                 'generator_id': offer['generator__id'],
                 'generator_username': offer['generator__username'],
-                # 'generator_re_index': offer['generator__re_index'],
+                'generator_re_index': offer['generator__re_index'],
                 'updated_tariff': offer['updated_tariff'],
                 'timestamp': localtime(offer['updated_at']).strftime('%Y-%m-%d %H:%M:%S'),
             }
@@ -336,6 +337,15 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
         try:
             user = User.objects.get(id=generator_id)
             return user.username
+        except User.DoesNotExist:
+            return None
+
+    @database_sync_to_async
+    def get_generator_re_index(self, generator_id):
+        """Gets the username of a generator."""
+        try:
+            user = User.objects.get(id=generator_id)
+            return user.re_index
         except User.DoesNotExist:
             return None
 

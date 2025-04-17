@@ -321,6 +321,10 @@ class ConsumerRequirementsAPI(APIView):
         serializer = ConsumerRequirementsSerializer(instance, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
+
+            # Call the calculate_hourly_demand method
+            OptimizeCapacityAPI.calculate_hourly_demand(instance, instance.state)
+
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -578,7 +582,9 @@ class CSVFileAPI(APIView):
                 monthly_consumption.off_peak_consumption=float(row['Off Peak Consumption (MWh)'].replace(',', ''))
                 monthly_consumption.monthly_bill_amount=float(row['Monthly Bill Amount (INR cr)'].replace(',', ''))
                 monthly_consumption.save()
-                # OptimizeCapacityAPI.calculate_hourly_demand(requirement)
+
+                # Call the calculate_hourly_demand method
+                OptimizeCapacityAPI.calculate_hourly_demand(requirement, requirement.state)
                 
             return Response({'message': 'Success'}, status=status.HTTP_201_CREATED)
 
