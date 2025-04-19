@@ -376,6 +376,7 @@ class SetPassword(APIView):
     def post(self, request, token):
         data = request.data
         password = data.get('password')
+        token = data.get('token')
 
         if not password:
             return Response({'error': 'Password is required.'}, status=status.HTTP_400_BAD_REQUEST)
