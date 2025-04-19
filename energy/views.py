@@ -1008,6 +1008,7 @@ class OptimizeCapacityAPI(APIView):
         logger.debug('df')
         logger.debug(df)
 
+        logger.debug(df.iloc[0, 1])
         df_cleaned = df.iloc[0:, 1].reset_index(drop=True)
         logger.debug('df cleaned')
         logger.debug(df_cleaned)
