@@ -703,20 +703,14 @@ class MatchingIPPAPI(APIView):
             requirement = ConsumerRequirements.objects.get(id=pk)
 
             solar_data = SolarPortfolio.objects.filter(
-                cod__lte=requirement.procurement_date
-            ).filter(
                 Q(state=requirement.state) | Q(connectivity="CTU"),
             ).values("user", "user__username", "state", "available_capacity", "updated")
 
             wind_data = WindPortfolio.objects.filter(
-                cod__lte=requirement.procurement_date
-            ).filter(
                 Q(state=requirement.state) | Q(connectivity="CTU"),
             ).values("user", "user__username", "state", "available_capacity", "updated")
 
             ess_data = ESSPortfolio.objects.filter(
-                cod__lte=requirement.procurement_date
-            ).filter(
                 Q(state=requirement.state) | Q(connectivity="CTU"),
             ).values("user", "user__username", "state", "available_capacity", "updated")
         
@@ -855,15 +849,9 @@ class MatchingConsumerAPI(APIView):
             filtered_data = ConsumerRequirements.objects.none()  # Empty queryset initially
 
             if ctu_portfolios:
-                # Match procurement date only for CTU projects
-                ctu_cod_dates = [p.cod for p in ctu_portfolios if p.cod]
-                logger.debug(ctu_cod_dates)
+                ctu_filtered_data = ConsumerRequirements.objects.all()
 
-                ctu_filtered_data = ConsumerRequirements.objects.filter(
-                    procurement_date__gte=min(ctu_cod_dates),  # Use earliest COD from CTU projects
-                )
-
-                logger.debug('dfdsfsd')
+                logger.debug('ctu filtered data:')
                 logger.debug(ctu_filtered_data)
 
                 # Merge with existing filter
@@ -872,9 +860,9 @@ class MatchingConsumerAPI(APIView):
             if states and cod_dates:
                 # Match state-wise and COD-wise for non-CTU projects
                 state_filtered_data = ConsumerRequirements.objects.filter(
-                    state__in=states,
-                    procurement_date__gte=min(cod_dates),  # Use earliest COD from non-CTU projects
+                    state__in=states
                 )
+                logger.debug('state filtered data:')
                 logger.debug(state_filtered_data)
 
                 # Merge both results (CTU + State-wise matching)
@@ -914,12 +902,6 @@ class MatchingConsumerAPI(APIView):
             # Exclude consumers without a subscription from the response
             filtered_data = filtered_data.exclude(user__in=exclude_consumers)
             filtered_data = filtered_data.exclude(id__in=exclude_requirements)
-
-            # # Annotate and prepare the final response
-            # response_data = (
-            #     filtered_data.values("id", "user__username", "state", "industry")
-            #     .annotate(total_contracted_demand=Sum("contracted_demand"))
-            # )
 
             # Annotate before mapping to group by consumer
             annotated_data = (
@@ -1008,7 +990,6 @@ class OptimizeCapacityAPI(APIView):
         logger.debug('df')
         logger.debug(df)
 
-        logger.debug(df.iloc[0, 1])
         df_cleaned = df.iloc[0:, 1].reset_index(drop=True)
         logger.debug('df cleaned')
         logger.debug(df_cleaned)
@@ -1181,20 +1162,17 @@ class OptimizeCapacityAPI(APIView):
                     solar_data = SolarPortfolio.objects.filter(
                         user=generator
                     ).filter(
-                        Q(state=consumer_requirement.state) | Q(connectivity="CTU"),
-                        cod__lte=consumer_requirement.procurement_date
+                        Q(state=consumer_requirement.state) | Q(connectivity="CTU")
                     )
                     wind_data = WindPortfolio.objects.filter(
                         user=generator
                     ).filter(
-                        Q(state=consumer_requirement.state) | Q(connectivity="CTU"),
-                        cod__lte=consumer_requirement.procurement_date
+                        Q(state=consumer_requirement.state) | Q(connectivity="CTU")
                     )
                     ess_data = ESSPortfolio.objects.filter(
                         user=generator
                     ).filter(
-                        Q(state=consumer_requirement.state) | Q(connectivity="CTU"),
-                        cod__lte=consumer_requirement.procurement_date
+                        Q(state=consumer_requirement.state) | Q(connectivity="CTU")
                     )
 
                     portfolios = list(chain(solar_data, wind_data, ess_data))
@@ -1955,7 +1933,7 @@ class SubscriptionEnrolledAPIView(APIView):
     def post(self, request):
         user = request.data.get('user')
         user = get_admin_user(user)
-        user = user.id
+        user_id = user.id
 
         subscription = request.data.get('subscription')
         try:
@@ -1965,37 +1943,45 @@ class SubscriptionEnrolledAPIView(APIView):
 
         today = date.today()
 
-        # Check if the user has a subscription whose end_date is in the future
-        existing_subscription = SubscriptionEnrolled.objects.filter(user=user).order_by('-end_date').first()
+        # Get user's latest subscription
+        existing_subscription = SubscriptionEnrolled.objects.filter(user=user_id).order_by('-end_date').first()
+
         if existing_subscription:
+            # Prevent taking FREE again
+            if subscription_obj.subscription_type == 'FREE':
+                previously_taken_free = SubscriptionEnrolled.objects.filter(
+                    user=user_id,
+                    subscription__subscription_type='FREE'
+                ).exists()
+
+                if previously_taken_free:
+                    return Response(
+                        {"error": "You can take the FREE subscription only once."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            # If an active subscription exists
             if existing_subscription.end_date >= today:
-                return Response(
-                    {"error": "You already have an active subscription."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                # If upgrading from FREE to LITE/PRO, expire old and create new
+                if existing_subscription.subscription.subscription_type == 'FREE' and subscription_obj.subscription_type in ['LITE', 'PRO']:
+                    existing_subscription.status = 'expired'
+                    existing_subscription.save()
+                else:
+                    return Response(
+                        {"error": "You already have an active subscription."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
             else:
-                # Mark the subscription as expired
+                # Expire old subscription if it's not active
                 existing_subscription.status = 'expired'
                 existing_subscription.save()
 
-        # Check if user has ever taken the 'FREE' subscription
-        if subscription_obj.subscription_type == 'FREE':
-            previously_taken_free = SubscriptionEnrolled.objects.filter(
-                user=user,
-                subscription__subscription_type='FREE'
-            ).exists()
-
-            if previously_taken_free:
-                return Response(
-                    {"error": "You can take the FREE subscription only once."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-        # If no existing subscription or it has expired, create a new subscription
+        # Create new subscription with start date as today
         serializer = SubscriptionEnrolledSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 def send_notification(user_id, message):
@@ -2168,7 +2154,7 @@ class NegotiateTariffView(APIView):
                             f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
                             f"The negotiation window will open tomorrow at 10:00 AM. "
                             f"The starting offer tariff being provided is {offer_tariff} INR/kWh.\n\n"
-                            f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
+                            f"Click here to join the bidding window directly: https://ext.exgglobal.com/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
                         )
                         # Send email with the link
                         send_mail(
@@ -2198,7 +2184,7 @@ class NegotiateTariffView(APIView):
                 email_message=(
                     f"Generator {user.username} is interested in initiating a negotiation window for Terms Sheet {terms_sheet}. "
                     f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
-                    f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{terms_sheet.consumer.id}-{tariff.id}-{token}"
+                    f"Click here to join the bidding window directly: https://ext.exgglobal.com/consumer/transaction-mb/{terms_sheet.consumer.id}-{tariff.id}-{token}"
                 )
                 # Send email with the link
                 send_mail(
@@ -2219,7 +2205,7 @@ class NegotiateTariffView(APIView):
                 email_message=(
                     f"You have initiated negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
                     f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
-                    f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
+                    f"Click here to join the bidding window directly: https://ext.exgglobal.com/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
                 )
                 # Send email with the link
                 send_mail(
@@ -2295,7 +2281,7 @@ class NegotiateTariffView(APIView):
                         f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet}. "
                         f"The negotiation window will open tomorrow at 10:00 AM. "
                         f"The starting offer tariff being provided is {offer_tariff}.\n\n"
-                        f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
+                        f"Click here to join the bidding window directly: https://ext.exgglobal.com/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
                     )
                     # Send email with the link
                     send_mail(
@@ -2320,7 +2306,7 @@ class NegotiateTariffView(APIView):
             email_message=(
                 f"You have initiated a negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
                 f"The starting offer tariff being provided is {offer_tariff}."
-                f"Click here to join the bidding window directly: http://52.66.186.241:3001/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
+                f"Click here to join the bidding window directly: https://ext.exgglobal.com/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
             )
             # Send email with the link
             send_mail(
@@ -2501,20 +2487,14 @@ class AnnualSavingsView(APIView):
             # --- START OF ISTS Charges Logic ---
 
             portfolios = list(SolarPortfolio.objects.filter(
-                cod__lte=requirement.procurement_date
-            ).filter(
                 Q(state=requirement.state) | Q(connectivity="CTU")
             ).values("state", "connectivity"))
 
             portfolios += list(WindPortfolio.objects.filter(
-                cod__lte=requirement.procurement_date
-            ).filter(
                 Q(state=requirement.state) | Q(connectivity="CTU")
             ).values("state", "connectivity"))
 
             portfolios += list(ESSPortfolio.objects.filter(
-                cod__lte=requirement.procurement_date
-            ).filter(
                 Q(state=requirement.state) | Q(connectivity="CTU")
             ).values("state", "connectivity"))
 
@@ -2893,7 +2873,7 @@ class PaymentTransactionAPI(APIView):
                 )
             else:
                 subscription_response = requests.post(
-                    "http://52.66.186.241:8000/api/energy/subscriptions",
+                    "https://ext.exgglobal.com/api/api/energy/subscriptions",
                     json=subscription_data,
                     headers=headers
                 )
