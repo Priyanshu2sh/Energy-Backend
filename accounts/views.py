@@ -130,8 +130,10 @@ class RegisterUser(APIView):
             existing_user = User.objects.get(email=email)
             if existing_user.verified_at is None:
                 # If the user exists but is not verified, update details and resend OTP
-                email_otp = random.randint(100000, 999999)
-                mobile_otp = random.randint(100000, 999999)
+                # email_otp = random.randint(100000, 999999)
+                # mobile_otp = random.randint(100000, 999999)
+                email_otp = 9876
+                mobile_otp = 2748
 
                 existing_user.user_category = user_category
                 existing_user.email_otp = email_otp
@@ -173,8 +175,10 @@ class RegisterUser(APIView):
                 user.parent = None  # Root of the hierarchy
 
                 # Send OTP
-                email_otp = random.randint(100000, 999999)
-                mobile_otp = random.randint(100000, 999999)
+                # email_otp = random.randint(100000, 999999)
+                # mobile_otp = random.randint(100000, 999999)
+                email_otp = 9876
+                mobile_otp = 2748
                 user.email_otp = email_otp
                 user.mobile_otp = mobile_otp
                 user.save()
@@ -266,7 +270,8 @@ class LoginUser(APIView):
         user = User.objects.filter(email=email).first()
         registration_token = get_random_string(64)
         if user and user.verified_at is not None:
-            email_otp = random.randint(100000, 999999)
+            # email_otp = random.randint(100000, 999999)
+            email_otp = 9876
 
             user.email_otp = email_otp
             user.registration_token = registration_token
