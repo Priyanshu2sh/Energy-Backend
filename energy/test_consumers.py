@@ -10,6 +10,9 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.utils import timezone
 from django.utils.timezone import localtime
+# Get the logger that is configured in the settings
+import logging
+logger = logging.getLogger('debug_logger')
 
 from .models import GeneratorOffer, Notifications, StandardTermsSheet, Tariffs
 
@@ -311,6 +314,7 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
             tariff = Tariffs.objects.get(id=tariff_id)
             tariff.window_status = status  # negotiation window status to Rejected
             tariff.save()
+            logger.debug(f"Tariff {tariff_id} window status updated to {status}.")
         except Tariffs.DoesNotExist:
             raise Tariffs.DoesNotExist(
                 "Tariff not found."
