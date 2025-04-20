@@ -2143,15 +2143,15 @@ class NegotiateTariffView(APIView):
                         # Map the consumer username specific to the generator
                         mapped_username = get_mapped_username(user, terms_sheet.consumer)
                         message=(
-                            f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
-                            f"The negotiation window will open tomorrow at 10:00 AM. "
+                            f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet Demand for - {terms_sheet.combination.requirement.state} - {terms_sheet.combination.requirement.industry} - {terms_sheet.combination.requirement.sub_industry} - {terms_sheet.combination.requirement.consumption_unit} - {terms_sheet.combination.requirement.contracted_demand} kWh."
+                            f"The negotiation window will open tomorrow at 10:00 AM."
                             f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
                         )
                         send_notification(recipient_user.id, message)
 
                         logger.debug(f'==========ssssssssss')
                         email_message = (
-                            f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
+                            f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet Demand for - {terms_sheet.combination.requirement.state} - {terms_sheet.combination.requirement.industry} - {terms_sheet.combination.requirement.sub_industry} - {terms_sheet.combination.requirement.consumption_unit} - {terms_sheet.combination.requirement.contracted_demand} kWh."
                             f"The negotiation window will open tomorrow at 10:00 AM. "
                             f"The starting offer tariff being provided is {offer_tariff} INR/kWh.\n\n"
                             f"Click here to join the bidding window directly: https://ext.exgglobal.com/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
@@ -2176,13 +2176,13 @@ class NegotiateTariffView(APIView):
                 # GeneratorOffer.objects.get_or_create(generator=user, tariff=tariff)
 
                 message=(
-                    f"Generator {user.username} is interested in initiating a negotiation window for Terms Sheet {terms_sheet}. "
+                    f"Generator {user.username} is interested in initiating a negotiation window for Terms Sheet Demand for - {terms_sheet.combination.requirement.state} - {terms_sheet.combination.requirement.industry} - {terms_sheet.combination.requirement.sub_industry} - {terms_sheet.combination.requirement.consumption_unit} - {terms_sheet.combination.requirement.contracted_demand} kWh."
                     f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
                 )
                 send_notification(terms_sheet.consumer.id, message) 
 
                 email_message=(
-                    f"Generator {user.username} is interested in initiating a negotiation window for Terms Sheet {terms_sheet}. "
+                    f"Generator {user.username} is interested in initiating a negotiation window for Terms Sheet Demand for - {terms_sheet.combination.requirement.state} - {terms_sheet.combination.requirement.industry} - {terms_sheet.combination.requirement.sub_industry} - {terms_sheet.combination.requirement.consumption_unit} - {terms_sheet.combination.requirement.contracted_demand} kWh."
                     f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
                     f"Click here to join the bidding window directly: https://ext.exgglobal.com/consumer/transaction-mb/{terms_sheet.consumer.id}-{tariff.id}-{token}"
                 )
@@ -2197,13 +2197,13 @@ class NegotiateTariffView(APIView):
 
                 #self notification
                 message=(
-                    f"You have initiated negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
+                    f"You have initiated negotiation window for Terms Sheet Demand for - {terms_sheet.combination.requirement.state} - {terms_sheet.combination.requirement.industry} - {terms_sheet.combination.requirement.sub_industry} - {terms_sheet.combination.requirement.consumption_unit} - {terms_sheet.combination.requirement.contracted_demand} kWh."
                     f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
                 )
-                send_notification(terms_sheet.consumer.id, message) 
+                send_notification(user.id, message)
 
                 email_message=(
-                    f"You have initiated negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
+                    f"You have initiated negotiation window for Terms Sheet Demand for - {terms_sheet.combination.requirement.state} - {terms_sheet.combination.requirement.industry} - {terms_sheet.combination.requirement.sub_industry} - {terms_sheet.combination.requirement.consumption_unit} - {terms_sheet.combination.requirement.contracted_demand} kWh."
                     f"The starting offer tariff being provided is {offer_tariff} INR/kWh."
                     f"Click here to join the bidding window directly: https://ext.exgglobal.com/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
                 )
@@ -2271,14 +2271,14 @@ class NegotiateTariffView(APIView):
                     # Map the consumer username specific to the generator
                     mapped_username = get_mapped_username(recipient_user, user)
                     message=(
-                        f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet}. "
+                        f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet Demand for - {terms_sheet.combination.requirement.state} - {terms_sheet.combination.requirement.industry} - {terms_sheet.combination.requirement.sub_industry} - {terms_sheet.combination.requirement.consumption_unit} - {terms_sheet.combination.requirement.contracted_demand} kWh."
                         f"The negotiation window will open tomorrow at 10:00 AM. "
                         f"The starting offer tariff being provided is {offer_tariff}."
                     )
                     send_notification(recipient_user.id, message)
 
                     email_message = (
-                        f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet {terms_sheet}. "
+                        f"Consumer {mapped_username} has initiated a negotiation window for Terms Sheet Demand for - {terms_sheet.combination.requirement.state} - {terms_sheet.combination.requirement.industry} - {terms_sheet.combination.requirement.sub_industry} - {terms_sheet.combination.requirement.consumption_unit} - {terms_sheet.combination.requirement.contracted_demand} kWh."
                         f"The negotiation window will open tomorrow at 10:00 AM. "
                         f"The starting offer tariff being provided is {offer_tariff}.\n\n"
                         f"Click here to join the bidding window directly: https://ext.exgglobal.com/consumer/transaction-mb/{recipient_user.id}-{tariff.id}-{token}"
@@ -2299,12 +2299,12 @@ class NegotiateTariffView(APIView):
                     continue
                     
             message=(
-                f"You have initiated a negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
+                f"You have initiated a negotiation window for Terms Sheet Demand for - {terms_sheet.combination.requirement.state} - {terms_sheet.combination.requirement.industry} - {terms_sheet.combination.requirement.sub_industry} - {terms_sheet.combination.requirement.consumption_unit} - {terms_sheet.combination.requirement.contracted_demand} kWh."
                 f"The starting offer tariff being provided is {offer_tariff}."
             )
-            send_notification(terms_sheet.consumer.id, message) 
+            send_notification(user.id, message) 
             email_message=(
-                f"You have initiated a negotiation window for Terms Sheet {terms_sheet.combination.requirement}. "
+                f"You have initiated a negotiation window for Terms Sheet Demand for - {terms_sheet.combination.requirement.state} - {terms_sheet.combination.requirement.industry} - {terms_sheet.combination.requirement.sub_industry} - {terms_sheet.combination.requirement.consumption_unit} - {terms_sheet.combination.requirement.contracted_demand} kWh."
                 f"The starting offer tariff being provided is {offer_tariff}."
                 f"Click here to join the bidding window directly: https://ext.exgglobal.com/consumer/transaction-mb/{user.id}-{tariff.id}-{token}"
             )
