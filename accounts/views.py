@@ -18,6 +18,9 @@ from rest_framework.permissions import IsAuthenticated
 from twilio.rest import Client
 from django.utils.crypto import get_random_string
 from thefuzz import fuzz
+# Get the logger that is configured in the settings
+import logging
+logger = logging.getLogger('debug_logger')
 
 
 class JWTAuthentication(BaseAuthentication):
@@ -281,7 +284,7 @@ class LoginUser(APIView):
             if settings.ENVIRONMENT == 'local':
                 registration_link = f"http://localhost:3001/email/{registration_token}"
             else:
-                registration_link = f"http://52.66.186.241:3001/email/{registration_token}"
+                registration_link = f"https://exgglobal.com/email/{registration_token}"
             send_mail(
                 'Set Up Your Account Password',
                 f'Please set your new password using the following link:\n\n{registration_link}\n\nIf you did not request this, please ignore this email.\n\nThank You',
@@ -363,9 +366,9 @@ class AddSubUser(APIView):
 
         # Send email to sub-user with a registration link
         if settings.ENVIRONMENT == 'local':
-            registration_link = f"{request.scheme}://localhost:3001/email/{registration_token}"
+            registration_link = f"http://localhost:3001/email/{registration_token}"
         else:
-            registration_link = f"{request.scheme}://52.66.186.241:3001/email/{registration_token}"
+            registration_link = f"https://ext.exgglobal.com/email/{registration_token}"
         send_mail(
             'Complete Your Registration',
             f'You have been added as a {role}. Please set your password using the following link: {registration_link}',
