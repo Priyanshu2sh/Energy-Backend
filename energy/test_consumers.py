@@ -14,7 +14,7 @@ from django.utils.timezone import localtime
 import logging
 logger = logging.getLogger('debug_logger')
 
-from .models import GeneratorOffer, Notifications, StandardTermsSheet, Tariffs
+from .models import GeneratorOffer, NegotiationWindow, Notifications, StandardTermsSheet, Tariffs
 
 User = get_user_model()
 
@@ -31,6 +31,7 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
         - Sends previous offers to the user.
         """
         current_time = timezone.localtime().time()
+        current_date = timezone.localdate()
         
         self.user_id = self.get_query_param('user_id')
         self.tariff_id = self.get_query_param('tariff_id')
@@ -48,6 +49,25 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
         cache.set(f"user_channel_{self.user_id}", self.channel_name, timeout=None)
 
         await self.accept()
+
+        # Fetch tariff and its terms_sheet in one go
+        terms_sheet_id = await self.get_tariff_with_terms(self.tariff_id)
+        negotiation_window = await self.get_negotiation_window(terms_sheet_id)
+
+        # Generator-specific date check
+        if user.user_category == 'Generator':
+            start_date = negotiation_window.start_time.date()
+            end_date = negotiation_window.end_time.date()
+
+            if current_date < start_date:
+                await self.send(text_data=json.dumps({'message': 'This window is not opened yet.'}))
+                await self.close()
+                return
+            elif current_date > end_date:
+                await self.send(text_data=json.dumps({'message': 'This window is closed.'}))
+                await self.close()
+                return
+
         if current_time <self.ALLOWED_START_TIME:
             message = {'message': 'This window is not opened yet.'}
             await self.send(text_data=json.dumps(message))
@@ -306,6 +326,15 @@ class TestNegotiationWindowConsumer(AsyncWebsocketConsumer):
     def get_tariff(self, tariff_id):
         """Gets a tariff by ID."""
         return Tariffs.objects.get(id=tariff_id)
+
+    @database_sync_to_async
+    def get_tariff_with_terms(self, tariff_id):
+        return Tariffs.objects.values_list('terms_sheet_id', flat=True).get(id=tariff_id)
+
+    @database_sync_to_async
+    def get_negotiation_window(self, terms_sheet_id):
+        """Gets a tariff by ID."""
+        return NegotiationWindow.objects.get(terms_sheet__id=terms_sheet_id)
     
     @database_sync_to_async
     def update_window_status(self, tariff_id, status):
