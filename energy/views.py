@@ -28,6 +28,7 @@ from django.utils.timezone import make_aware, now
 from datetime import datetime, timedelta, time, date
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q, Sum
+from django.db.models import OuterRef, Exists
 from .aggregated_model.main import optimization_model
 from django.core.files.base import ContentFile
 import pandas as pd
@@ -702,6 +703,14 @@ class MatchingIPPAPI(APIView):
             # Fetch the requirement
             requirement = ConsumerRequirements.objects.get(id=pk)
 
+            accepted_tariff = Tariffs.objects.filter(
+                terms_sheet__combination__requirement=requirement,
+                window_status='Accepted'
+            ).first()
+
+            if accepted_tariff:
+                return Response({"message": "Accepted tariff found."}, status=status.HTTP_200_OK)
+
             solar_data = SolarPortfolio.objects.filter(
                 Q(state=requirement.state) | Q(connectivity="CTU"),
             ).values("user", "user__username", "state", "available_capacity", "updated")
@@ -868,6 +877,22 @@ class MatchingConsumerAPI(APIView):
                 # Merge both results (CTU + State-wise matching)
                 filtered_data   = filtered_data | state_filtered_data
                 logger.debug(filtered_data)
+
+            # Subquery to find if any related Tariff has window_status='Accepted' via this chain
+            accepted_tariff_qs = Tariffs.objects.filter(
+                terms_sheet__combination__requirement=OuterRef('pk'),
+                window_status='Accepted'
+            )
+
+            # Annotate and exclude consumer requirements linked to accepted tariffs
+            filtered_data = filtered_data.annotate(
+                has_accepted_tariff=Exists(accepted_tariff_qs)
+            ).filter(
+                has_accepted_tariff=False
+            )
+
+            logger.debug('final filtered data after removing accepted ones:')
+            logger.debug(filtered_data)
             
             # Check for subscription and notify consumers without a subscription
             exclude_consumers = []
@@ -1911,7 +1936,7 @@ class SubscriptionEnrolledAPIView(APIView):
             
             subscription = SubscriptionEnrolled.objects.filter(user=pk)
             
-            subscription = SubscriptionEnrolled.objects.filter(user=pk).order_by('start_date').first()
+            subscription = SubscriptionEnrolled.objects.filter(user=pk, status='active').first()
             
             data = {
                 "id": subscription.id,
@@ -1976,8 +2001,12 @@ class SubscriptionEnrolledAPIView(APIView):
                 existing_subscription.status = 'expired'
                 existing_subscription.save()
 
+        # Ensure correct user is passed to serializer
+        data = request.data.copy()
+        data['user'] = user_id
+
         # Create new subscription with start date as today
-        serializer = SubscriptionEnrolledSerializer(data=request.data)
+        serializer = SubscriptionEnrolledSerializer(data=data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
