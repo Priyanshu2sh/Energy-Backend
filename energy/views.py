@@ -12,7 +12,7 @@ import pytz
 import requests
 from accounts.models import GeneratorConsumerMapping, User
 from accounts.views import JWTAuthentication
-from .models import GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GridTariff, Industry, NegotiationInvitation, PeakHours, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
+from .models import GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GridTariff, Industry, NationalHoliday, NegotiationInvitation, PeakHours, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -2104,12 +2104,24 @@ class NegotiateTariffView(APIView):
 
         # Get current time in timezone-aware format
         now_time = timezone.now()
-        
-        # Calculate the negotiation window start time (tomorrow at 10:00 AM)
-        next_day_date = (now_time + timedelta(days=1)).date()
-        next_day_10_am = datetime.combine(next_day_date, time(10, 0))
-        next_day_10_am_aware = timezone.make_aware(next_day_10_am, timezone=timezone.get_current_timezone())
-        # Define the end time for the negotiation window (e.g., 1 hour after start time)
+
+        tz = timezone.get_current_timezone()
+        start_date = timezone.now().date() + timedelta(days=1)
+
+        while True:
+            # Skip Sundays
+            if start_date.weekday() == 6:
+                start_date += timedelta(days=1)
+                continue
+            # Skip National Holidays
+            if NationalHoliday.objects.filter(date=start_date).exists():
+                start_date += timedelta(days=1)
+                continue
+            break
+
+        # Return 10 AM of that day (aware datetime)
+        next_day_10_am = datetime.combine(start_date, time(10, 0))
+        next_day_10_am_aware = timezone.make_aware(next_day_10_am, timezone=tz)
         end_time = next_day_10_am_aware + timedelta(hours=1)
         
         

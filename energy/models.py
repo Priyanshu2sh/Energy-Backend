@@ -621,3 +621,10 @@ class PeakHours(models.Model):
 
     def __str__(self):
         return f"{self.state} - Peak: {self.calculate_peak_hours()} hrs, Off-Peak: {self.calculate_off_peak_hours()} hrs"
+
+class NationalHoliday(models.Model):
+    date = models.DateField(unique=True)
+    name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return f"{self.name} - {self.date}"

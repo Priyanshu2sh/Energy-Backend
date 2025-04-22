@@ -34,7 +34,7 @@ def scrape_data():
 
     # Path to msedgedriver.exe
     driver_path = os.path.join(current_dir, "msedgedriver.exe")
-    logging.info(f"driver path {driver_path}")
+    logging.debug(f"driver path {driver_path}")
     # Verify if the driver exists
     if not os.path.exists(driver_path):
         logging.error(f"Edge driver not found at {driver_path}")
@@ -47,7 +47,7 @@ def scrape_data():
     driver = webdriver.Edge(service=service, options=options)
 
     try:
-        logging.info("Opening IEX Green Day Ahead Market snapshot page...")
+        logging.debug("Opening IEX Green Day Ahead Market snapshot page...")
         driver.get("https://www.iexindia.com/market-data/green-day-ahead-market/market-snapshot")
         time.sleep(5)  # Wait for the page to load
 

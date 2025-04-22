@@ -16,6 +16,9 @@ import pandas as pd
 from powerx.models import CleanData
 from django.db import IntegrityError
 import traceback
+from django.utils import timezone
+import logging
+logger = logging.getLogger(__name__)
 
 # Get the logger that is configured in the settings
 traceback_logger = logging.getLogger('django')
@@ -163,7 +166,9 @@ def save_to_model(df):
 
 @shared_task
 def scrape_iex_data():
-    start_time = datetime.now()
+    logging.debug("Scheduled task ran at %s", timezone.now())
+    logger.debug("Scheduled task ran at %s", timezone.now())
+    start_time = timezone.now()
     try:
         # Run the scraping script
         scrape_data()
@@ -180,7 +185,7 @@ def scrape_iex_data():
             return "No Excel file found."
 
         # latest_file = max(excel_files, key=lambda f: os.path.getmtime(os.path.join(download_folder, f)))
-        latest_file = f"IEX_Green_DAM_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+        latest_file = f"IEX_Green_DAM_{timezone.now().strftime('%Y-%m-%d')}.xlsx"
         file_path = os.path.join(download_folder, latest_file)
 
         # Step 2: Clean the file
@@ -193,7 +198,7 @@ def scrape_iex_data():
         else:
             logging.info("Cleaning failed.")
         
-        end_time = datetime.now()
+        end_time = timezone.now()
         duration = (end_time - start_time).total_seconds()
 
         # Log success message
