@@ -2402,6 +2402,7 @@ class NegotiationWindowListAPI(APIView):
             combination = Combination.objects.get(id=window.terms_sheet.combination.id)
             mapped_username = get_mapped_username(window.terms_sheet.combination.generator, window.terms_sheet.consumer)
             response_data.append({
+                "generator_id": window.terms_sheet.combination.generator.id,
                 "window_id": window.id,
                 "window_name": window.name,
                 "terms_sheet_id": window.terms_sheet.id,
