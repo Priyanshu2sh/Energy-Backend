@@ -23,6 +23,9 @@ def scrape_data():
 
     # Edge browser configuration
     options = Options()
+    options.add_argument("--headless")  # ← Key: run browser without GUI
+    options.add_argument("--disable-gpu")  # ← Prevent GPU-related crashes
+    options.add_argument("--no-sandbox")  # Optional but often helpful
     options.add_argument("--start-maximized")
 
     # Set download preferences
