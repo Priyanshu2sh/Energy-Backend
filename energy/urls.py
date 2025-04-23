@@ -45,5 +45,7 @@ urlpatterns = [
     path('states-time-slots', views.StateTimeSlotAPI.as_view(), name='states_time_slots'),
     path('capacity-sizing', views.CapacitySizingAPI.as_view(), name='capacity_sizing'),
     path('sensitivity', views.SensitivityAPI.as_view(), name='sensitivity'),
+    path('capacity-sizing-combination/<int:user_id>', views.CapacitySizingCombinationAPI.as_view(), name='capacity-sizing-combination'),
+    path('capacity-sizing-combination', views.CapacitySizingCombinationAPI.as_view(), name='capacity-sizing-combination'),
     
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

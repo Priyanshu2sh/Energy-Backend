@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from accounts.models import User
-from .models import HourlyDemand, PaymentTransaction, PerformaInvoice, ScadaFile, SolarPortfolio, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs
+from .models import CapacitySizingCombination, HourlyDemand, PaymentTransaction, PerformaInvoice, ScadaFile, SolarPortfolio, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, StandardTermsSheet, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs
 from django.utils.timezone import timedelta, now
 from django.core.files.uploadedfile import InMemoryUploadedFile, TemporaryUploadedFile
 
@@ -231,3 +231,8 @@ class StateTimeSlotSerializer(serializers.ModelSerializer):
     class Meta:
         model = StateTimeSlot
         fields = ["state_name", "peak_hours", "off_peak_hours"]
+
+class CapacitySizingCombinationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CapacitySizingCombination
+        fields = '__all__'

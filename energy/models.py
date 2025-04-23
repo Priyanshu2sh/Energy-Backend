@@ -628,3 +628,19 @@ class NationalHoliday(models.Model):
 
     def __str__(self):
         return f"{self.name} - {self.date}"
+    
+class CapacitySizingCombination(models.Model):
+    generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'}, related_name='generator_capacity_combinations') # Restrict to users with user_category='Generator'
+    combination = models.CharField(max_length=200)
+    optimal_solar_capacity = models.FloatField()
+    optimal_wind_capacity = models.FloatField()
+    optimal_battery_capacity = models.FloatField()
+    per_unit_cost = models.FloatField()
+    oa_cost = models.FloatField()
+    final_cost = models.FloatField()
+    annual_demand_offset = models.FloatField()
+    annual_demand_met = models.FloatField(blank=True, null=True)
+    annual_curtailment = models.FloatField()
+
+    def __str__(self):
+        return f"{self.generator} - {self.combination}"

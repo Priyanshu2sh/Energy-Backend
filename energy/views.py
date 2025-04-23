@@ -12,7 +12,7 @@ import pytz
 import requests
 from accounts.models import GeneratorConsumerMapping, User
 from accounts.views import JWTAuthentication
-from .models import GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GridTariff, Industry, NationalHoliday, NegotiationInvitation, PeakHours, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
+from .models import CapacitySizingCombination, GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GridTariff, Industry, NationalHoliday, NegotiationInvitation, PeakHours, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -20,7 +20,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework import status
 from rest_framework.serializers import ValidationError
-from .serializers import CSVFileSerializer, CreateOrderSerializer, PaymentTransactionSerializer, PerformaInvoiceCreateSerializer, PerformaInvoiceSerializer, ScadaFileSerializer, SolarPortfolioSerializer, StateTimeSlotSerializer, WindPortfolioSerializer, ESSPortfolioSerializer, ConsumerRequirementsSerializer, MonthlyConsumptionDataSerializer, StandardTermsSheetSerializer, SubscriptionTypeSerializer, SubscriptionEnrolledSerializer, NotificationsSerializer, TariffsSerializer
+from .serializers import CSVFileSerializer, CapacitySizingCombinationSerializer, CreateOrderSerializer, PaymentTransactionSerializer, PerformaInvoiceCreateSerializer, PerformaInvoiceSerializer, ScadaFileSerializer, SolarPortfolioSerializer, StateTimeSlotSerializer, WindPortfolioSerializer, ESSPortfolioSerializer, ConsumerRequirementsSerializer, MonthlyConsumptionDataSerializer, StandardTermsSheetSerializer, SubscriptionTypeSerializer, SubscriptionEnrolledSerializer, NotificationsSerializer, TariffsSerializer
 from django.core.mail import send_mail
 import random
 from django.contrib.auth.hashers import check_password
@@ -1746,7 +1746,12 @@ class StandardTermsSheetAPI(APIView):
         from_whom = request.data.get("from_whom")
         requirement_id = request.data.get("requirement_id")
         combination = request.data.get('combination')
+        re_replacement = request.data.get('re_replacement')
         offer_tariff = request.data.get('offer_tariff')
+        solar = request.data.get('solar_capacity')
+        wind = request.data.get('wind_capacity')
+        ess = request.data.get('ess_capacity')
+        logger.debug(f'{solar}, {wind}, {ess}')
 
         if from_whom not in ['Consumer', 'Generator']:
             return Response({"error": "Invalid value for 'from_whom'."}, status=status.HTTP_400_BAD_REQEUST)
@@ -1760,7 +1765,7 @@ class StandardTermsSheetAPI(APIView):
             return Response({"error": "Invalid requirement_id."}, status=status.HTTP_400_BAD_REQUEST)
             
         try:
-            combination = Combination.objects.filter(combination=combination, requirement=requirement).order_by('-id').first()
+            combination = Combination.objects.filter(combination=combination, re_replacement=re_replacement, requirement=requirement).order_by('-id').first()
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1788,6 +1793,10 @@ class StandardTermsSheetAPI(APIView):
             request_data["generator_status"] = 'Offer Received'
         elif from_whom == 'Generator':
             request_data["consumer_status"] = 'Offer Received'
+            combination.optimal_solar_capacity = solar
+            combination.optimal_wind_capacity = wind
+            combination.optimal_battery_capacity = ess
+            combination.save()
 
 
         serializer = StandardTermsSheetSerializer(data=request_data)
@@ -3726,3 +3735,28 @@ class SensitivityAPI(APIView):
             tb = traceback.format_exc()  # Get the full traceback
             traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class CapacitySizingCombinationAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+            user = get_admin_user(user_id)
+            combinations = CapacitySizingCombination.objects.filter(generator=user)
+            serializer = CapacitySizingCombinationSerializer(combinations, many=True)
+            return Response(serializer.data)
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    def post(self, request):
+        user = request.data.get('generator')
+        user = get_admin_user(user)
+        data = request.data.copy()
+        data['generator'] = user.id
+        serializer = CapacitySizingCombinationSerializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
