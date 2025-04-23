@@ -6,6 +6,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.edge.service import Service
 from selenium.webdriver.edge.options import Options
+from django.conf import settings
 
 def scrape_data():
 
@@ -27,6 +28,10 @@ def scrape_data():
     options.add_argument("--disable-gpu")  # ← Prevent GPU-related crashes
     options.add_argument("--no-sandbox")  # Optional but often helpful
     options.add_argument("--start-maximized")
+
+    if settings.ENVIRONMENT != 'local':
+        # ✅ Set the actual Edge browser binary path here
+        options.binary_location = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
     # Set download preferences
     options.add_experimental_option("prefs", {
