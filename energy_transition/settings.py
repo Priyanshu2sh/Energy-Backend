@@ -16,8 +16,10 @@ from dotenv import load_dotenv
 import pymysql
 pymysql.install_as_MySQLdb()
 
+# Define the full path to the .env file inside energy_transition/
+ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
 # Load environment variables from .env file
-load_dotenv()
+load_dotenv(dotenv_path=ENV_PATH)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
