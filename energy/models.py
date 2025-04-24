@@ -631,6 +631,7 @@ class NationalHoliday(models.Model):
     
 class CapacitySizingCombination(models.Model):
     generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'}, related_name='generator_capacity_combinations') # Restrict to users with user_category='Generator'
+    record_name = models.CharField(max_length=255)
     combination = models.CharField(max_length=200)
     optimal_solar_capacity = models.FloatField()
     optimal_wind_capacity = models.FloatField()

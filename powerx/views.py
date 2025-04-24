@@ -6,7 +6,7 @@ from rest_framework import status
 from django.utils.timezone import now, timedelta
 from django.contrib.contenttypes.models import ContentType
 from accounts.models import User
-from energy.models import ConsumerRequirements, ESSPortfolio, SolarPortfolio, WindPortfolio
+from energy.models import ConsumerRequirements, ESSPortfolio, NationalHoliday, SolarPortfolio, WindPortfolio
 from .models import CleanData, ConsumerDayAheadDemand, ConsumerMonthAheadDemand, ConsumerMonthAheadDemandDistribution, DayAheadGeneration, MonthAheadGeneration, MonthAheadGenerationDistribution, MonthAheadPrediction, NextDayPrediction, Notifications
 from .serializers import ConsumerMonthAheadDemandSerializer, DayAheadGenerationSerializer, MonthAheadGenerationSerializer, NextDayPredictionSerializer, ConsumerDayAheadDemandSerializer, NotificationsSerializer
 from django.core.files.base import ContentFile
@@ -16,6 +16,7 @@ from django.db.models import Avg, Max, Min
 from django.db.models import Q
 from channels.layers import get_channel_layer
 from datetime import date
+from django.utils.dateparse import parse_date
 from asgiref.sync import async_to_sync
 from powerx.AI_Model.model_scheduling import run_predictions, run_month_ahead_model
 from powerx.AI_Model.manualdates import process_and_store_data
@@ -225,7 +226,22 @@ class ConsumerDayAheadDemandAPI(APIView):
             return Response({"error": "Requirement not found."}, status=status.HTTP_404_NOT_FOUND)
 
         # Get tomorrow's date
-        next_day = datetime.now().date() + timedelta(days=1)
+        tz = timezone.get_current_timezone()
+        next_day = timezone.now().astimezone(tz).date() + timedelta(days=1)
+        # Check if it's Sunday
+        if next_day.weekday() == 6:
+            return Response({
+                "status": "error",
+                "message": "Trade cannot be executed on Sunday."
+            })
+
+        # Check if it's a National Holiday
+        if NationalHoliday.objects.filter(date=next_day).exists():
+            return Response({
+                "status": "error",
+                "message": "Trade cannot be executed on a national holiday."
+            })
+
         data_list = []
 
         if file_data:
@@ -346,6 +362,21 @@ class ConsumerMonthAheadDemandAPI(APIView):
             requirement = ConsumerRequirements.objects.get(id=requirement_id)
         except ConsumerRequirements.DoesNotExist:
             return Response({"error": "Invalid requirement ID"}, status=status.HTTP_400_BAD_REQUEST)
+
+        date = parse_date(date)
+        # Check if it's Sunday
+        if date.weekday() == 6:
+            return Response({
+                "status": "error",
+                "message": "Trade cannot be executed on Sunday."
+            })
+
+        # Check if it's a National Holiday
+        if NationalHoliday.objects.filter(date=date).exists():
+            return Response({
+                "status": "error",
+                "message": "Trade cannot be executed on a national holiday."
+            })
 
         # Check if demand entry already exists for requirement and date
         demand_record, created = ConsumerMonthAheadDemand.objects.get_or_create(
@@ -524,7 +555,22 @@ class DayAheadGenerationAPI(APIView):
             return Response({"error": "Portfolio not found."}, status=status.HTTP_404_NOT_FOUND)
 
         # Get tomorrow's date
-        next_day = datetime.now().date() + timedelta(days=1)
+        tz = timezone.get_current_timezone()
+        next_day = timezone.now().astimezone(tz).date() + timedelta(days=1)
+        # Check if it's Sunday
+        if next_day.weekday() == 6:
+            return Response({
+                "status": "error",
+                "message": "Trade cannot be executed on Sunday."
+            })
+
+        # Check if it's a National Holiday
+        if NationalHoliday.objects.filter(date=next_day).exists():
+            return Response({
+                "status": "error",
+                "message": "Trade cannot be executed on a national holiday."
+            })
+        
         data_list = []
 
         if file_data:
@@ -657,6 +703,21 @@ class MonthAheadGenerationAPI(APIView):
                 return Response({"error": "Invalid WindPortfolio ID"}, status=status.HTTP_400_BAD_REQUEST)
         else:
             return Response({"error": "Invalid portfolio type"}, status=status.HTTP_400_BAD_REQUEST)
+
+        date = parse_date(date)
+        # Check if it's Sunday
+        if date.weekday() == 6:
+            return Response({
+                "status": "error",
+                "message": "Trade cannot be executed on Sunday."
+            })
+
+        # Check if it's a National Holiday
+        if NationalHoliday.objects.filter(date=date).exists():
+            return Response({
+                "status": "error",
+                "message": "Trade cannot be executed on a national holiday."
+            })
 
         # Check if generation entry already exists
         generation_record, created = MonthAheadGeneration.objects.get_or_create(
