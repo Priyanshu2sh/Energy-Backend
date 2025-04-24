@@ -642,6 +642,7 @@ class CapacitySizingCombination(models.Model):
     annual_demand_offset = models.FloatField()
     annual_demand_met = models.FloatField(blank=True, null=True)
     annual_curtailment = models.FloatField()
+    demand = models.JSONField(blank=True, null=True)
 
     def __str__(self):
-        return f"{self.generator} - {self.combination}"
+        return f"{self.generator} - {self.record_name} - {self.combination}"

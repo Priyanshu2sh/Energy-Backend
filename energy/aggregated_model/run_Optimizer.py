@@ -196,7 +196,7 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
                   "Annual Demand Met": annual_demand_met,
                   "Annual Curtailment": excess_percentage,
 
-                  "Demand": demand,
+                  "Demand": [round(val, 2) for val in demand],
                   "Solar Allocation": solar_allocation if isinstance(solar_allocation, pd.Series) else 0,
                   "Wind Allocation": wind_allocation if isinstance(wind_allocation, pd.Series) else 0,
                   "SOC": battery_soc,
@@ -204,7 +204,7 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
                   "ESS Charge": ess_charge,
                   "Unmet demand": virtual_gen,
                   "Generation": gross_energy_generation.squeeze(),
-                  "Curtailment": gross_curtailment,
+                  "Curtailment": [round(val, 2) for val in gross_curtailment],
                   "Total Demand met by allocation": gross_energy_allocation,
                   "Demand met": demand_met
 
