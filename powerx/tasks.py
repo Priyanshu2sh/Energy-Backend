@@ -2,7 +2,8 @@ import os
 from accounts.models import User
 from celery import shared_task
 from powerx.AI_Model.model_scheduling import run_models_sequentially
-from powerx.iex_scraper import scrape_data
+# from powerx.iex_scraper import scrape_data
+from powerx.test_scraper import scrape_data
 from django.core.mail import send_mail
 from energy_transition import settings
 from selenium import webdriver
@@ -102,10 +103,10 @@ def save_to_model(df):
     Saves the cleaned data into the CleanData model only if the record does not exist.
     """
     try:
-        print(df)
+        logging.info(df)
         df = df.where(pd.notnull(df), None)
-        print('================')
-        print(df)
+        logging.info('================')
+        logging.info(df)
 
         records = []
         existing_records = set(
