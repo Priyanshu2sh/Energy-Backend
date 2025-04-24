@@ -3761,3 +3761,11 @@ class CapacitySizingCombinationAPI(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class HolidayListAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        dates = list(NationalHoliday.objects.values_list('date', flat=True))
+        return Response(dates)

@@ -47,5 +47,6 @@ urlpatterns = [
     path('sensitivity', views.SensitivityAPI.as_view(), name='sensitivity'),
     path('capacity-sizing-combination/<int:user_id>', views.CapacitySizingCombinationAPI.as_view(), name='capacity-sizing-combination'),
     path('capacity-sizing-combination', views.CapacitySizingCombinationAPI.as_view(), name='capacity-sizing-combination'),
+    path('holiday-list', views.HolidayListAPI.as_view(), name='holiday_list'),
     
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
