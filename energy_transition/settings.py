@@ -222,6 +222,7 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
+            '()': 'your_project.logging_config.TimezoneFormatter',
             'format': '%(levelname)s %(asctime)s %(module)s %(message)s',
             'datefmt': '%Y-%m-%d %H:%M:%S',
         },
