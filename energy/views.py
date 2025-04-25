@@ -3745,7 +3745,7 @@ class CapacitySizingCombinationAPI(APIView):
         try:
             user = User.objects.get(id=user_id)
             user = get_admin_user(user_id)
-            combinations = CapacitySizingCombination.objects.filter(generator=user)
+            combinations = CapacitySizingCombination.objects.filter(generator=user).order_by('-id')
             serializer = CapacitySizingCombinationSerializer(combinations, many=True)
             return Response(serializer.data)
         except User.DoesNotExist:

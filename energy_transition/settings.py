@@ -222,7 +222,6 @@ LOGGING = {
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            '()': 'energy_transition.logging_config.TimezoneFormatter',
             'format': '%(levelname)s %(asctime)s %(module)s %(message)s',
             'datefmt': '%Y-%m-%d %H:%M:%S',
         },

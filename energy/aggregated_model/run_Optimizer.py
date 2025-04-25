@@ -90,7 +90,7 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
 
       # Unmet demand and total demand met by allocation
       virtual_gen = network.generators_t.p['Unmet_Demand']
-      demand_met = np.where(virtual_gen > 0, "NO", "Yes")
+      demand_met = np.where(virtual_gen > 0, "No", "Yes")
 
   # Curtailment calculations
       gross_curtailment = gross_energy_generation - solar_wind_allocation
