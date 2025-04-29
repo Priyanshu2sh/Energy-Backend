@@ -272,3 +272,5 @@ LOGGING = {
         },
     },
 }
+
+INTERNAL_API_SECRET = os.getenv("INTERNAL_API_SECRET")

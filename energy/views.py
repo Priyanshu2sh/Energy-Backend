@@ -20,13 +20,14 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework import status
 from rest_framework.serializers import ValidationError
-from .serializers import CSVFileSerializer, CapacitySizingCombinationSerializer, CreateOrderSerializer, PaymentTransactionSerializer, PerformaInvoiceCreateSerializer, PerformaInvoiceSerializer, ScadaFileSerializer, SolarPortfolioSerializer, StateTimeSlotSerializer, WindPortfolioSerializer, ESSPortfolioSerializer, ConsumerRequirementsSerializer, MonthlyConsumptionDataSerializer, StandardTermsSheetSerializer, SubscriptionTypeSerializer, SubscriptionEnrolledSerializer, NotificationsSerializer, TariffsSerializer
+from .serializers import CSVFileSerializer, CapacitySizingCombinationSerializer, CreateOrderSerializer, OfflinePaymentSerializer, PaymentTransactionSerializer, PerformaInvoiceCreateSerializer, PerformaInvoiceSerializer, ScadaFileSerializer, SolarPortfolioSerializer, StateTimeSlotSerializer, WindPortfolioSerializer, ESSPortfolioSerializer, ConsumerRequirementsSerializer, MonthlyConsumptionDataSerializer, StandardTermsSheetSerializer, SubscriptionTypeSerializer, SubscriptionEnrolledSerializer, NotificationsSerializer, TariffsSerializer
 from django.core.mail import send_mail
 import random
 from django.contrib.auth.hashers import check_password
 from django.utils.timezone import make_aware, now
 from datetime import datetime, timedelta, time, date
 from rest_framework.permissions import IsAuthenticated
+from .permissions import IsAuthenticatedOrInternal
 from django.db.models import Q, Sum
 from django.db.models import OuterRef, Exists
 from .aggregated_model.main import optimization_model
@@ -1936,7 +1937,7 @@ class SubscriptionTypeAPIView(APIView):
         
 class SubscriptionEnrolledAPIView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticatedOrInternal]
 
     def get(self, request, pk):
         try:
@@ -3769,3 +3770,14 @@ class HolidayListAPI(APIView):
     def get(self, request):
         dates = list(NationalHoliday.objects.values_list('date', flat=True))
         return Response(dates)
+    
+class OfflinePaymentAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = OfflinePaymentSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Offline Payment Submitted Successfully"}, status=status.HTTP_201_CREATED)
+        return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)

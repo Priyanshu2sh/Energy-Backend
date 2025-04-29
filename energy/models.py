@@ -513,6 +513,7 @@ class PerformaInvoice(models.Model):
         ('Pending', 'Pending'),
         ('Paid', 'Paid'),
         ('Collapsed', 'Collapsed'),
+        ('Failed', 'Failed'),
     ]
     user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)
     invoice_number = models.CharField(max_length=20, unique=True, blank=True, null=True, verbose_name="Invoice Number")
@@ -646,3 +647,17 @@ class CapacitySizingCombination(models.Model):
 
     def __str__(self):
         return f"{self.generator} - {self.record_name} - {self.combination}"
+
+class OfflinePayment(models.Model):
+    STATUS_CHOICES = [
+        ('Pending', 'Pending'), 
+        ('Approved', 'Approved'),
+        ('Rejected', 'Rejected')
+    ]
+
+    invoice = models.ForeignKey(PerformaInvoice, on_delete=models.CASCADE)
+    transaction_id = models.CharField(max_length=100)
+    payment_date = models.DateField()
+    payment_mode = models.CharField(max_length=50)
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')
+    created_at = models.DateTimeField(auto_now_add=True)
