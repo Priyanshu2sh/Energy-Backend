@@ -1,3 +1,6 @@
+import traceback
+import logging
+traceback_logger = logging.getLogger('django')
 from pymongo import MongoClient
 import pandas as pd
 import numpy as np
@@ -34,7 +37,7 @@ scaler_X_path = os.path.join(models_folder, "month_mcp_scaler_X.pkl")
 scaler_Y_mcp_path = os.path.join(models_folder, "month_mcp_scaler_y.pkl")
 
 scaler_X_mcp = joblib.load(scaler_X_path)
-scaler_Y_mcp = joblib.load(scaler_Y_mcv_path)
+scaler_Y_mcp = joblib.load(scaler_Y_mcp_path)
 
 def fetch_previous_2880_blocks():
     data = list(CleanData.objects.all().values())
@@ -258,6 +261,8 @@ def save_predictions(predictions, preprocess_data, scaler_Y, target):
         else:
             print(f"No records to insert for {target}.")
     except Exception as e:
+        tb = traceback.format_exc()  # Get the full traceback
+        traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")
         print(f"Error saving {target} predictions to MongoDB:", str(e))
 
 
@@ -272,4 +277,4 @@ def run_mcv_predictions():
     
     input_data = feature_selection_and_scaling(preprocess, "MCP")
     predictions = make_predictions(input_data, best_model_mcp, sequence_length=24*30)
-    save_predictions(predictions, preprocess, scaler_Y_mcv, "MCP") #this is the table where we will store the data - predictions_collection_mcv
+    save_predictions(predictions, preprocess, scaler_Y_mcp, "MCP") #this is the table where we will store the data - predictions_collection_mcv
