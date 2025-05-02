@@ -197,6 +197,8 @@ def save_predictions(predictions, preprocess_data, scaler_Y, target):
         records = []
         prediction_dates = preprocess_data.index
 
+        print(f"prediction_dates: {prediction_dates}")
+        print(f"predictions_original: {predictions.shape}")
         if len(prediction_dates) != len(predictions_original):
             raise ValueError("Mismatch between prediction dates and predictions.")
 
