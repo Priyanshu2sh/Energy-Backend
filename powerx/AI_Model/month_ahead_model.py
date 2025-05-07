@@ -10,7 +10,8 @@ import joblib
 from concurrent.futures import ThreadPoolExecutor
 from powerx.models import CleanData, MonthAheadPrediction
 from tensorflow.keras.models import load_model
-
+from django.utils import timezone
+from datetime import timedelta
 
 
 # Get the directory where the script is located
@@ -195,12 +196,25 @@ def save_predictions(predictions, preprocess_data, scaler_Y, target):
     try:
         predictions_original = scaler_Y.inverse_transform(predictions.reshape(-1, 1))
         records = []
-        prediction_dates = preprocess_data.index
+        # prediction_dates = preprocess_data.index
+        # Get current time using Django timezone
+        now = timezone.now()
 
-        print(f"prediction_dates: {prediction_dates}")
-        print(f"predictions_original: {predictions_original}")
-        logging.info(f"prediction_dates: {prediction_dates}")
-        logging.info(f"predictions_original: {predictions_original}")
+        # Start from tomorrow (just the date part)
+        start_date = (now + timedelta(days=1)).date()
+
+        # Create a list of datetime values for each hour of the next 30 days
+        date_list = [
+            timezone.make_aware(timezone.datetime.combine(start_date + timedelta(days=i), timezone.datetime.min.time()) + timedelta(hours=h))
+            for i in range(30) for h in range(24)
+        ]
+
+        # Convert to DatetimeIndex
+        prediction_dates = pd.DatetimeIndex(date_list)
+
+        print(f"prediction_dates: {type(prediction_dates)}")
+        logging.info(f"prediction_dates: {len(prediction_dates)}")
+        logging.info(f"predictions_original: {len(predictions_original)}")
         if len(prediction_dates) != len(predictions_original):
             raise ValueError("Mismatch between prediction dates and predictions.")
 
