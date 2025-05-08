@@ -3456,7 +3456,14 @@ class SensitivityAPI(APIView):
                     logger.debug(f'wind_data: {wind_data}')
                     logger.debug(f'ess_data: {ess_data}')
 
-                    if solar_data.first().connectivity == 'CTU' or wind_data.first().connectivity == 'CTU' or ess_data.first().connectivity == 'CTU':
+                    solar = solar_data.first() if solar_data else None
+                    wind = wind_data.first() if wind_data else None
+                    ess = ess_data.first() if ess_data else None
+
+                    if (solar and solar.connectivity == 'CTU') or \
+                        (wind and wind.connectivity == 'CTU') or \
+                        (ess and ess.connectivity == 'CTU'):
+
                         connectivity = 'CTU'
                     else:
                         connectivity = 'STU'
