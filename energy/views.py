@@ -1070,7 +1070,10 @@ class OptimizeCapacityAPI(APIView):
         # Initialize a list to store hourly data
         all_hourly_data = []
 
+        logger.debug("not entered....")
+        print(monthly_consumptions)
         for month_data in monthly_consumptions:
+            logger.debug("entered....")
             # Extract month details and convert month name to number
             month_name = month_data.month
             month_number = list(calendar.month_name).index(month_name)
