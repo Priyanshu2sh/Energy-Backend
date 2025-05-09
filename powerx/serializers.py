@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.contenttypes.models import ContentType
-from .models import ConsumerDayAheadDemandDistribution, ConsumerMonthAheadDemand, ConsumerMonthAheadDemandDistribution, DayAheadGeneration, DayAheadGenerationDistribution, ExecutedDemandTrade, ExecutedGenerationTrade, MonthAheadGeneration, MonthAheadGenerationDistribution, NextDayPrediction, ConsumerDayAheadDemand, Notifications
+from .models import ConsumerDayAheadDemandDistribution, ConsumerMonthAheadDemand, ConsumerMonthAheadDemandDistribution, DayAheadGeneration, DayAheadGenerationDistribution, ExecutedDayDemandTrade, ExecutedDayGenerationTrade, MonthAheadGeneration, MonthAheadGenerationDistribution, NextDayPrediction, ConsumerDayAheadDemand, Notifications
 
 class NextDayPredictionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -79,10 +79,10 @@ class MonthAheadGenerationDistributionSerializer(serializers.ModelSerializer):
 
 class ExecutedDemandTradeSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ExecutedDemandTrade
+        model = ExecutedDayDemandTrade
         fields = '__all__'
 
 class ExecutedGenerationTradeSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ExecutedGenerationTrade
+        model = ExecutedDayGenerationTrade
         fields = '__all__'
