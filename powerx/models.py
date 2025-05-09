@@ -12,11 +12,15 @@ class ConsumerDayAheadDemand(models.Model):
     ]
     requirement = models.ForeignKey('energy.ConsumerRequirements', on_delete=models.CASCADE)
     date = models.DateField()
-    start_time = models.TimeField() 
-    end_time = models.TimeField() 
-    demand = models.IntegerField()
+    demand = models.IntegerField(blank=True, null=True)
     price_details = models.JSONField(blank=True, null=True)  # Stores prices as JSON: {"Solar": 20, "Non-Solar": 10}
     status = models.CharField(max_length=200, choices=STATUS_CHOICES, default="Draft")
+
+class ConsumerDayAheadDemandDistribution(models.Model):
+    day_ahead_demand = models.ForeignKey(ConsumerDayAheadDemand, on_delete=models.CASCADE, related_name="day_ahead_distributions")
+    start_time = models.TimeField(null=True, blank=True)  # e.g., 00:00
+    end_time = models.TimeField()    # e.g., 00:15
+    distributed_demand = models.FloatField()  # Demand value per 15-minute interval
 
 class ConsumerMonthAheadDemand(models.Model):
     STATUS_CHOICES = [
@@ -90,11 +94,23 @@ class DayAheadGeneration(models.Model):
     portfolio = GenericForeignKey('content_type', 'object_id')
 
     date = models.DateField()
-    start_time = models.TimeField() 
-    end_time = models.TimeField() 
     generation = models.IntegerField()
     price = models.IntegerField()
     status = models.CharField(max_length=200, choices=STATUS_CHOICES, default="Draft")
+
+class DayAheadGenerationDistribution(models.Model):
+    day_ahead_generation = models.ForeignKey(
+        DayAheadGeneration,
+        on_delete=models.CASCADE,
+        related_name="day_generation_distributions"
+    )
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField()
+    distributed_generation = models.FloatField()
+
+    def __str__(self):
+        return f"{self.day_ahead_generation} | {self.start_time}-{self.end_time} | {self.distributed_generation}"
+
 
 class MonthAheadGeneration(models.Model):
     STATUS_CHOICES = [
@@ -119,3 +135,75 @@ class MonthAheadGenerationDistribution(models.Model):
     start_time = models.TimeField() # 00:00
     end_time = models.TimeField()   # 00:15
     distributed_generation = models.FloatField()  # Generation distributed per 15-minute slot
+
+
+class UploadedTradeFile(models.Model):
+    TRADE_TYPE_CHOICES = [
+        ('demand', 'Demand'),
+        ('generation', 'Generation'),
+    ]
+
+    trade_type = models.CharField(max_length=20, choices=TRADE_TYPE_CHOICES)
+    demand = models.ForeignKey(ConsumerDayAheadDemand, on_delete=models.SET_NULL, null=True, blank=True)
+    generation = models.ForeignKey(DayAheadGeneration, on_delete=models.SET_NULL, null=True, blank=True)
+    file = models.FileField(upload_to='trade_files/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)  # Save file first so path exists
+        self.process_file()
+
+    def process_file(self):
+        import pandas as pd
+        from datetime import datetime
+
+        df = pd.read_excel(self.file.path)
+        for _, row in df.iterrows():
+            date = pd.to_datetime(row['Date']).date()
+            time_interval = row['Time Interval']  # e.g., "00:00 - 00:15"
+            start_str, end_str = time_interval.split(' - ')
+            start_time = datetime.strptime(start_str.strip(), "%H:%M").time()
+            end_time = datetime.strptime(end_str.strip(), "%H:%M").time()
+
+            if self.trade_type == 'demand':
+                ExecutedDemandTrade.objects.create(
+                    demand=self.demand,
+                    date=date,
+                    start_time=start_time,
+                    end_time=end_time,
+                    asked_demand=row['Asked Demand'],
+                    executed_demand=row['Executed Demand'],
+                    asked_price=row['Asked Price'],
+                    executed_price=row['Executed Price'],
+                )
+            elif self.trade_type == 'generation':
+                ExecutedGenerationTrade.objects.create(
+                    generation=self.generation,
+                    date=date,
+                    start_time=start_time,
+                    end_time=end_time,
+                    asked_generation=row['Asked Generation'],
+                    executed_generation=row['Executed Generation'],
+                    asked_price=row['Asked Price'],
+                    executed_price=row['Executed Price'],
+                )
+
+class ExecutedDayDemandTrade(models.Model):
+    demand = models.ForeignKey(ConsumerDayAheadDemand, blank=True, null=True, on_delete=models.SET_NULL)
+    date = models.DateField()
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    asked_demand = models.IntegerField()
+    executed_demand = models.IntegerField()
+    asked_price = models.IntegerField()
+    executed_price = models.IntegerField()
+
+class ExecutedDayGenerationTrade(models.Model):
+    generation = models.ForeignKey(DayAheadGeneration, blank=True, null=True, on_delete=models.SET_NULL)
+    date = models.DateField()
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    asked_generation = models.IntegerField()
+    executed_generation = models.IntegerField()
+    asked_price = models.IntegerField()
+    executed_price = models.IntegerField()

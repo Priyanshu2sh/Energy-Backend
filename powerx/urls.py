@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import path
 from django.conf import settings
 from django.conf.urls.static import static
-from .views import NextDayPredictionAPI, MonthAheadPredictionAPI, ConsumerDayAheadDemandAPI, ConsumerMonthAheadDemandAPI, NotificationsAPI, TrackDemandStatusAPI, TrackGenerationStatusAPI, run_day_ahead_model, run_month_ahead_model_mcv_mcp, CleanDataAPI, DayAheadGenerationAPI, MonthAheadGenerationAPI, ConsumerDashboardAPI, GeneratorDashboardAPI, ModelStatisticsAPI, ModelStatisticsMonthAPI
+from .views import ExecutedDayAheadDemandTrade, ExecutedDayAheadGenerationTrade, NextDayPredictionAPI, MonthAheadPredictionAPI, ConsumerDayAheadDemandAPI, ConsumerMonthAheadDemandAPI, NotificationsAPI, TrackDemandStatusAPI, TrackGenerationStatusAPI, run_day_ahead_model, run_month_ahead_model_mcv_mcp, CleanDataAPI, DayAheadGenerationAPI, MonthAheadGenerationAPI, ConsumerDashboardAPI, GeneratorDashboardAPI, ModelStatisticsAPI, ModelStatisticsMonthAPI
 
 urlpatterns = [
     path('next-day-predictions', NextDayPredictionAPI.as_view(), name='next-day-predictions'),
@@ -25,4 +25,6 @@ urlpatterns = [
     path('model-statistics-month', ModelStatisticsMonthAPI.as_view(), name='model-statistics-month'),
     path('track-demand-status/<int:user_id>', TrackDemandStatusAPI.as_view(), name='track-demand-status'),
     path('track-generation-status/<int:user_id>', TrackGenerationStatusAPI.as_view(), name='track-generation-status'),
+    path('executed-day-ahead-demand-trade/<int:user_id>', ExecutedDayAheadDemandTrade.as_view(), name='executed-day-ahead-demand-trade'),
+    path('executed-day-ahead-generation-trade/<int:user_id>', ExecutedDayAheadGenerationTrade.as_view(), name='executed-day-ahead-generation-trade'),
 ]

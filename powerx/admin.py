@@ -3,7 +3,7 @@ from .models import *
 # Register your models here.
 @admin.register(ConsumerDayAheadDemand)
 class ConsumerDayAheadDemandAdmin(admin.ModelAdmin):
-    list_display = ['requirement', 'date', 'start_time', 'end_time', 'demand', 'price_details']
+    list_display = ['requirement', 'date', 'demand', 'price_details']
 
 @admin.register(ConsumerMonthAheadDemand)
 class ConsumerMonthAheadDemandAdmin(admin.ModelAdmin):
@@ -28,3 +28,13 @@ class MonthAheadPredictionAdmin(admin.ModelAdmin):
 admin.site.register(Notifications)
 admin.site.register(MonthAheadGeneration)
 admin.site.register(MonthAheadGenerationDistribution)
+admin.site.register(ExecutedDayDemandTrade)
+admin.site.register(ExecutedDayGenerationTrade)
+admin.site.register(ConsumerDayAheadDemandDistribution)
+admin.site.register(DayAheadGeneration)
+admin.site.register(DayAheadGenerationDistribution)
+
+
+@admin.register(UploadedTradeFile)
+class UploadedTradeFileAdmin(admin.ModelAdmin):
+    list_display = ['trade_type', 'uploaded_at']

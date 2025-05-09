@@ -7,8 +7,8 @@ from django.utils.timezone import now, timedelta
 from django.contrib.contenttypes.models import ContentType
 from accounts.models import User
 from energy.models import ConsumerRequirements, ESSPortfolio, NationalHoliday, SolarPortfolio, WindPortfolio
-from .models import CleanData, ConsumerDayAheadDemand, ConsumerMonthAheadDemand, ConsumerMonthAheadDemandDistribution, DayAheadGeneration, MonthAheadGeneration, MonthAheadGenerationDistribution, MonthAheadPrediction, NextDayPrediction, Notifications
-from .serializers import ConsumerMonthAheadDemandSerializer, DayAheadGenerationSerializer, MonthAheadGenerationSerializer, NextDayPredictionSerializer, ConsumerDayAheadDemandSerializer, NotificationsSerializer
+from .models import CleanData, ConsumerDayAheadDemand, ConsumerDayAheadDemandDistribution, ConsumerMonthAheadDemand, ConsumerMonthAheadDemandDistribution, DayAheadGeneration, DayAheadGenerationDistribution, ExecutedDayDemandTrade, ExecutedDayGenerationTrade, MonthAheadGeneration, MonthAheadGenerationDistribution, MonthAheadPrediction, NextDayPrediction, Notifications
+from .serializers import ConsumerMonthAheadDemandSerializer, DayAheadGenerationSerializer, ExecutedDemandTradeSerializer, ExecutedGenerationTradeSerializer, MonthAheadGenerationSerializer, NextDayPredictionSerializer, ConsumerDayAheadDemandSerializer, NotificationsSerializer
 from django.core.files.base import ContentFile
 from datetime import datetime, timedelta
 from django.utils.dateparse import parse_time
@@ -204,13 +204,27 @@ class ConsumerDayAheadDemandAPI(APIView):
         demand_records = ConsumerDayAheadDemand.objects.filter(
             requirement__in=requirements,
             date=next_day
-        ).order_by("start_time")
+        ).prefetch_related("day_ahead_distributions")
 
         if not demand_records.exists():
             return Response({"message": "No demand data available for the next day."}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = ConsumerDayAheadDemandSerializer(demand_records, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        # Flattened response
+        flattened_data = []
+        for demand in demand_records:
+            for dist in demand.day_ahead_distributions.all():
+                flattened_data.append({
+                    "id": dist.id,
+                    "date": demand.date,
+                    "start_time": dist.start_time,
+                    "end_time": dist.end_time,
+                    "demand": dist.distributed_demand,
+                    "price_details": demand.price_details,
+                    "status": demand.status,
+                    "requirement": demand.requirement.id if demand.requirement else None,
+                })
+
+        return Response(flattened_data, status=status.HTTP_200_OK)
 
     def post(self, request):
 
@@ -228,24 +242,20 @@ class ConsumerDayAheadDemandAPI(APIView):
         # Get tomorrow's date
         tz = timezone.get_current_timezone()
         next_day = timezone.now().astimezone(tz).date() + timedelta(days=1)
-        # Check if it's Sunday
+
+        # Check for Sunday
         if next_day.weekday() == 6:
-            return Response({
-                "status": "error",
-                "message": "Trade cannot be executed on Sunday."
-            })
+            return Response({"status": "error", "message": "Trade cannot be executed on Sunday."})
 
-        # Check if it's a National Holiday
+        # Check for National Holiday
         if NationalHoliday.objects.filter(date=next_day).exists():
-            return Response({
-                "status": "error",
-                "message": "Trade cannot be executed on a national holiday."
-            })
+            return Response({"status": "error", "message": "Trade cannot be executed on a national holiday."})
 
-        data_list = []
+        # Parse input data
+        distribution_entries = []
+        total_demand = 0
 
         if file_data:
-            # Process Excel File
             try:
                 decoded_file = base64.b64decode(file_data)
                 file_name = "uploaded_demand_file.xlsx"
@@ -254,27 +264,24 @@ class ConsumerDayAheadDemandAPI(APIView):
                 # Read Excel file
                 df = pd.read_excel(file_content)
 
-                # Required columns in the Excel file
                 required_columns = {'Time Interval', 'Demand'}
                 if not required_columns.issubset(df.columns):
                     return Response({"error": f"Missing required columns: {required_columns}"}, status=status.HTTP_400_BAD_REQUEST)
 
-                # Extract data from Excel
                 for _, row in df.iterrows():
                     try:
-                        start_time, end_time = row['Time Interval'].split(" - ")
-                        demand = int(row['Demand'])
+                        start_time_str, end_time_str = row['Time Interval'].split(" - ")
+                        start_time = parse_time(start_time_str.strip())
+                        end_time = parse_time(end_time_str.strip())
+                        demand = float(row['Demand'])
 
-                        # Create an entry
-                        data_list.append(ConsumerDayAheadDemand(
-                            requirement=requirement,
-                            date=next_day,
-                            start_time=parse_time(start_time),
-                            end_time=parse_time(end_time),
-                            demand=demand,
-                            price_details=price_details
-                        ))
+                        total_demand += demand
 
+                        distribution_entries.append({
+                            "start_time": start_time,
+                            "end_time": end_time,
+                            "distributed_demand": demand
+                        })
                     except Exception as e:
                         return Response({"error": f"Data processing error: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -282,25 +289,22 @@ class ConsumerDayAheadDemandAPI(APIView):
                 return Response({"error": f"Invalid Base64 file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
         elif demand_data:
-            # Process Manual JSON Data
             try:
                 for entry in demand_data:
-                    start_time = entry.get("start_time")
-                    end_time = entry.get("end_time")
-                    demand = entry.get("demand")
+                    start_time = parse_time(entry.get("start_time"))
+                    end_time = parse_time(entry.get("end_time"))
+                    demand = float(entry.get("demand"))
 
-                    # Validate time format
-                    if not start_time or not end_time or not demand:
+                    if not start_time or not end_time or demand is None:
                         return Response({"error": "Missing start_time, end_time, or demand."}, status=status.HTTP_400_BAD_REQUEST)
 
-                    data_list.append(ConsumerDayAheadDemand(
-                        requirement=requirement,
-                        date=next_day,
-                        start_time=parse_time(start_time),
-                        end_time=parse_time(end_time),
-                        demand=demand,
-                        price_details=price_details
-                    ))
+                    total_demand += demand
+
+                    distribution_entries.append({
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "distributed_demand": demand
+                    })
 
             except Exception as e:
                 return Response({"error": f"Invalid manual data: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
@@ -308,10 +312,32 @@ class ConsumerDayAheadDemandAPI(APIView):
         else:
             return Response({"error": "No file or demand data provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Bulk insert the data
-        ConsumerDayAheadDemand.objects.bulk_create(data_list)
+        print(price_details)
+        # Create the main day-ahead demand entry
+        main_demand = ConsumerDayAheadDemand.objects.create(
+            requirement=requirement,
+            date=next_day,
+            demand=total_demand,
+            price_details=price_details
+        )
+
+        # Create related 15-minute distribution entries
+        distribution_objects = [
+            ConsumerDayAheadDemandDistribution(
+                day_ahead_demand=main_demand,
+                start_time=item["start_time"],
+                end_time=item["end_time"],
+                distributed_demand=item["distributed_demand"]
+            )
+            for item in distribution_entries
+        ]
+
+        ConsumerDayAheadDemandDistribution.objects.bulk_create(distribution_objects)
+
         send_notification(requirement.user.id, f'Your trade will execute tomorrow at 10 AM.')
-        return Response({"message": "Data uploaded successfully"}, status=status.HTTP_201_CREATED)
+
+        return Response({"message": "Data uploaded successfully."}, status=status.HTTP_201_CREATED)
+
     
 class ConsumerMonthAheadDemandAPI(APIView):
     authentication_classes = [JWTAuthentication]
@@ -511,28 +537,40 @@ class DayAheadGenerationAPI(APIView):
         solar_content_type = ContentType.objects.get_for_model(SolarPortfolio)
         wind_content_type = ContentType.objects.get_for_model(WindPortfolio)
 
-        # Fetch all portfolios linked to the user
         solar_portfolios = SolarPortfolio.objects.filter(user=user_id)
         wind_portfolios = WindPortfolio.objects.filter(user=user_id)
 
-        
         if not solar_portfolios.exists() and not wind_portfolios.exists():
             return Response({"error": "No portfolios found for this user"}, status=status.HTTP_404_NOT_FOUND)
 
-        # Fetch generation records for the next day
         generation_records = DayAheadGeneration.objects.filter(
             (
                 Q(content_type=solar_content_type, object_id__in=solar_portfolios.values_list('id', flat=True)) |
                 Q(content_type=wind_content_type, object_id__in=wind_portfolios.values_list('id', flat=True))
             ),
             date=next_day
-        ).order_by("start_time")
+        ).prefetch_related('day_generation_distributions', 'content_type')
 
         if not generation_records.exists():
             return Response({"message": "No generation data available for the next day."}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = DayAheadGenerationSerializer(generation_records, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        final_data = []
+
+        for gen in generation_records:
+            for dist in gen.day_generation_distributions.all():
+                final_data.append({
+                    "id": dist.id,
+                    "content_type": gen.content_type.model,
+                    "object_id": gen.object_id,
+                    "date": gen.date,
+                    "start_time": dist.start_time,
+                    "end_time": dist.end_time,
+                    "generation": dist.distributed_generation,
+                    "price": gen.price,
+                    "portfolio": f"Energy - {gen.content_type.model.capitalize()} (ID {gen.object_id})"
+                })
+
+        return Response(final_data, status=status.HTTP_200_OK)
 
     
     def post(self, request):
@@ -542,107 +580,92 @@ class DayAheadGenerationAPI(APIView):
         file_data = request.data.get("file")
         generation_data = request.data.get("generation_data", [])
 
-        # Validate content type
         try:
             content_type = ContentType.objects.get(app_label='energy', model=model)
         except (ValueError, ContentType.DoesNotExist):
             return Response({"error": "Invalid content_type format or not found."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Validate object_id existence
         try:
             portfolio = content_type.get_object_for_this_type(id=object_id)
         except Exception:
             return Response({"error": "Portfolio not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Get tomorrow's date
         tz = timezone.get_current_timezone()
         next_day = timezone.now().astimezone(tz).date() + timedelta(days=1)
-        # Check if it's Sunday
+
         if next_day.weekday() == 6:
-            return Response({
-                "status": "error",
-                "message": "Trade cannot be executed on Sunday."
-            })
+            return Response({"status": "error", "message": "Trade cannot be executed on Sunday."})
 
-        # Check if it's a National Holiday
         if NationalHoliday.objects.filter(date=next_day).exists():
-            return Response({
-                "status": "error",
-                "message": "Trade cannot be executed on a national holiday."
-            })
-        
-        data_list = []
+            return Response({"status": "error", "message": "Trade cannot be executed on a national holiday."})
 
-        if file_data:
-            # Process Excel File
-            try:
+        distribution_list = []
+
+        try:
+            if file_data:
                 decoded_file = base64.b64decode(file_data)
                 file_name = "uploaded_generation_file.xlsx"
                 file_content = ContentFile(decoded_file, name=file_name)
-
-                # Read Excel file
                 df = pd.read_excel(file_content)
 
-                # Required columns in the Excel file
                 required_columns = {'Time Interval', 'Generation'}
                 if not required_columns.issubset(df.columns):
                     return Response({"error": f"Missing required columns: {required_columns}"}, status=status.HTTP_400_BAD_REQUEST)
 
-                # Extract data from Excel
                 for _, row in df.iterrows():
-                    try:
-                        start_time, end_time = row['Time Interval'].split(" - ")
-                        generation = int(row['Generation'])
+                    start_time_str, end_time_str = row['Time Interval'].split(" - ")
+                    generation = float(row['Generation'])
+                    distribution_list.append({
+                        "start_time": parse_time(start_time_str),
+                        "end_time": parse_time(end_time_str),
+                        "distributed_generation": generation
+                    })
 
-                        # Create an entry
-                        data_list.append(DayAheadGeneration(
-                            content_type=content_type,
-                            object_id=object_id,
-                            date=next_day,
-                            start_time=parse_time(start_time),
-                            end_time=parse_time(end_time),
-                            generation=generation,
-                            price=price
-                        ))
-
-                    except Exception as e:
-                        return Response({"error": f"Data processing error: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
-
-            except Exception as e:
-                return Response({"error": f"Invalid Base64 file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
-
-        elif generation_data:
-            # Process Manual JSON Data
-            try:
+            elif generation_data:
                 for entry in generation_data:
                     start_time = entry.get("start_time")
                     end_time = entry.get("end_time")
                     generation = entry.get("generation")
 
-                    # Validate required fields
                     if not start_time or not end_time or generation is None:
                         return Response({"error": "Missing start_time, end_time, or generation."}, status=status.HTTP_400_BAD_REQUEST)
 
-                    data_list.append(DayAheadGeneration(
-                        content_type=content_type,
-                        object_id=object_id,
-                        date=next_day,
-                        start_time=parse_time(start_time),
-                        end_time=parse_time(end_time),
-                        generation=generation,
-                        price=price
-                    ))
+                    distribution_list.append({
+                        "start_time": parse_time(start_time),
+                        "end_time": parse_time(end_time),
+                        "distributed_generation": float(generation)
+                    })
 
-            except Exception as e:
-                return Response({"error": f"Invalid manual data: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({"error": "No file or generation data provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-        else:
-            return Response({"error": "No file or generation data provided."}, status=status.HTTP_400_BAD_REQUEST)
+            total_generation = sum(d["distributed_generation"] for d in distribution_list)
 
-        # Bulk insert the data
-        DayAheadGeneration.objects.bulk_create(data_list)
+            # Create parent record
+            day_gen = DayAheadGeneration.objects.create(
+                content_type=content_type,
+                object_id=object_id,
+                date=next_day,
+                generation=total_generation,
+                price=price
+            )
 
-        return Response({"message": "Data uploaded successfully"}, status=status.HTTP_201_CREATED)
+            # Create distribution entries
+            distributions = [
+                DayAheadGenerationDistribution(
+                    day_ahead_generation=day_gen,
+                    start_time=dist["start_time"],
+                    end_time=dist["end_time"],
+                    distributed_generation=dist["distributed_generation"]
+                ) for dist in distribution_list
+            ]
+            DayAheadGenerationDistribution.objects.bulk_create(distributions)
+
+            return Response({"message": "Day Ahead Generation data uploaded successfully."}, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({"error": f"Data processing error: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
     
 class MonthAheadGenerationAPI(APIView):
     authentication_classes = [JWTAuthentication]
@@ -1083,3 +1106,58 @@ class TrackGenerationStatusAPI(APIView):
         result.sort(key=lambda x: datetime.strptime(x['generation_date'], "%d-%m-%Y"))
 
         return Response(result, status=status.HTTP_200_OK)
+
+class ExecutedDayAheadDemandTrade(APIView):
+    def get(self, request, user_id):
+        # Get all requirements for the user
+        user_requirements = ConsumerRequirements.objects.filter(user=user_id)
+
+        if not user_requirements.exists():
+            return Response({"error": "No requirements found for this user."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Get all day-ahead demands for those requirements
+        user_demands = ConsumerDayAheadDemand.objects.filter(requirement__in=user_requirements)
+
+        if not user_demands.exists():
+            return Response({"error": "No demand records found for this user."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Get all executed trades linked to those demands
+        executed_trades = ExecutedDayDemandTrade.objects.filter(demand__in=user_demands)
+
+        if not executed_trades.exists():
+            return Response({"message": "No executed trades found for this user."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Serialize and return
+        serializer = ExecutedDemandTradeSerializer(executed_trades, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+class ExecutedDayAheadGenerationTrade(APIView):
+    def get(self, request, user_id):
+        # Get content types for Solar and Wind portfolio
+        solar_type = ContentType.objects.get(app_label='energy', model='solarportfolio')
+        wind_type = ContentType.objects.get(app_label='energy', model='windportfolio')
+
+        # Get all generation records linked to this user (via Solar or Wind portfolios)
+        generation_qs = DayAheadGeneration.objects.filter(
+            content_type__in=[solar_type, wind_type]
+        ).select_related('content_type')
+
+        # Filter only those where the portfolio.user == user_id
+        generation_for_user = []
+        for gen in generation_qs:
+            portfolio = gen.portfolio
+            if hasattr(portfolio, 'user') and portfolio.user.id == int(user_id):
+                generation_for_user.append(gen.id)
+
+        if not generation_for_user:
+            return Response({"error": "No generation records found for this user."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Fetch executed generation trades
+        executed_trades = ExecutedDayGenerationTrade.objects.filter(generation_id__in=generation_for_user)
+
+        if not executed_trades.exists():
+            return Response({"message": "No executed generation trades found for this user."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Serialize and return
+        serializer = ExecutedGenerationTradeSerializer(executed_trades, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
