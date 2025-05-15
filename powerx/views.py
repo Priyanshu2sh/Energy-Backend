@@ -68,8 +68,8 @@ class NextDayPredictionAPI(APIView):
 
     def get(self, request):
         next_day = now().date() + timedelta(days=1)
+        logger.debug(f"Next day date: {next_day}")
         predictions = NextDayPrediction.objects.filter(date__date=next_day).order_by('hour')
-
         if not predictions.exists():  # If no records found for next day
             # Get last entry's UTC datetime and convert to IST date
             last_entry = NextDayPrediction.objects.latest('date')

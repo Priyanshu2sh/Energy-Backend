@@ -14,7 +14,7 @@ class SolarPortfolioSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SolarPortfolio
-        fields = ['id', 'user', 'state', 'connectivity', 'available_capacity', 'cod',
+        fields = ['id', 'user', 'state', 'connectivity', 'site_name', 'available_capacity', 'cod',
                   'total_install_capacity', 'capital_cost', 'marginal_cost',
                   'hourly_data', 'annual_generation_potential', 'updated'] 
         extra_kwargs = {
@@ -45,7 +45,7 @@ class WindPortfolioSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WindPortfolio
-        fields = ['id', 'user', 'state', 'connectivity', 'available_capacity', 'cod',
+        fields = ['id', 'user', 'state', 'connectivity', 'site_name', 'available_capacity', 'cod',
                   'total_install_capacity', 'capital_cost', 'marginal_cost',
                   'hourly_data', 'annual_generation_potential', 'updated'] 
         extra_kwargs = {
@@ -74,7 +74,7 @@ class ESSPortfolioSerializer(serializers.ModelSerializer):
     )
     class Meta:
         model = ESSPortfolio
-        fields = ['id', 'user', 'state', 'connectivity', 'available_capacity', 'cod',
+        fields = ['id', 'user', 'state', 'connectivity', 'site_name', 'available_capacity', 'cod',
                   'total_install_capacity', 'capital_cost', 'marginal_cost',
                   'efficiency_of_storage', 'efficiency_of_dispatch', 'updated'] 
         extra_kwargs = {

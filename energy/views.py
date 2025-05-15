@@ -932,7 +932,7 @@ class MatchingConsumerAPI(APIView):
             # Annotate before mapping to group by consumer
             annotated_data = (
                 filtered_data
-                .values("id", "user__username", "state", "industry", "voltage_level")
+                .values("id", "user__username", "state", "sub_industry", "industry", "voltage_level")
                 .annotate(total_contracted_demand=Sum("contracted_demand"))
             )
 
@@ -953,6 +953,7 @@ class MatchingConsumerAPI(APIView):
                     "user__username": mapped_username,   # Mapped consumer username
                     "state": item["state"],
                     "industry": item["industry"],
+                    "sub_industry": item["sub_industry"],
                     "voltage_level": item["voltage_level"],
                     "total_contracted_demand": item["total_contracted_demand"]
                 })

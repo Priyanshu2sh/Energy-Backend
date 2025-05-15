@@ -144,6 +144,7 @@ class SolarPortfolio(models.Model):
     project = models.CharField(max_length=255)
     state = models.CharField(max_length=255)  # State/Location of the energy source
     connectivity = models.CharField(max_length=255, blank=True, null=True)
+    site_name = models.CharField(max_length=255, blank=True, null=True)
     total_install_capacity = models.FloatField(blank=True, null=True)
     available_capacity = models.FloatField()  # Maximum energy capacity (in kWh)
     capital_cost = models.FloatField(blank=True, null=True)
@@ -160,7 +161,7 @@ class SolarPortfolio(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.user.username} - {self.project}"
+        return f"{self.user.username} - {self.project} - {self.site_name}"
 
 class WindPortfolio(models.Model):
     user = models.ForeignKey(
@@ -171,6 +172,7 @@ class WindPortfolio(models.Model):
     project = models.CharField(max_length=255)
     state = models.CharField(max_length=255)  # State/Location of the energy source
     connectivity = models.CharField(max_length=255, blank=True, null=True)
+    site_name = models.CharField(max_length=255, blank=True, null=True)
     total_install_capacity = models.FloatField(blank=True, null=True)
     available_capacity = models.FloatField()  # Maximum energy capacity (in kWh)
     capital_cost = models.FloatField(blank=True, null=True)
@@ -187,7 +189,7 @@ class WindPortfolio(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.user.username} - {self.project}"
+        return f"{self.user.username} - {self.project} - {self.site_name}"
 
 
 class ESSPortfolio(models.Model):
@@ -195,6 +197,7 @@ class ESSPortfolio(models.Model):
     project = models.CharField(max_length=255)
     state = models.CharField(max_length=255)  # State/Location of the energy source
     connectivity = models.CharField(max_length=255, blank=True, null=True)
+    site_name = models.CharField(max_length=255, blank=True, null=True)
     total_install_capacity = models.FloatField(blank=True, null=True)
     available_capacity = models.FloatField()  # Maximum energy capacity (in kWh)
     capital_cost = models.FloatField(blank=True, null=True)
@@ -211,7 +214,7 @@ class ESSPortfolio(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.user.username} - {self.project}"
+        return f"{self.user.username} - {self.project} - {self.site_name}"
     
 
 
