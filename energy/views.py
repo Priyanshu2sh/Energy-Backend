@@ -196,12 +196,20 @@ class GenerationPortfolioAPI(APIView):
     def put(self, request, pk):
         # Determine the serializer and model based on `energy_type`
         energy_type = request.data.get("energy_type")
+        updated = request.data.get("updated")
         if not energy_type:
             return Response({"error": "Energy type is required."}, status=status.HTTP_400_BAD_REQUEST)
         
         model = self.get_model(energy_type)
         instance = get_object_or_404(model, pk=pk)
         serializer_class = self.get_serializer_class(energy_type)
+
+        # If updated is explicitly False, update only that field and return
+        if updated == "False":
+            instance.updated = False
+            instance.save()
+            return Response({"message": "Updated flag set to false successfully.", "updated": instance.updated}, status=status.HTTP_200_OK)
+
 
         # Handle Base64-encoded file
         file_data = request.data.get("hourly_data")
