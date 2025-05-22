@@ -1,3 +1,4 @@
+import logging
 from pymongo import MongoClient
 import pandas as pd
 import numpy as np
@@ -271,6 +272,7 @@ def save_prediction(predictions, preprocess_data, target):
     prediction_dates = preprocess_data.index
     print(preprocess_data.columns.tolist())
     hour_values = preprocess_data['hour'].values
+    logging.info(f'dates--------  {prediction_dates}')
 
     if target == 'MCV':
         for i, prediction in enumerate(predictions):

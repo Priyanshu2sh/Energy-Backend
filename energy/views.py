@@ -12,7 +12,7 @@ import pytz
 import requests
 from accounts.models import GeneratorConsumerMapping, User
 from accounts.views import JWTAuthentication
-from .models import CapacitySizingCombination, GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GridTariff, Industry, NationalHoliday, NegotiationInvitation, PeakHours, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
+from .models import CapacitySizingCombination, GeneratorDemand, GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GridTariff, Industry, NationalHoliday, NegotiationInvitation, PeakHours, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -3081,6 +3081,59 @@ class CapacitySizingAPI(APIView):
         profile = df_cleaned.fillna(0).reset_index(drop=True)
                 
         return profile
+    
+    @staticmethod
+    def calculate_annual_hourly_demand(generator_demand):
+        from datetime import datetime, timedelta
+
+        # Extract the relevant times
+        morning_start = generator_demand.morning_peak_hours_start.hour
+        morning_end = generator_demand.morning_peak_hours_end.hour
+        evening_start = generator_demand.evening_peak_hours_start.hour
+        evening_end = generator_demand.evening_peak_hours_end.hour
+
+        # Handle wrap-around cases like (22 to 2 AM)
+        def hour_range(start, end):
+            if end > start:
+                return list(range(start, end))
+            else:  # wraps around midnight
+                return list(range(start, 24)) + list(range(0, end))
+
+        morning_peak_hours = hour_range(morning_start, morning_end)
+        evening_peak_hours = hour_range(evening_start, evening_end)
+        peak_hours_set = set(morning_peak_hours + evening_peak_hours)
+
+        total_hours_in_year = 365 * 24  # You may check if leap year if needed
+        morning_peak_hours_count = len(morning_peak_hours) * 365
+        evening_peak_hours_count = len(evening_peak_hours) * 365
+        peak_total_hours = morning_peak_hours_count + evening_peak_hours_count
+        normal_hours_count = total_hours_in_year - peak_total_hours
+
+        # Calculate consumption values
+        annual_peak_consumption = generator_demand.annual_morning_peak_hours_consumption or 0
+        annual_evening_consumption = generator_demand.annual_evening_peak_hours_consumption or 0
+        annual_total_consumption = generator_demand.annual_consumption or 0
+
+        annual_normal_consumption = annual_total_consumption - (annual_peak_consumption + annual_evening_consumption)
+
+        # Per hour values
+        morning_hour_value = annual_peak_consumption / morning_peak_hours_count if morning_peak_hours_count else 0
+        evening_hour_value = annual_evening_consumption / evening_peak_hours_count if evening_peak_hours_count else 0
+        normal_hour_value = annual_normal_consumption / normal_hours_count if normal_hours_count else 0
+
+        # Generate hourly data
+        hourly_data = []
+        for day in range(365):
+            for hour in range(24):
+                if hour in morning_peak_hours:
+                    hourly_data.append(round(morning_hour_value, 3))
+                elif hour in evening_peak_hours:
+                    hourly_data.append(round(evening_hour_value, 3))
+                else:
+                    hourly_data.append(round(normal_hour_value, 3))
+
+        return pd.Series(hourly_data)
+
 
     def post(self, request):
         data = request.data
@@ -3101,41 +3154,101 @@ class CapacitySizingAPI(APIView):
         if re_replacement == 0:
             return Response({"message": "No available capacity."}, status=status.HTTP_200_OK)
         
-        try:
-            # Decode the Base64 file
-            decoded_file = base64.b64decode(csv_file)
-            file_name = f"csv_file_{generator}.csv"
-            csv_file_content = ContentFile(decoded_file, name=file_name)
-        except Exception as e:
-            return Response({"error": f"Invalid Base64 file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            # Read the CSV content
-            file_data = csv_file_content.read().decode('utf-8').splitlines()
-            csv_reader = csv.DictReader(file_data)
+        if csv_file:
+            try:
+                # Decode the Base64 file
+                decoded_file = base64.b64decode(csv_file)
+                file_name = f"csv_file_{generator}.csv"
+                csv_file_content = ContentFile(decoded_file, name=file_name)
+            except Exception as e:
+                return Response({"error": f"Invalid Base64 file: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                # Read the CSV content
+                file_data = csv_file_content.read().decode('utf-8').splitlines()
+                csv_reader = csv.DictReader(file_data)
 
-            # Validate CSV format
-            rows = list(csv_reader)
-            if len(rows) != 8760:
-                return Response({"error": "The CSV must contain exactly 8760 rows."}, status=status.HTTP_400_BAD_REQUEST)
+                # Validate CSV format
+                rows = list(csv_reader)
+                if len(rows) != 8760:
+                    return Response({"error": "The CSV must contain exactly 8760 rows."}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Extract 'Expected Demand' values
-            hourly_values = [row['Expected Demand'] for row in rows]
+                # Extract 'Expected Demand' values
+                hourly_values = [row['Expected Demand'] for row in rows]
 
-            # Convert to a comma-separated string
-            hourly_demand_str = ','.join(hourly_values)
+                # Convert to a comma-separated string
+                hourly_demand_str = ','.join(hourly_values)
 
-            # Save the data in one record
-            obj, created = GeneratorHourlyDemand.objects.get_or_create(
-                generator=generator,
-                defaults={"hourly_demand": hourly_demand_str}
-            )
+                # Save the data in one record
+                obj, created = GeneratorHourlyDemand.objects.get_or_create(
+                    generator=generator,
+                    defaults={"hourly_demand": hourly_demand_str}
+                )
 
-            if not created:
-                obj.hourly_demand = hourly_demand_str
-                obj.save()
-                
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                if not created:
+                    obj.hourly_demand = hourly_demand_str
+                    obj.save()
+                    
+            except Exception as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            def parse_time_string(time_str):
+                return datetime.strptime(time_str, "%H:%M:%S").time() if time_str else None
+
+            annual_consumption = data.get("annual_consumption")
+            contracted_demand = data.get("contracted_demand")
+            morning_peak_hours_start = parse_time_string(data.get("morning_peak_hours_start"))
+            morning_peak_hours_end = parse_time_string(data.get("morning_peak_hours_end"))
+            annual_morning_peak_hours_consumption = data.get("annual_morning_peak_hours_consumption")
+            evening_peak_hours_start = parse_time_string(data.get("evening_peak_hours_start"))
+            evening_peak_hours_end = parse_time_string(data.get("evening_peak_hours_end"))
+            annual_evening_peak_hours_consumption = data.get("annual_evening_peak_hours_consumption")
+            peak_hours_availability_requirement = data.get("peak_hours_availability_requirement")
+
+            generator_demand = GeneratorDemand.objects.filter(generator=generator).first()
+            if generator_demand:
+                generator_demand.annual_consumption = annual_consumption
+                generator_demand.contracted_demand = contracted_demand
+                generator_demand.morning_peak_hours_start = morning_peak_hours_start
+                generator_demand.morning_peak_hours_end = morning_peak_hours_end
+                generator_demand.annual_morning_peak_hours_consumption = annual_morning_peak_hours_consumption
+                generator_demand.evening_peak_hours_start = evening_peak_hours_start
+                generator_demand.evening_peak_hours_end = evening_peak_hours_end
+                generator_demand.annual_evening_peak_hours_consumption = annual_evening_peak_hours_consumption
+                generator_demand.peak_hours_availability_requirement = peak_hours_availability_requirement
+                generator_demand.save()
+            else:
+                generator_demand = GeneratorDemand(
+                    generator=generator,
+                    annual_consumption=annual_consumption,
+                    contracted_demand=contracted_demand,
+                    morning_peak_hours_start=morning_peak_hours_start,
+                    morning_peak_hours_end=morning_peak_hours_end,
+                    annual_morning_peak_hours_consumption=annual_morning_peak_hours_consumption,
+                    evening_peak_hours_start=evening_peak_hours_start,
+                    evening_peak_hours_end=evening_peak_hours_end,
+                    annual_evening_peak_hours_consumption=annual_evening_peak_hours_consumption,
+                    peak_hours_availability_requirement=peak_hours_availability_requirement
+                )
+                generator_demand.save()
+            numeric_hourly_demand = self.calculate_annual_hourly_demand(generator_demand)
+
+            df = pd.DataFrame({
+                'Index': numeric_hourly_demand.index,
+                'Demand': numeric_hourly_demand.values
+            })
+
+            # Export to Excel
+            # df.to_excel('hourly_demand.xlsx', index=False, engine='openpyxl')
+            # print(f"Excel file 'hourly_demand.xlsx' created successfully with {len(numeric_hourly_demand)} rows.")
+            # print('---------------------numeric_hourly_demand---------------------')
+            # print(numeric_hourly_demand)
+
+            hourly_demand = GeneratorHourlyDemand.objects.filter(generator=generator).first()
+            if not hourly_demand:
+                hourly_demand = GeneratorHourlyDemand(generator=generator)
+            hourly_demand.hourly_demand = None
+            hourly_demand.set_hourly_data_from_list(numeric_hourly_demand)
+            hourly_demand.save()
 
         try:
             # Initialize final aggregated response

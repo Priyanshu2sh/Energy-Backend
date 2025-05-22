@@ -591,6 +591,18 @@ class GeneratorHourlyDemand(models.Model):
         """Convert a list of floats into a comma-separated string and save it."""
         self.hourly_demand = ','.join(map(str, data_list))
 
+class GeneratorDemand(models.Model):
+    generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'})
+    annual_consumption = models.FloatField(null=True, blank=True)  # in MWh
+    contracted_demand = models.FloatField(null=True, blank=True)  # in MW
+    morning_peak_hours_start = models.TimeField(null=True, blank=True)  # in 00:00 hrs
+    morning_peak_hours_end = models.TimeField(null=True, blank=True)  # in 00:00 hrs
+    annual_morning_peak_hours_consumption = models.FloatField(null=True, blank=True)  # in MWh
+    evening_peak_hours_start = models.TimeField(null=True, blank=True)  # in 00:00 hrs
+    evening_peak_hours_end = models.TimeField(null=True, blank=True)  # in 00:00 hrs
+    annual_evening_peak_hours_consumption = models.FloatField(null=True, blank=True)  # in MWh
+    peak_hours_availability_requirement = models.FloatField(null=True, blank=True)  # in %
+
 class PeakHours(models.Model):
     state = models.ForeignKey(State, on_delete=models.CASCADE, related_name="peak_hours")
     peak_start_1 = models.TimeField()  # Start time of peak hours 1
