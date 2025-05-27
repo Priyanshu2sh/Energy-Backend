@@ -49,5 +49,6 @@ urlpatterns = [
     path('capacity-sizing-combination', views.CapacitySizingCombinationAPI.as_view(), name='capacity-sizing-combination'),
     path('holiday-list', views.HolidayListAPI.as_view(), name='holiday_list'),
     path('offline-payment', views.OfflinePaymentAPI.as_view(), name='offline_payment'),
-    
+    path('demand-summary/<int:user_id>', views.DemandSummaryAPI.as_view(), name='demand_summary'),
+
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

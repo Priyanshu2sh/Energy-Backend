@@ -3146,6 +3146,7 @@ class CapacitySizingAPI(APIView):
         try:
             # Fetch the user
             generator = User.objects.get(id=user_id)
+            generator = get_admin_user(user_id)
         except User.DoesNotExist:
             return Response({"error": "Generator not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -3916,3 +3917,27 @@ class OfflinePaymentAPI(APIView):
             serializer.save()
             return Response({"message": "Offline Payment Submitted Successfully"}, status=status.HTTP_201_CREATED)
         return Response({"errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+class DemandSummaryAPI(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+            user = get_admin_user(user_id)
+
+            demand = GeneratorHourlyDemand.objects.filter(generator=user).first()
+
+            if not demand:
+                return Response({"error": "Demand data not found."}, status=status.HTTP_404_NOT_FOUND)
+
+            return Response({
+                "generator": str(demand.generator),
+                "hourly_demand": demand.get_hourly_data_as_list()
+            }, status=status.HTTP_200_OK)
+
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

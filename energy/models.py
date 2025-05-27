@@ -660,6 +660,19 @@ class CapacitySizingCombination(models.Model):
     annual_curtailment = models.FloatField()
     demand = models.JSONField(blank=True, null=True)
 
+    # new added fields
+    total_cost = models.FloatField(blank=True, null=True)
+    solar_allocation = models.JSONField(blank=True, null=True)
+    wind_allocation = models.JSONField(blank=True, null=True)
+    soc = models.JSONField(blank=True, null=True)
+    ess_discharge = models.JSONField(blank=True, null=True)
+    ess_charge = models.JSONField(blank=True, null=True)
+    unmet_demand = models.JSONField(blank=True, null=True)
+    generation = models.JSONField(blank=True, null=True)
+    curtailment = models.JSONField(blank=True, null=True)
+    total_demand_met_by_allocation = models.JSONField(blank=True, null=True)
+    demand_met = models.JSONField(blank=True, null=True)
+
     def __str__(self):
         return f"{self.generator} - {self.record_name} - {self.combination}"
 
