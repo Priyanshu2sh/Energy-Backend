@@ -6,6 +6,7 @@ import csv
 import io
 from itertools import chain
 import re
+import statistics
 import fitz
 from django.shortcuts import get_object_or_404
 import pytz
@@ -3932,9 +3933,17 @@ class DemandSummaryAPI(APIView):
             if not demand:
                 return Response({"error": "Demand data not found."}, status=status.HTTP_404_NOT_FOUND)
 
+            hourly_data = demand.get_hourly_data_as_list()
+
+            if not hourly_data:
+                return Response({"error": "Hourly demand data is empty."}, status=status.HTTP_404_NOT_FOUND)
+
             return Response({
                 "generator": str(demand.generator),
-                "hourly_demand": demand.get_hourly_data_as_list()
+                "total": round(sum(hourly_data), 2),
+                "highest": round(max(hourly_data), 2),
+                "lowest": round(min(hourly_data), 2),
+                "average": round(statistics.mean(hourly_data), 2)
             }, status=status.HTTP_200_OK)
 
         except User.DoesNotExist:
