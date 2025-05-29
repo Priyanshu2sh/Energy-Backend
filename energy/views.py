@@ -219,6 +219,11 @@ class GenerationPortfolioAPI(APIView):
             try:
                 # Decode Base64 file
                 decoded_file = base64.b64decode(file_data)
+
+                # Check if it's a valid Excel file (magic header: PK\x03\x04)
+                if not decoded_file.startswith(b"PK"):
+                    return Response({"error": "Uploaded file is not a valid Excel file."}, status=status.HTTP_400_BAD_REQUEST)
+
                 # Define a file name (customize as needed)
                 file_name = f"hourly_data_{pk}.xlsx"  # Assuming the file is an Excel file
                 # Wrap the decoded file into ContentFile
@@ -229,6 +234,21 @@ class GenerationPortfolioAPI(APIView):
                         # Read the Excel file into a DataFrame
                         df = pd.read_excel(file_stream)
 
+                        # Check if the expected column exists
+                        expected_column = "Expected Generation(MWh)"
+                        if expected_column not in df.columns:
+                            return Response(
+                                {"error": f"Missing required column: '{expected_column}'."},
+                                status=status.HTTP_400_BAD_REQUEST
+                            )
+
+                        # Check for missing values in the required column
+                        if df[expected_column].isnull().any():
+                            return Response(
+                                {"error": f"Column '{expected_column}' contains missing or empty values."},
+                                status=status.HTTP_400_BAD_REQUEST
+                            )
+
                         # Convert only the second column to float (keeping NaN values)
                         df.iloc[:, 1] = pd.to_numeric(df.iloc[:, 1], errors='coerce')
                     except Exception as e:
@@ -238,8 +258,8 @@ class GenerationPortfolioAPI(APIView):
                     current_year = datetime.now().year
                     # is_leap_year = (current_year % 4 == 0 and current_year % 100 != 0) or (current_year % 400 == 0)
                     required_rows = 8760
-                    logger.debug(f'shape= {df.shape[0]}')
-                    logger.debug(f'df= {df}')
+                    print(f'shape= {df.shape[0]}')
+                    print(f'df= {df}')
 
                     # Verify row count
                     if df.shape[0] != required_rows:
@@ -398,13 +418,29 @@ class ScadaFileAPI(APIView):
 
         # Process the Excel file
         try:
+            # Read the Excel file and validate the sheet
+            xls = pd.ExcelFile(scada_file.file)
+            if "Logger 1" not in xls.sheet_names:
+                return Response(
+                    {"error": "Sheet 'Logger 1' not found in the uploaded Excel file."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        
             df = pd.read_excel(scada_file.file, sheet_name="Logger 1", header=7)
 
             # Extract the required column
             column_name = "Active(I) Total [kWh]\n (1.0.1.29.0.255)"  # Ensure this matches exactly
             if column_name not in df.columns:
                 return Response(
-                    {"error": "Required column not found in the sheet."},
+                    {"error": f"Required column '{column_name}' not found in the sheet."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Clean and check for sufficient data
+            valid_data = df[column_name].dropna()
+            if valid_data.empty:
+                return Response(
+                    {"error": f"The column '{column_name}' contains no valid data."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -554,17 +590,51 @@ class CSVFileAPI(APIView):
                 {"error": f"Invalid Base64 file: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        REQUIRED_HEADERS = {
+            "Month",
+            "Monthly Consumption (MWh)",
+            "Peak Consumption (MWh)",
+            "Off Peak Consumption (MWh)",
+            "Monthly Bill Amount (INR cr)",
+        }
+
+        EXPECTED_MONTHS = {
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December"
+        }
 
         try:
             # Read the CSV content
             raw_data = csv_file_content.read()
+            if not raw_data.strip():
+                return Response(
+                    {"error": "Uploaded file is empty."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            
             result = chardet.detect(raw_data)
             encoding = result['encoding']
 
             # Decode the content with detected encoding
             file_data = raw_data.decode(encoding, errors='replace').splitlines()
+            
+            # Handle the case where no lines are found
+            if not file_data:
+                return Response(
+                    {"error": "No data found in file."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             csv_reader = csv.DictReader(file_data)
+
+            # Validate required headers
+            file_headers = set(h.strip() for h in csv_reader.fieldnames if h)
+            if not REQUIRED_HEADERS.issubset(file_headers):
+                missing_headers = REQUIRED_HEADERS - file_headers
+                return Response(
+                    {"error": f"Missing required column(s): {', '.join(missing_headers)}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             # Get the ConsumerRequirement object
             try:
@@ -576,13 +646,17 @@ class CSVFileAPI(APIView):
                 )
 
             # Process each row in the CSV file
+            found_months = set()
+            row_found = False
             for row in csv_reader:
-                logger.debug(row)
+                row_found = True
                 # Clean column names (remove extra spaces and non-breaking spaces)
                 row = {key.strip(): value.strip().replace('\xa0', '').replace(',', '') for key, value in row.items()}
+                month = row['Month']
+                found_months.add(month)
+
                 try:
                     monthly_consumption = MonthlyConsumptionData.objects.get(requirement=requirement, month=row['Month'])
-                    
                 except MonthlyConsumptionData.DoesNotExist:
                     monthly_consumption = MonthlyConsumptionData()
                     monthly_consumption.requirement=requirement
@@ -596,6 +670,19 @@ class CSVFileAPI(APIView):
 
                 # Call the calculate_hourly_demand method
                 OptimizeCapacityAPI.calculate_hourly_demand(requirement, requirement.state)
+
+            if not row_found:
+                return Response(
+                    {"error": "CSV file contains headers but no data rows."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            missing_months = EXPECTED_MONTHS - found_months
+            if missing_months:
+                return Response(
+                    {"error": f"Data missing for month(s): {', '.join(missing_months)}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
                 
             return Response({'message': 'Success'}, status=status.HTTP_201_CREATED)
 
@@ -619,6 +706,9 @@ class UploadMonthlyConsumptionBillAPI(APIView):
             doc = fitz.open(pdf_path)
             for page in doc:
                 extracted_text += page.get_text("text") + "\n"
+
+            if not extracted_text.strip():
+                return {"error": "No readable text found in the PDF file."}
 
             # Use regex to extract required values
             tod1 = re.search(r"TOD1\s*:\s*([\d,.]+)", extracted_text)
@@ -657,6 +747,14 @@ class UploadMonthlyConsumptionBillAPI(APIView):
         # Handle Base64-encoded file and save it in the model first
         try:
             decoded_file = base64.b64decode(file_data)
+
+            # Check if it's a PDF by magic number (starts with "%PDF")
+            if not decoded_file.startswith(b"%PDF"):
+                return Response(
+                    {"error": "Uploaded file is not a valid PDF."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            
             file_name = f"bill_{requirement_id}_{month}.pdf"
             bill_file = ContentFile(decoded_file, name=file_name)
         except Exception as e:
@@ -675,6 +773,9 @@ class UploadMonthlyConsumptionBillAPI(APIView):
         if instance.bill:
             extracted_data = self.extract_required_data(instance.bill.path)
 
+            if "error" in extracted_data:
+                return Response({"error": extracted_data["error"]}, status=status.HTTP_400_BAD_REQUEST)
+
             # Validate extracted data to ensure TOD values exist
             if extracted_data["TOD 1"] == "Not found" or extracted_data["TOD 2"] == "Not found" or extracted_data["TOD 3"] == "Not found":
                 return Response(
@@ -682,19 +783,26 @@ class UploadMonthlyConsumptionBillAPI(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Calculate required values
-            peak_consumption = round(float(extracted_data["TOD 1"]) / 1000)  # TOD 1
-            off_peak_consumption = round(float(extracted_data["TOD 3"]) / 1000)  # TOD 3
-            monthly_consumption = round(peak_consumption + round(float(extracted_data["TOD 2"]) / 1000) + off_peak_consumption, 2)  # TOD 1 + TOD 2 + TOD 3
-            monthly_bill_amount = extracted_data["Current Month Bill"]  # Current Month Bill
+            try:
+                # Calculate required values
+                peak_consumption = round(float(extracted_data["TOD 1"]) / 1000)  # TOD 1
+                off_peak_consumption = round(float(extracted_data["TOD 3"]) / 1000)  # TOD 3
+                monthly_consumption = round(peak_consumption + round(float(extracted_data["TOD 2"]) / 1000) + off_peak_consumption, 2)  # TOD 1 + TOD 2 + TOD 3
+                monthly_bill_amount = extracted_data["Current Month Bill"]  # Current Month Bill
 
-            # Update instance with extracted data
-            instance.peak_consumption = peak_consumption
-            instance.off_peak_consumption = off_peak_consumption
-            instance.monthly_consumption = monthly_consumption
-            instance.monthly_bill_amount = monthly_bill_amount
-            instance.save()
-            # OptimizeCapacityAPI.calculate_hourly_demand(requirement)
+                # Update instance with extracted data
+                instance.peak_consumption = peak_consumption
+                instance.off_peak_consumption = off_peak_consumption
+                instance.monthly_consumption = monthly_consumption
+                instance.monthly_bill_amount = monthly_bill_amount
+                instance.save()
+                # OptimizeCapacityAPI.calculate_hourly_demand(requirement)
+
+            except Exception as e:
+                return Response(
+                    {"error": f"Error processing extracted data: {str(e)}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         return Response(
             {
