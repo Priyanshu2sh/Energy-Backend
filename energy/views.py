@@ -1342,6 +1342,8 @@ class OptimizeCapacityAPI(APIView):
                         include_ISTS = True
 
                     ISTS_charges = master_record.ISTS_charges if include_ISTS else 0
+                    logger.debug(f'Including ISTS charges: {include_ISTS}, charges: {ISTS_charges}')
+                    logger.debug(f'Including state charges: {master_record.state_charges}')
                     
                     # separating combinations based on connectivity 
                     solar_data = solar_data.filter(connectivity=connectivity)
