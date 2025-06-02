@@ -1326,6 +1326,11 @@ class OptimizeCapacityAPI(APIView):
                     ).filter(
                         Q(state=consumer_requirement.state) | Q(connectivity="CTU")
                     )
+                    
+                    # separating combinations based on connectivity 
+                    solar_data = solar_data.filter(connectivity=connectivity)
+                    wind_data = wind_data.filter(connectivity=connectivity)
+                    ess_data = ess_data.filter(connectivity=connectivity)
 
                     portfolios = list(chain(solar_data, wind_data, ess_data))
 
@@ -1344,11 +1349,6 @@ class OptimizeCapacityAPI(APIView):
                     ISTS_charges = master_record.ISTS_charges if include_ISTS else 0
                     logger.debug(f'Including ISTS charges: {include_ISTS}, charges: {ISTS_charges}')
                     logger.debug(f'Including state charges: {master_record.state_charges}')
-                    
-                    # separating combinations based on connectivity 
-                    solar_data = solar_data.filter(connectivity=connectivity)
-                    wind_data = wind_data.filter(connectivity=connectivity)
-                    ess_data = ess_data.filter(connectivity=connectivity)
 
                     solar_project = []
                     wind_project = []
