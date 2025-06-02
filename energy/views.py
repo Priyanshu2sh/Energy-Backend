@@ -1207,7 +1207,12 @@ class OptimizeCapacityAPI(APIView):
             )
             normal_hour_value = round(normal_consumption / (normal_hours * days_in_month), 3)
             peak_hour_value = round(month_data.peak_consumption / ((peak_hours_total) * days_in_month), 3)
-            off_peak_hour_value = round(month_data.off_peak_consumption / ((off_peak_hours_total) * days_in_month), 3)
+            # Calculate off-peak hour value safely
+            if off_peak_hours_total > 0:
+                off_peak_hour_value = round(month_data.off_peak_consumption / ((off_peak_hours_total) * days_in_month), 3)
+            else:
+                off_peak_hour_value = 0
+                logger.debug(f'Off-peak hours not defined or zero for state {state}. Skipping off-peak consumption division.')
 
             logger.debug(f'normal_consumption = month_data.monthly_consumption - (month_data.peak_consumption + month_data.off_peak_consumption)')
             logger.debug(f'normal_consumption = {month_data.monthly_consumption} - ({month_data.peak_consumption} + {month_data.off_peak_consumption}) = {normal_consumption}')
@@ -1224,7 +1229,7 @@ class OptimizeCapacityAPI(APIView):
                     if peak_hours_1[0] <= hour < peak_hours_1[1] or peak_hours_2[0] <= hour < peak_hours_2[1]:
                         all_hourly_data.append(peak_hour_value)
                     # Off-peak hours condition (split into two cases)
-                    elif (off_peak_hours[0] <= hour < 24) or (0 <= hour < off_peak_hours[1]):
+                    elif off_peak_hours_total > 0 and (off_peak_hours[0] <= hour < 24) or (0 <= hour < off_peak_hours[1]):
                         all_hourly_data.append(off_peak_hour_value)
                     # Normal hours condition
                     else:
