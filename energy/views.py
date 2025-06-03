@@ -1500,28 +1500,28 @@ class OptimizeCapacityAPI(APIView):
                             def get_component_and_cod(component_name, generator, portfolio_model):
                                 try:
                                     portfolio = portfolio_model.objects.get(user=generator, project=component_name)
-                                    return portfolio, portfolio.cod, portfolio.state
+                                    return portfolio, portfolio.cod, portfolio.state, portfolio.site_name
                                 except portfolio_model.DoesNotExist:
-                                    return None, None, None
+                                    return None, None, None, None
 
                             # Fetch solar, wind, and ESS components and their CODs
                             if component_1:
                                 if 'Solar' in component_1:
-                                    solar, solar_cod, solar_state  = get_component_and_cod(component_1, generator, SolarPortfolio)
+                                    solar, solar_cod, solar_state, solar_site = get_component_and_cod(component_1, generator, SolarPortfolio)
                                 elif 'Wind' in component_1:
-                                    wind, wind_cod, wind_state  = get_component_and_cod(component_1, generator, WindPortfolio)
+                                    wind, wind_cod, wind_state, wind_site = get_component_and_cod(component_1, generator, WindPortfolio)
                                 elif 'ESS' in component_1:
-                                    ess, ess_cod, ess_state  = get_component_and_cod(component_1, generator, ESSPortfolio)
+                                    ess, ess_cod, ess_state, ess_site = get_component_and_cod(component_1, generator, ESSPortfolio)
 
                             if component_2:
                                 if 'Wind' in component_2:
-                                    wind, wind_cod, wind_state  = get_component_and_cod(component_2, generator, WindPortfolio)
+                                    wind, wind_cod, wind_state, wind_site = get_component_and_cod(component_2, generator, WindPortfolio)
                                 elif 'ESS' in component_2:
-                                    ess, ess_cod, ess_state  = get_component_and_cod(component_2, generator, ESSPortfolio)
+                                    ess, ess_cod, ess_state, ess_site = get_component_and_cod(component_2, generator, ESSPortfolio)
 
                             if component_3:
                                 if 'ESS' in component_3:
-                                    ess, ess_cod, ess_state  = get_component_and_cod(component_3, generator, ESSPortfolio)
+                                    ess, ess_cod, ess_state, ess_site = get_component_and_cod(component_3, generator, ESSPortfolio)
 
                             # Determine the greatest COD
                             cod_dates = [solar_cod if solar else None, wind_cod if wind else None, ess_cod if ess else None]
@@ -1536,6 +1536,15 @@ class OptimizeCapacityAPI(APIView):
                                 state[wind.project] = wind_state
                             if ess:
                                 state[ess.project] = ess_state
+
+                            # Map each portfolio to its site name
+                            site_names = {}
+                            if solar:
+                                site_names[solar.project] = solar_site
+                            if wind:
+                                site_names[wind.project] = wind_site
+                            if ess:
+                                site_names[ess.project] = ess_site
 
                             annual_demand_met = (details["Annual Demand Met"]) / 1000
 
@@ -1596,6 +1605,7 @@ class OptimizeCapacityAPI(APIView):
                                     'ISTS_charges': ISTS_charges,
                                     'state_charges': master_record.state_charges,
                                     "state": state,
+                                    "site_names": site_names,
                                     "greatest_cod": greatest_cod,
                                     "terms_sheet_sent": terms_sheet_sent,
                                     "sent_from_you": sent_from_you,
@@ -1739,7 +1749,11 @@ class ConsumptionPatternAPI(APIView):
             # Extract relevant consumer details
             consumer_details = {
                 "username": username,
-                "credit_rating": consumer.credit_rating
+                "credit_rating": consumer.credit_rating,
+                "state": consumption.requirement.state,
+                "tariff_category": consumption.requirement.tariff_category,
+                "contracted_demand": consumption.requirement.contracted_demand,
+                "industry": consumption.requirement.industry
             }
 
             # Prepare response with the sorted monthly consumption data
@@ -3290,7 +3304,7 @@ class CapacitySizingAPI(APIView):
                     return Response({"error": "The CSV must contain exactly 8760 rows."}, status=status.HTTP_400_BAD_REQUEST)
 
                 # Extract 'Expected Demand' values
-                hourly_values = [row['Expected Demand'] for row in rows]
+                hourly_values = [row['Expected Demand(MWh)'] for row in rows]
 
                 # Convert to a comma-separated string
                 hourly_demand_str = ','.join(hourly_values)
