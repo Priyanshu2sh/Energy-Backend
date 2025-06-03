@@ -1377,7 +1377,7 @@ class OptimizeCapacityAPI(APIView):
                             input_data[generator.username]["Solar"][solar.project] = {
                                 "profile": profile_data,
                                 "max_capacity": solar.available_capacity,
-                                "marginal_cost": solar.marginal_cost,
+                                "marginal_cost": solar.expected_tariff * 1000,
                                 "capital_cost": solar.capital_cost,
                             }
 
@@ -1400,7 +1400,7 @@ class OptimizeCapacityAPI(APIView):
                             input_data[generator.username]["Wind"][wind.project] = {
                                 "profile": profile_data,
                                 "max_capacity": wind.available_capacity,
-                                "marginal_cost": wind.marginal_cost,
+                                "marginal_cost": wind.expected_tariff * 1000,
                                 "capital_cost": wind.capital_cost,
                             }
 
@@ -1414,7 +1414,7 @@ class OptimizeCapacityAPI(APIView):
                             input_data[generator.username]["ESS"][ess.project] = {
                                 "DoD": ess.efficiency_of_dispatch,
                                 "efficiency": ess.efficiency_of_dispatch,
-                                "marginal_cost": ess.marginal_cost,
+                                "marginal_cost": ess.expected_tariff * 1000,
                                 "capital_cost": ess.capital_cost,
                             }
 
@@ -3422,7 +3422,7 @@ class CapacitySizingAPI(APIView):
                     input_data[generator.username]["Solar"][solar.project] = {
                         "profile": profile_data,
                         "max_capacity": solar.available_capacity,
-                        "marginal_cost": solar.marginal_cost,
+                        "marginal_cost": solar.expected_tariff * 1000,
                         "capital_cost": solar.capital_cost,
                     }
             # Add Wind projects if wind_data exists
@@ -3439,7 +3439,7 @@ class CapacitySizingAPI(APIView):
                     input_data[generator.username]["Wind"][wind.project] = {
                         "profile": profile_data,
                         "max_capacity": wind.available_capacity,
-                        "marginal_cost": wind.marginal_cost,
+                        "marginal_cost": wind.expected_tariff * 1000,
                         "capital_cost": wind.capital_cost,
                     }
             # Add ESS projects if ess_data exists
@@ -3450,7 +3450,7 @@ class CapacitySizingAPI(APIView):
                     input_data[generator.username]["ESS"][ess.project] = {
                         "DoD": ess.efficiency_of_dispatch,
                         "efficiency": ess.efficiency_of_dispatch,
-                        "marginal_cost": ess.marginal_cost,
+                        "marginal_cost": ess.expected_tariff * 1000,
                         "capital_cost": ess.capital_cost,
                     }
             
@@ -3749,7 +3749,7 @@ class SensitivityAPI(APIView):
                                 input_data[generator.username]["Solar"][solar.project] = {
                                     "profile": profile_data,
                                     "max_capacity": solar.available_capacity,
-                                    "marginal_cost": solar.marginal_cost,
+                                    "marginal_cost": solar.expected_tariff * 1000,
                                     "capital_cost": solar.capital_cost,
                                 }
 
@@ -3772,7 +3772,7 @@ class SensitivityAPI(APIView):
                                 input_data[generator.username]["Wind"][wind.project] = {
                                     "profile": profile_data,
                                     "max_capacity": wind.available_capacity,
-                                    "marginal_cost": wind.marginal_cost,
+                                    "marginal_cost": wind.expected_tariff * 1000,
                                     "capital_cost": wind.capital_cost,
                                 }
 
@@ -3787,7 +3787,7 @@ class SensitivityAPI(APIView):
                                 input_data[generator.username]["ESS"][ess.project] = {
                                     "DoD": ess.efficiency_of_dispatch,
                                     "efficiency": ess.efficiency_of_dispatch,
-                                    "marginal_cost": ess.marginal_cost,
+                                    "marginal_cost": ess.expected_tariff * 1000,
                                     "capital_cost": ess.capital_cost,
                                 }
 

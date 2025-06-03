@@ -15,12 +15,12 @@ class SolarPortfolioSerializer(serializers.ModelSerializer):
     class Meta:
         model = SolarPortfolio
         fields = ['id', 'user', 'state', 'connectivity', 'site_name', 'available_capacity', 'cod',
-                  'total_install_capacity', 'capital_cost', 'marginal_cost',
+                  'total_install_capacity', 'capital_cost', 'expected_tariff',
                   'hourly_data', 'annual_generation_potential', 'updated'] 
         extra_kwargs = {
             'total_install_capacity': {'required': False},
             'capital_cost': {'required': False},
-            'marginal_cost': {'required': False},
+            'expected_tariff': {'required': False},
             'hourly_data': {'required': False},
             'annual_generation_potential': {'required': False},
             'updated': {'read_only': True},  # Prevent manual update of this field
@@ -46,12 +46,12 @@ class WindPortfolioSerializer(serializers.ModelSerializer):
     class Meta:
         model = WindPortfolio
         fields = ['id', 'user', 'state', 'connectivity', 'site_name', 'available_capacity', 'cod',
-                  'total_install_capacity', 'capital_cost', 'marginal_cost',
+                  'total_install_capacity', 'capital_cost', 'expected_tariff',
                   'hourly_data', 'annual_generation_potential', 'updated'] 
         extra_kwargs = {
             'total_install_capacity': {'required': False},
             'capital_cost': {'required': False},
-            'marginal_cost': {'required': False},
+            'expected_tariff': {'required': False},
             'hourly_data': {'required': False},
             'annual_generation_potential': {'required': False},
             'updated': {'read_only': True},  # Prevent manual update of this field
@@ -75,12 +75,12 @@ class ESSPortfolioSerializer(serializers.ModelSerializer):
     class Meta:
         model = ESSPortfolio
         fields = ['id', 'user', 'state', 'connectivity', 'site_name', 'available_capacity', 'cod',
-                  'total_install_capacity', 'capital_cost', 'marginal_cost',
+                  'total_install_capacity', 'capital_cost', 'expected_tariff',
                   'efficiency_of_storage', 'efficiency_of_dispatch', 'updated'] 
         extra_kwargs = {
             'total_install_capacity': {'required': False},
             'capital_cost': {'required': False},
-            'marginal_cost': {'required': False},
+            'expected_tariff': {'required': False},
             'efficiency_of_storage': {'required': False},
             'efficiency_of_dispatch': {'required': False},
             'updated': {'read_only': True},  # Prevent manual update of this field
