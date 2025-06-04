@@ -330,6 +330,7 @@ class StandardTermsSheet(models.Model):
     from_whom = models.CharField(max_length=200, choices=USER_CHOICES, null=True, blank=True)
     consumer_is_read = models.BooleanField(default=False)
     generator_is_read = models.BooleanField(default=False)
+    equity_contribution_required_from_consumer = models.FloatField(blank=True, null=True)
 
     def save(self, *args, **kwargs):
         if not self.pk:  # If the object is new

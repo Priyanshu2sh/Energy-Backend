@@ -315,7 +315,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
 
       # Sort by 'Per Unit Cost'
       sorted_results = res_df.sort_values(by='Per Unit Cost')
-      sorted_results.to_excel("multiple_profiles_sorted_results.xlsx")
+    #   sorted_results.to_excel("multiple_profiles_sorted_results.xlsx")
       # Convert to dictionary with index as keys
       sorted_dict = sorted_results.to_dict(orient="index")
       return sorted_dict

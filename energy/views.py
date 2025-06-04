@@ -1500,28 +1500,28 @@ class OptimizeCapacityAPI(APIView):
                             def get_component_and_cod(component_name, generator, portfolio_model):
                                 try:
                                     portfolio = portfolio_model.objects.get(user=generator, project=component_name)
-                                    return portfolio, portfolio.cod, portfolio.state, portfolio.site_name
+                                    return portfolio, portfolio.cod, portfolio.state, portfolio.site_name, portfolio.capital_cost
                                 except portfolio_model.DoesNotExist:
-                                    return None, None, None, None
+                                    return None, None, None, None, None
 
                             # Fetch solar, wind, and ESS components and their CODs
                             if component_1:
                                 if 'Solar' in component_1:
-                                    solar, solar_cod, solar_state, solar_site = get_component_and_cod(component_1, generator, SolarPortfolio)
+                                    solar, solar_cod, solar_state, solar_site, solar_capital_cost = get_component_and_cod(component_1, generator, SolarPortfolio)
                                 elif 'Wind' in component_1:
-                                    wind, wind_cod, wind_state, wind_site = get_component_and_cod(component_1, generator, WindPortfolio)
+                                    wind, wind_cod, wind_state, wind_site, wind_capital_cost = get_component_and_cod(component_1, generator, WindPortfolio)
                                 elif 'ESS' in component_1:
-                                    ess, ess_cod, ess_state, ess_site = get_component_and_cod(component_1, generator, ESSPortfolio)
+                                    ess, ess_cod, ess_state, ess_site, ess_capital_cost = get_component_and_cod(component_1, generator, ESSPortfolio)
 
                             if component_2:
                                 if 'Wind' in component_2:
-                                    wind, wind_cod, wind_state, wind_site = get_component_and_cod(component_2, generator, WindPortfolio)
+                                    wind, wind_cod, wind_state, wind_site, wind_capital_cost = get_component_and_cod(component_2, generator, WindPortfolio)
                                 elif 'ESS' in component_2:
-                                    ess, ess_cod, ess_state, ess_site = get_component_and_cod(component_2, generator, ESSPortfolio)
+                                    ess, ess_cod, ess_state, ess_site, ess_capital_cost = get_component_and_cod(component_2, generator, ESSPortfolio)
 
                             if component_3:
                                 if 'ESS' in component_3:
-                                    ess, ess_cod, ess_state, ess_site = get_component_and_cod(component_3, generator, ESSPortfolio)
+                                    ess, ess_cod, ess_state, ess_site, ess_capital_cost = get_component_and_cod(component_3, generator, ESSPortfolio)
 
                             # Determine the greatest COD
                             cod_dates = [solar_cod if solar else None, wind_cod if wind else None, ess_cod if ess else None]
@@ -1545,6 +1545,11 @@ class OptimizeCapacityAPI(APIView):
                                 site_names[wind.project] = wind_site
                             if ess:
                                 site_names[ess.project] = ess_site
+
+                            # Initialize capital costs
+                            capital_cost_solar = solar.capital_cost if solar else 0
+                            capital_cost_wind = wind.capital_cost if wind else 0
+                            capital_cost_ess = ess.capital_cost if ess else 0
 
                             annual_demand_met = (details["Annual Demand Met"]) / 1000
 
@@ -1612,6 +1617,9 @@ class OptimizeCapacityAPI(APIView):
                                     "connectivity": connectivity,
                                     "re_index": re_index,
                                     "per_unit_savings": grid_tariff.cost - details['Per Unit Cost'] - ISTS_charges - master_record.state_charges,
+                                    "capital_cost_solar": capital_cost_solar,
+                                    "capital_cost_wind": capital_cost_wind,
+                                    "capital_cost_ess": capital_cost_ess,
                                     "downloadable": {
                                         "consumer": mapped_username,
                                         "generator": generator.username,

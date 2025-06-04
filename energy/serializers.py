@@ -1,3 +1,4 @@
+import base64
 from rest_framework import serializers
 
 from accounts.models import User
@@ -10,7 +11,8 @@ class SolarPortfolioSerializer(serializers.ModelSerializer):
         queryset=User.objects.all(),
         slug_field='id'  # Map the user field to the email field
     )
-    # hourly_data = serializers.FileField(required=False)
+
+    hourly_data = serializers.SerializerMethodField()
 
     class Meta:
         model = SolarPortfolio
@@ -25,6 +27,15 @@ class SolarPortfolioSerializer(serializers.ModelSerializer):
             'annual_generation_potential': {'required': False},
             'updated': {'read_only': True},  # Prevent manual update of this field
         }
+
+    def get_hourly_data(self, obj):
+        if obj.hourly_data and obj.hourly_data.path:
+            try:
+                with open(obj.hourly_data.path, "rb") as f:
+                    return base64.b64encode(f.read()).decode('utf-8')
+            except Exception:
+                return None
+        return None
     
     def update(self, instance, validated_data):
         # Set 'updated' to True on PUT method
@@ -41,7 +52,8 @@ class WindPortfolioSerializer(serializers.ModelSerializer):
         queryset=User.objects.all(),
         slug_field='id'  # Map the user field to the email field
     )
-    # hourly_data = serializers.FileField(required=False)
+    
+    hourly_data = serializers.SerializerMethodField()
 
     class Meta:
         model = WindPortfolio
@@ -56,6 +68,15 @@ class WindPortfolioSerializer(serializers.ModelSerializer):
             'annual_generation_potential': {'required': False},
             'updated': {'read_only': True},  # Prevent manual update of this field
         }
+
+    def get_hourly_data(self, obj):
+        if obj.hourly_data and obj.hourly_data.path:
+            try:
+                with open(obj.hourly_data.path, "rb") as f:
+                    return base64.b64encode(f.read()).decode('utf-8')
+            except Exception:
+                return None
+        return None
     
     def update(self, instance, validated_data):
         # Set 'updated' to True on PUT method
