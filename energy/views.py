@@ -3843,6 +3843,9 @@ class SensitivityAPI(APIView):
                         logger.debug(input_data)
                         response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, OA_cost=(ISTS_charges + master_record.state_charges)*1000)
 
+                        logger.debug('***********')
+                        logger.debug(f'response_data: {response_data}')
+
                         if response_data != 'The demand cannot be met by the IPPs':
                             for combination_key, details in response_data.items():
                             # Extract user and components from combination_key
