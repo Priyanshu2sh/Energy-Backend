@@ -1552,7 +1552,9 @@ class OptimizeCapacityAPI(APIView):
                             capital_cost_ess = ess.capital_cost if ess else 0
 
                             annual_demand_met = (details["Annual Demand Met"]) / 1000
-
+                            logger.debug(f'combination_key:::::: {combination_key}')
+                            logger.debug(f'consumer_requirement:::::: {consumer_requirement}')
+                            logger.debug(f'Annual Demand Offset:::::: {details["Annual Demand Offset"]}')
                             combo = Combination.objects.filter(combination=combination_key, requirement=consumer_requirement, annual_demand_offset=details["Annual Demand Offset"]).first()
                             terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
 
@@ -1760,6 +1762,7 @@ class ConsumptionPatternAPI(APIView):
                 "credit_rating": consumer.credit_rating,
                 "state": consumption.requirement.state,
                 "tariff_category": consumption.requirement.tariff_category,
+                "voltage_level": consumption.requirement.voltage_level,
                 "contracted_demand": consumption.requirement.contracted_demand,
                 "industry": consumption.requirement.industry
             }
