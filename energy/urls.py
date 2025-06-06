@@ -1,7 +1,5 @@
 from django.contrib import admin
 from django.urls import path
-from django.conf import settings
-from django.conf.urls.static import static
 from . import views
 
 urlpatterns = [
@@ -51,4 +49,4 @@ urlpatterns = [
     path('offline-payment', views.OfflinePaymentAPI.as_view(), name='offline_payment'),
     path('demand-summary/<int:user_id>', views.DemandSummaryAPI.as_view(), name='demand_summary'),
 
-]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+]

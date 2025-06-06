@@ -289,11 +289,8 @@ class GenerationPortfolioAPI(APIView):
                 traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
                 return Response({"error": f"{str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # logger.debug(f"request.message= {message}")
         serializer = serializer_class(instance, data=request.data)
         if serializer.is_valid():
-            logger.debug('serializer is valid')
-            logger.debug(f'serializer.data= {serializer.data}')
             serializer.save()
             response_data = serializer.data
             response_data['energy_type'] = energy_type
