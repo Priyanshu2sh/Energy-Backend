@@ -258,8 +258,8 @@ class GenerationPortfolioAPI(APIView):
                     current_year = datetime.now().year
                     # is_leap_year = (current_year % 4 == 0 and current_year % 100 != 0) or (current_year % 400 == 0)
                     required_rows = 8760
-                    print(f'shape= {df.shape[0]}')
-                    print(f'df= {df}')
+                    logger.debug(f'shape= {df.shape[0]}')
+                    logger.debug(f'df= {df}')
 
                     # Verify row count
                     if df.shape[0] != required_rows:
@@ -292,6 +292,8 @@ class GenerationPortfolioAPI(APIView):
         # logger.debug(f"request.message= {message}")
         serializer = serializer_class(instance, data=request.data)
         if serializer.is_valid():
+            logger.debug('serializer is valid')
+            logger.debug(f'serializer.data= {serializer.data}')
             serializer.save()
             response_data = serializer.data
             response_data['energy_type'] = energy_type
@@ -526,6 +528,14 @@ class MonthlyConsumptionDataAPI(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            try:
+                consumer_requirement = ConsumerRequirements.objects.get(id=requirement)
+            except ConsumerRequirements.DoesNotExist:
+                return Response(
+                    {"error": "Invalid requirement ID."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             # Check if the record exists
             instance = MonthlyConsumptionData.objects.filter(
                 requirement=requirement, month=month
@@ -545,6 +555,9 @@ class MonthlyConsumptionDataAPI(APIView):
                     serializer.save()
                 else:
                     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Call the calculate_hourly_demand method
+        OptimizeCapacityAPI.calculate_hourly_demand(consumer_requirement, consumer_requirement.state)
 
         return Response(
             {"message": "Data processed successfully."},
