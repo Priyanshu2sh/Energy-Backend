@@ -259,7 +259,7 @@ class GenerationPortfolioAPI(APIView):
                     # is_leap_year = (current_year % 4 == 0 and current_year % 100 != 0) or (current_year % 400 == 0)
                     required_rows = 8760
                     logger.debug(f'shape= {df.shape[0]}')
-                    logger.debug(f'df= {df}')
+                    logger.debug(f'df= {df.head(20)}')
 
                     # Verify row count
                     if df.shape[0] != required_rows:
@@ -290,6 +290,7 @@ class GenerationPortfolioAPI(APIView):
                 return Response({"error": f"{str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = serializer_class(instance, data=request.data)
+        logger.debug(f"serializer data: {serializer.data}")
         if serializer.is_valid():
             serializer.save()
             response_data = serializer.data
