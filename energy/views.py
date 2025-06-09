@@ -290,9 +290,9 @@ class GenerationPortfolioAPI(APIView):
                 return Response({"error": f"{str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = serializer_class(instance, data=request.data)
-        logger.debug(f"serializer data: {serializer.data}")
         if serializer.is_valid():
             serializer.save()
+            logger.debug(f"serializer data: {serializer.data}")
             response_data = serializer.data
             response_data['energy_type'] = energy_type
             response_data['message'] = message
