@@ -1423,6 +1423,7 @@ class OptimizeCapacityAPI(APIView):
                                 "marginal_cost": wind.expected_tariff * 1000,
                                 "capital_cost": wind.capital_cost,
                             }
+                    logger.debug(f'wind_input_data: {input_data}')
 
                     # Add ESS projects if ess_data exists
                     if ess_data.exists():
