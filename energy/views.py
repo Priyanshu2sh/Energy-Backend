@@ -1336,11 +1336,21 @@ class OptimizeCapacityAPI(APIView):
                     ).filter(
                         Q(state=consumer_requirement.state) | Q(connectivity="CTU")
                     )
+
+                    logger.debug('Before connectivity filtering:')
+                    logger.debug(f'solar_data: {solar_data}')
+                    logger.debug(f'wind_data: {wind_data}') 
+                    logger.debug(f'ess_data: {ess_data}')
                     
                     # separating combinations based on connectivity 
                     solar_data = solar_data.filter(connectivity=connectivity)
                     wind_data = wind_data.filter(connectivity=connectivity)
                     ess_data = ess_data.filter(connectivity=connectivity)
+
+                    logger.debug('After connectivity filtering:')
+                    logger.debug(f'solar_data: {solar_data}')
+                    logger.debug(f'wind_data: {wind_data}') 
+                    logger.debug(f'ess_data: {ess_data}')
 
                     portfolios = list(chain(solar_data, wind_data, ess_data))
 
@@ -2282,11 +2292,11 @@ class NegotiateTariffView(APIView):
         now_time = timezone.now()
 
         tz = timezone.get_current_timezone()
-        start_date = timezone.now().date() + timedelta(days=1)
+        start_date = timezone.now().date() + timedelta(weeks=1)
 
         while True:
-            # Skip Sundays
-            if start_date.weekday() == 6:
+            # Skip Saturdays and Sundays
+            if start_date.weekday() in [5, 6]:
                 start_date += timedelta(days=1)
                 continue
             # Skip National Holidays
