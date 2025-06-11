@@ -1639,6 +1639,7 @@ class OptimizeCapacityAPI(APIView):
                                     "sent_from_you": sent_from_you,
                                     "connectivity": connectivity,
                                     "re_index": re_index,
+                                    "elite_generator": generator.elite_generator,
                                     "per_unit_savings": grid_tariff.cost - details['Per Unit Cost'] - ISTS_charges - master_record.state_charges,
                                     "capital_cost_solar": capital_cost_solar,
                                     "capital_cost_wind": capital_cost_wind,
@@ -1892,6 +1893,7 @@ class StandardTermsSheetAPI(APIView):
                             "solar": record.combination.optimal_solar_capacity,
                             "wind": record.combination.optimal_wind_capacity,
                             "ess": record.combination.optimal_battery_capacity,
+                            "late_payment_surcharge": record.late_payment_surcharge,
                         }
 
                     transaction_window = NegotiationWindow.objects.filter(terms_sheet=record.id).first()
@@ -2121,7 +2123,7 @@ class SubscriptionEnrolledAPIView(APIView):
             
             subscription = SubscriptionEnrolled.objects.filter(user=pk)
             
-            subscription = SubscriptionEnrolled.objects.filter(user=pk, status='active').first()
+            subscription = SubscriptionEnrolled.objects.get(user=pk, status='active')
             
             data = {
                 "id": subscription.id,
@@ -2334,28 +2336,6 @@ class NegotiateTariffView(APIView):
                 
                 GeneratorOffer.objects.get_or_create(generator=user, tariff=tariff, updated_tariff=offer_tariff)
 
-                # Calculate the execution time (30 min after end_time)
-                # execute_at = negotiation_window.end_time + timedelta(minutes=1)
-                execute_at = datetime.now() + timedelta(minutes=1)
-
-                # Create a clocked schedule for the specific execution time
-                clocked_schedule, created = ClockedSchedule.objects.get_or_create(
-                    clocked_time=execute_at
-                )
-                
-
-                # Create a unique periodic task that runs one time
-                # task, created = PeriodicTask.objects.get_or_create(
-                #     name=f'negotiation_reminder_{tariff.id}',  # Unique task name
-                #     task='energy.tasks.send_negotiation_reminder',  # Celery task function
-                #     defaults={
-                #         'args': json.dumps([tariff.id, 1]),  # Pass window ID + attempt count (1st attempt)
-                #         'one_off': True,  # Runs only once
-                #         'enabled': True,
-                #         'clocked': clocked_schedule  # Assign the clocked schedule
-                #     }
-                # )
-
                 NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=terms_sheet.consumer)
                 NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=user)
 
@@ -2471,28 +2451,6 @@ class NegotiateTariffView(APIView):
             tariff.save()
 
             GeneratorOffer.objects.get_or_create(generator=negotiation_window.terms_sheet.combination.generator, tariff=tariff, updated_tariff=offer_tariff)
-
-            # Calculate the execution time (30 min after end_time)
-            # execute_at = negotiation_window.end_time + timedelta(minutes=1)
-            execute_at = datetime.now() + timedelta(minutes=1)
-
-            # Create a clocked schedule for the specific execution time
-            clocked_schedule, created = ClockedSchedule.objects.get_or_create(
-                clocked_time=execute_at
-            )
-            
-
-            # Create a unique periodic task that runs one time
-            # task, created = PeriodicTask.objects.get_or_create(
-            #     name=f'negotiation_reminder_{tariff.id}',  # Unique task name
-            #     task='energy.tasks.send_negotiation_reminder',  # Celery task function
-            #     defaults={
-            #         'args': json.dumps([tariff.id, 1]),  # Pass window ID + attempt count (1st attempt)
-            #         'one_off': True,  # Runs only once
-            #         'enabled': True,
-            #         'clocked': clocked_schedule  # Assign the clocked schedule
-            #     }
-            # )
 
             NegotiationInvitation.objects.create(negotiation_window=negotiation_window,user=user)
 
@@ -2624,6 +2582,7 @@ class NegotiationWindowListAPI(APIView):
                     "solar": window.terms_sheet.combination.optimal_solar_capacity,
                     "wind": window.terms_sheet.combination.optimal_wind_capacity,
                     "ess": window.terms_sheet.combination.optimal_battery_capacity,
+                    "late_payment_surcharge": window.terms_sheet.late_payment_surcharge,
                 }
             })
 
@@ -2674,6 +2633,109 @@ class NegotiationWindowStatusView(APIView):
                 "message": "Negotiation window not found.",
             }, status=status.HTTP_404_NOT_FOUND)
     
+    def put(self, request):
+        user_id = request.data.get('user_id')
+        window_id = request.data.get('window_id')
+        new_date_str = request.data.get('date')  # Expecting format 'YYYY-MM-DD'
+
+        if not (user_id and window_id and new_date_str):
+            return Response({"error": "Missing required parameters."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Allow only consumers
+        if user.user_category != 'Consumer':  # Adjust this if user_type is stored differently
+            return Response({"error": "Only consumers can update the negotiation window date."}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            negotiation_window = NegotiationWindow.objects.get(id=window_id)
+        except NegotiationWindow.DoesNotExist:
+            return Response({"error": "Negotiation window not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        today = datetime.now().date()
+        old_start_date = negotiation_window.start_time.date()
+
+        # Don't allow change if the old date is today's date
+        if old_start_date == today:
+            return Response({"error": "You cannot change the date if it's already today's date."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Parse new date
+            new_date = datetime.strptime(new_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Preserve time parts, only change date
+        negotiation_window.start_time = make_aware(datetime.combine(new_date, negotiation_window.start_time.time()))
+        negotiation_window.end_time = make_aware(datetime.combine(new_date, negotiation_window.end_time.time()))
+        negotiation_window.save()
+
+        # Notify matching IPPsA and Generator
+        try:
+            terms_sheet = negotiation_window.terms_sheet
+            requirement = terms_sheet.combination.requirement
+            generator = terms_sheet.combination.generator
+            matching_ipps = MatchingIPP.objects.get(requirement=requirement)
+
+            state = requirement.state
+            industry = requirement.industry
+            sub_industry = requirement.sub_industry
+            consumption_unit = requirement.consumption_unit
+            demand = requirement.contracted_demand
+            date_msg = new_date.strftime("%d %B %Y")
+            time_msg = negotiation_window.start_time.strftime("%I:%M %p")
+
+            message = (
+                f"Negotiation window date has been updated by consumer {user.username} for Terms Sheet Demand - "
+                f"{state}, {industry}, {sub_industry}, {consumption_unit}, {demand} kWh. "
+                f"The new window timing is on {date_msg} at {time_msg}."
+            )
+
+            # Notify generator
+            send_notification(generator.id, message)
+            send_mail(
+                "Negotiation Window Date Updated",
+                message,
+                f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
+                [generator.email],
+                fail_silently=False,
+            )
+
+            # Notify all IPPsA participants
+            for ippsa_id in matching_ipps.generator_ids:
+                if ippsa_id == user.id:
+                    continue
+                try:
+                    ippsa_user = User.objects.get(id=ippsa_id)
+                    send_notification(ippsa_user.id, message)
+                    send_mail(
+                        "Negotiation Window Date Updated",
+                        message,
+                        f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
+                        [ippsa_user.email],
+                        fail_silently=False,
+                    )
+                except User.DoesNotExist:
+                    continue
+
+            # Notify the consumer themselves for confirmation
+            send_notification(user.id, message)
+            send_mail(
+                "Negotiation Window Date Updated",
+                message,
+                f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
+                [user.email],
+                fail_silently=False,
+            )
+
+        except Exception as e:
+            return Response({"error": f"Update successful, but notification failed: {str(e)}"}, status=500)
+
+        return Response({"message": "Window date updated and notifications sent successfully."}, status=200)
+
 
 class AnnualSavingsView(APIView):
     authentication_classes = [JWTAuthentication]

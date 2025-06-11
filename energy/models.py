@@ -331,6 +331,8 @@ class StandardTermsSheet(models.Model):
     consumer_is_read = models.BooleanField(default=False)
     generator_is_read = models.BooleanField(default=False)
     equity_contribution_required_from_consumer = models.FloatField(blank=True, null=True)
+    late_payment_surcharge = models.FloatField(default=1.25) # unit is %/month
+    termination_compensation = models.IntegerField(default=24) # number of months
 
     def save(self, *args, **kwargs):
         if not self.pk:  # If the object is new

@@ -61,6 +61,7 @@ class User(AbstractUser, PermissionsMixin):
     re_index = models.CharField(max_length=255, blank=True, null=True)
     elite_generator = models.BooleanField(default=False)
     credit_rating = models.CharField(max_length=255, blank=True, null=True)
+    credit_rating_proof = models.FileField(upload_to='credit_rating_proofs/', blank=True, null=True)
     last_visited_page = models.CharField(max_length=255, null=True, blank=True)
     selected_requirement_id = models.IntegerField(null=True, blank=True)
     registration_token = models.CharField(max_length=64, blank=True, null=True)  # Token for password setup

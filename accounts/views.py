@@ -1,3 +1,4 @@
+import base64
 import json
 from django.conf import settings
 import jwt
@@ -7,6 +8,8 @@ from rest_framework.response import Response
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework import status
+from django.core.files.base import ContentFile
+from energy.models import GeneratorOffer
 from .models import User
 from .serializers import UserSerializer, UserProfileUpdateSerializer
 from django.core.mail import send_mail
@@ -247,8 +250,8 @@ class LoginUser(APIView):
         if not check_password(password, user.password):
             return Response({'error': f'Email ({email}) found but password incorrect'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check if the user is verified (Consumer)
-        if user.user_category == 'Consumer' and user.verified_at is None:
+        # Check if the user is verified
+        if user.verified_at is None:
             return Response({'error': 'Please verify your email before logging in'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Generate JWT Token
@@ -261,6 +264,18 @@ class LoginUser(APIView):
 
         # Serialize user data using UserSerializer
         user_data = UserSerializer(user).data
+
+        if user.user_category == 'Generator':
+            if user.elite_generator == False:
+                offers = GeneratorOffer.objects.filter(generator=user, is_accepted=True)
+                if offers:
+                    total_capacity = 0
+                    for offer in offers:
+                        total_capacity += offer.tariff.terms_sheet.combination.optimal_solar_capacity + offer.tariff.terms_sheet.combination.optimal_wind_capacity + offer.tariff.terms_sheet.combination.optimal_battery_capacity
+
+                    if total_capacity > 100:
+                        user.elite_generator = True
+                        user.save()
 
         return Response({
             'message': 'Login successful',
@@ -304,7 +319,35 @@ class UpdateProfileAPI(APIView):
 
     def put(self, request, pk):
         user = User.objects.get(id=pk)
-        serializer = UserProfileUpdateSerializer(user, data=request.data, partial=True)
+        data = request.data.copy()
+
+        # Decode credit_rating_proof if provided in Base64
+        encoded_proof = data.get("credit_rating_proof")
+        if encoded_proof:
+            try:
+                decoded_file = base64.b64decode(encoded_proof)
+
+                # Check if it's a valid PDF (starts with %PDF)
+                if not decoded_file.startswith(b"%PDF"):
+                    return Response(
+                        {"error": "Uploaded file is not a valid PDF."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # Optional: You can perform validation like checking file headers/types
+                file_name = f"credit_rating_proof_{pk}.pdf"  # or .jpg, .png, etc. based on your expected type
+
+                # Convert to ContentFile
+                file_content = ContentFile(decoded_file, name=file_name)
+
+                # Replace encoded string with actual file in data
+                data["credit_rating_proof"] = file_content
+
+            except Exception as e:
+                return Response({"error": "Invalid Base64 for credit_rating_proof", "details": str(e)},
+                                status=status.HTTP_400_BAD_REQUEST)
+            
+        serializer = UserProfileUpdateSerializer(user, data=data, partial=True)
 
         if serializer.is_valid():
             serializer.save()

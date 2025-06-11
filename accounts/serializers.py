@@ -33,4 +33,6 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
             "mobile",
             "company",
             "company_representative",
+            "credit_rating",
+            "credit_rating_proof",
         ]

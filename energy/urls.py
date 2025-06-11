@@ -29,6 +29,7 @@ urlpatterns = [
     path('negotiate-tariff-view', views.NegotiateTariffView.as_view(), name='negotiate_tariff_view'),
     path('negotiate-window-list/<int:user_id>', views.NegotiationWindowListAPI.as_view(), name='negotiate_window_list'),
     path('negotiate-window/<int:user_id>/<int:window_id>', views.NegotiationWindowStatusView.as_view(), name='negotiate_window'),
+    path('negotiate-window', views.NegotiationWindowStatusView.as_view(), name='negotiate_window'),
     path('annual-saving', views.AnnualSavingsView.as_view(), name='annual_saving'),
     path('what-we-offer', views.WhatWeOfferAPI.as_view(), name='what_we_offer'),
     path('last-visited-page', views.LastVisitedPageAPI.as_view(), name='last_visited_page'),
