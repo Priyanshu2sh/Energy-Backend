@@ -16,7 +16,7 @@ class SolarPortfolioSerializer(serializers.ModelSerializer):
         model = SolarPortfolio
         fields = ['id', 'user', 'state', 'connectivity', 'site_name', 'available_capacity', 'cod',
                   'total_install_capacity', 'capital_cost', 'expected_tariff',
-                  'hourly_data', 'annual_generation_potential', 'updated'] 
+                  'hourly_data', 'annual_generation_potential', 'updated', 'banking_available'] 
         extra_kwargs = {
             'total_install_capacity': {'required': False},
             'capital_cost': {'required': False},
@@ -24,6 +24,7 @@ class SolarPortfolioSerializer(serializers.ModelSerializer):
             'hourly_data': {'required': False},
             'annual_generation_potential': {'required': False},
             'updated': {'read_only': True},  # Prevent manual update of this field
+            'banking_available': {'required': False},
         }
     
     def update(self, instance, validated_data):
@@ -46,7 +47,7 @@ class WindPortfolioSerializer(serializers.ModelSerializer):
         model = WindPortfolio
         fields = ['id', 'user', 'state', 'connectivity', 'site_name', 'available_capacity', 'cod',
                   'total_install_capacity', 'capital_cost', 'expected_tariff',
-                  'hourly_data', 'annual_generation_potential', 'updated'] 
+                  'hourly_data', 'annual_generation_potential', 'updated', 'banking_available'] 
         extra_kwargs = {
             'total_install_capacity': {'required': False},
             'capital_cost': {'required': False},
@@ -54,6 +55,7 @@ class WindPortfolioSerializer(serializers.ModelSerializer):
             'hourly_data': {'required': False},
             'annual_generation_potential': {'required': False},
             'updated': {'read_only': True},  # Prevent manual update of this field
+            'banking_available': {'required': False},
         }
     
     def update(self, instance, validated_data):

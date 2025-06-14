@@ -153,6 +153,7 @@ class SolarPortfolio(models.Model):
     updated = models.BooleanField(default=False)
     hourly_data = models.FileField(upload_to='hourly_data/', blank=True, null=True)
     annual_generation_potential = models.FloatField(blank=True, null=True)
+    banking_available = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         if not self.pk:  # If the instance is being created (not updated)
@@ -181,6 +182,7 @@ class WindPortfolio(models.Model):
     updated = models.BooleanField(default=False)
     hourly_data = models.FileField(upload_to='hourly_data/', blank=True, null=True)
     annual_generation_potential = models.FloatField(blank=True, null=True)
+    banking_available = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         if not self.pk:  # If the instance is being created (not updated)
@@ -479,6 +481,7 @@ class NegotiationWindow(models.Model):
     terms_sheet = models.ForeignKey(StandardTermsSheet, on_delete=models.CASCADE)
     start_time = models.DateTimeField(default=now)
     end_time = models.DateTimeField()
+    created_date = models.DateField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
         if not self.name:
@@ -503,6 +506,7 @@ class MasterTable(models.Model):
     state = models.CharField(max_length=200)
     ISTS_charges = models.FloatField()
     state_charges = models.FloatField()
+    banking_charges = models.FloatField(default=8, help_text="Banking charges in percentage (default = 8% now for all states)")
 
 class RETariffMasterTable(models.Model):
     industry = models.CharField(max_length=255)
