@@ -12,6 +12,10 @@ logger = logging.getLogger('debug_logger')  # Use the new debug logger
 
 def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None, re_replacement=None, valid_combinations=None, OA_cost=None, curtailment_selling_price=None, sell_curtailment_percentage=None, annual_curtailment_limit=None):
     
+    ipp_name = None
+    solar = None
+    wind = None
+    ess = None
     if consumer_demand_path != None:
         demand_file = pd.read_excel(consumer_demand_path)
         demand_file = demand_file.groupby(demand_file.index // 2).mean()
@@ -89,6 +93,10 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
 
                         # Process combination of Solar, Wind, and Battery
                         logger.debug(f"IPP : {ipp} Combination of Solar: {solar_project}, Wind: {wind_project}, Battery: {ess_name}")
+                        ipp_name = ipp
+                        solar = solar_project
+                        wind = wind_project
+                        ess = ess_name
 
                         # if f'{ipp}-{solar_project}-{wind_project}-{ess_name}' in valid_combinations:
                         #     continue
@@ -127,6 +135,9 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
 
                         # Process combination of Solar, Wind, and Battery
                     logger.debug(f"IPP : {ipp} Combination of Solar: {solar_project}, Wind: {wind_project}")
+                    ipp_name = ipp
+                    solar = solar_project
+                    wind = wind_project
 
                     # if f'{ipp}-{solar_project}-{wind_project}' in valid_combinations:
                     #         continue
@@ -175,6 +186,9 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
 
                         # Process combination of Solar, Wind, and Battery
                         logger.debug(f"IPP : {ipp} Combination of Solar: {solar_project}, Battery: {ess_name}")
+                        ipp_name = ipp
+                        solar = solar_project
+                        ess = ess_name
 
                         # if f'{ipp}-{solar_project}-{ess_name}' in valid_combinations:
                         #     continue
@@ -222,6 +236,9 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
 
                         # Process combination of Solar, Wind, and Battery
                         logger.debug(f"IPP : {ipp} Combination of Wind: {wind_project}, Battery: {ess_name}")
+                        ipp_name = ipp
+                        wind = wind_project
+                        ess = ess_name
 
                         # if f'{ipp}-{wind_project}-{ess_name}' in valid_combinations:
                         #     continue
@@ -255,6 +272,8 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                 wind_name=wind_project
 
                 logger.debug(f"IPP : {ipp} Combination of wind: {wind_project}")
+                ipp_name = ipp
+                wind = wind_project
 
                 # if f'{ipp}-{wind_project}' in valid_combinations:
                 #             continue
@@ -284,6 +303,8 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                 solar_name=solar_project
 
                 logger.debug(f"IPP : {ipp} Combination of Solar: {solar_project}")
+                ipp_name = ipp
+                solar = solar_project
 
                 # if f'{ipp}-{solar_project}' in valid_combinations:
                 #             continue
@@ -321,5 +342,9 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
       return sorted_dict
     else:
       logger.debug("The demand cannot be met by the IPPs")
-      return "The demand cannot be met by the IPPs"
+      return {"error": "The demand cannot be met by the IPPs",
+              "ipp": ipp_name,
+              "solar": solar,
+              "wind": wind,
+              "ess": ess}
 
