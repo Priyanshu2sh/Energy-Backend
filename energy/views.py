@@ -352,10 +352,6 @@ class ConsumerRequirementsAPI(APIView):
         serializer = ConsumerRequirementsSerializer(instance, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-
-            # Call the calculate_hourly_demand method
-            OptimizeCapacityAPI.calculate_hourly_demand(instance, instance.state)
-
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
