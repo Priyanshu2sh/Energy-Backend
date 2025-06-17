@@ -1746,6 +1746,7 @@ class OptimizeCapacityAPI(APIView):
                             component_3 = components[3] if len(components) > 3 else None  # Example: 'ESS_1' (if present)
 
                             generator = User.objects.get(username=username)
+                            logger.debug(f'generator: {generator.username}')
 
                             solar = wind = ess = None
                             solar_state = wind_state = ess_state = None
@@ -1760,6 +1761,7 @@ class OptimizeCapacityAPI(APIView):
 
                             # Fetch solar, wind, and ESS components and their CODs
                             if component_1:
+                                logger.debug('component 1')
                                 if 'Solar' in component_1:
                                     solar, solar_cod, solar_state, solar_site, solar_capital_cost = get_component_and_cod(component_1, generator, SolarPortfolio)
                                 elif 'Wind' in component_1:
@@ -1768,12 +1770,14 @@ class OptimizeCapacityAPI(APIView):
                                     ess, ess_cod, ess_state, ess_site, ess_capital_cost = get_component_and_cod(component_1, generator, ESSPortfolio)
 
                             if component_2:
+                                logger.debug('component 2')
                                 if 'Wind' in component_2:
                                     wind, wind_cod, wind_state, wind_site, wind_capital_cost = get_component_and_cod(component_2, generator, WindPortfolio)
                                 elif 'ESS' in component_2:
                                     ess, ess_cod, ess_state, ess_site, ess_capital_cost = get_component_and_cod(component_2, generator, ESSPortfolio)
 
                             if component_3:
+                                logger.debug('component 3')
                                 if 'ESS' in component_3:
                                     ess, ess_cod, ess_state, ess_site, ess_capital_cost = get_component_and_cod(component_3, generator, ESSPortfolio)
 
@@ -1783,12 +1787,12 @@ class OptimizeCapacityAPI(APIView):
                             greatest_cod = max(cod_dates) if cod_dates else None
 
                             if solar:
-                                logger.debug(f'ssss: {solar.connectivity} {solar.banking_available}')
+                                logger.debug(f'ssss: {solar.connectivity} {solar.banking_available} {solar.user.username}')
                             else:
                                 logger.debug('nooooo solar')
 
                             if wind:
-                                logger.debug(f'ssss: {wind.connectivity} {wind.banking_available}')
+                                logger.debug(f'ssss: {wind.connectivity} {wind.banking_available} {wind.user.username}')
                             else:
                                 logger.debug('nooooo wind')
 
