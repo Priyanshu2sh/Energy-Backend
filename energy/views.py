@@ -3568,7 +3568,7 @@ class CapacitySizingAPI(APIView):
             response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, curtailment_selling_price=curtailment_selling_price, sell_curtailment_percentage=sell_curtailment_percentage, annual_curtailment_limit=annual_curtailment_limit)
             logger.debug(f'capacity sizing output: {response_data}')
             # if response_data == 'The demand cannot be met by the IPPs':
-            if not response_data.get('error'):
+            if response_data.get('error'):
                 return Response({"error": "The demand cannot be met by the IPPs."}, status=status.HTTP_200_OK)
             
             for combination_key, details in response_data.items():
