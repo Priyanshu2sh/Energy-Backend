@@ -1806,6 +1806,7 @@ class OptimizeCapacityAPI(APIView):
 
                             banking_available = False
                             banking_charges = 0
+                            logger.debug('not entered in condition..............')
                             if any([banking_data["solar_id"], banking_data["wind_id"]]):
                                 logger.debug('entered in condition..............')
                                 try:
@@ -1820,7 +1821,7 @@ class OptimizeCapacityAPI(APIView):
                                         banking_available = True
                                         banking_charges = banking_result
                                     else:
-                                        logger.warning(f"BankingCharges API failed: {banking_response.content}")
+                                        logger.error(f"BankingCharges API failed: {banking_response.content}")
                                 except Exception as e:
                                     logger.error(f"Error calling BankingCharges API: {e}")
 
