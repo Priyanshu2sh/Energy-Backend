@@ -49,5 +49,6 @@ urlpatterns = [
     path('holiday-list', views.HolidayListAPI.as_view(), name='holiday_list'),
     path('offline-payment', views.OfflinePaymentAPI.as_view(), name='offline_payment'),
     path('demand-summary/<int:user_id>', views.DemandSummaryAPI.as_view(), name='demand_summary'),
+    path('banking-charges', views.BankingCharges.as_view(), name='banking_charges'),
 
 ]

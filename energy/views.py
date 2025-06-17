@@ -1129,6 +1129,241 @@ class PortfolioUpdateStatusView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class BankingCharges(APIView):
+    # authentication_classes = [JWTAuthentication]
+    # permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def calculate_monthly_slot_generation(profile, state):
+        """
+        Calculates monthly generation totals split into:
+        - Peak Slot 1
+        - Peak Slot 2
+        - Off-Peak
+        - Normal
+        using 8760-hour profile and state's PeakHours.
+        """
+        # Load PeakHours config
+        try:
+            peak_config = PeakHours.objects.get(state__name=state)
+        except PeakHours.DoesNotExist:
+            raise ValueError(f"No PeakHours defined for state: {state}")
+
+        # Step 1: Build datetime range for the year (non-leap year)
+        base_date = datetime(datetime.now().year, 1, 1)
+        datetimes = [base_date + timedelta(hours=i) for i in range(8760)]
+        
+        df = pd.DataFrame({
+            "datetime": datetimes,
+            "generation": profile
+        })
+
+        df["month"] = df["datetime"].dt.month
+        df["time"] = df["datetime"].dt.time
+
+        # Helper to check if a time falls in a given slot
+        def in_slot(t, start, end):
+            if not start or not end:
+                return False
+            if start <= end:
+                return start <= t < end
+            else:
+                return t >= start or t < end  # spans midnight
+
+        # Classify time slot
+        def classify_slot(t):
+            if in_slot(t, peak_config.peak_start_1, peak_config.peak_end_1):
+                return "peak_1"
+            elif in_slot(t, peak_config.peak_start_2, peak_config.peak_end_2):
+                return "peak_2"
+            elif in_slot(t, peak_config.off_peak_start, peak_config.off_peak_end):
+                return "off_peak"
+            else:
+                return "normal"
+
+        df["slot"] = df["time"].apply(classify_slot)
+
+        # Aggregate month-wise
+        monthly_data = defaultdict(lambda: {"peak_1": 0.0, "peak_2": 0.0, "off_peak": 0.0, "normal": 0.0})
+
+        for _, row in df.iterrows():
+            m = row["month"]
+            slot = row["slot"]
+            monthly_data[m][slot] += row["generation"]
+
+        # Round results
+        result = {
+            month: {k: round(v, 2) for k, v in slots.items()}
+            for month, slots in monthly_data.items()
+        }
+
+        return result
+
+    @staticmethod
+    def banking_price_calculations(final_monthly_dict, generation_monthly, capacity, master_data, per_unit_cost):
+
+        capacity = 1
+        adjusted_dict = {}
+        for month in final_monthly_dict:
+            # Get corresponding data
+            final_data = final_monthly_dict.get(month, {})
+            solar_data = generation_monthly.get(month, {})
+            adjusted_dict[month] = {}
+            banked = 0
+            not_met = 0
+            for key in ['peak_1', 'peak_2', 'normal', 'off_peak']:
+                final_value = final_data.get(key, 0)
+                solar_value = solar_data.get(key, 0)
+                # Subtract solar from actual and multiply
+                adjusted_value = round(final_value - (solar_value * capacity) - banked, 2)
+                logger.debug(f'banked: {banked}')
+                logger.debug(f'not_met: {not_met}')
+                logger.debug(f'adjusted_value: {adjusted_value}')
+                logger.debug('--------------------------------')
+
+                while True:
+                    # if the demand is not met
+                    if adjusted_value > 0:
+                        if banked == 0:
+                            not_met += adjusted_value
+                            break
+                        else:
+                            adjusted_value -= banked
+                    # extra generation
+                    else:
+                        banked = abs(adjusted_value) * (1 - (master_data.banking_charges/100))
+                        adjusted_dict[month]['curtailment'] = abs(adjusted_value)
+                        break
+
+                adjusted_dict[month][key] = adjusted_value
+                adjusted_dict[month]['not_met'] = not_met
+
+        # ✅ Result:
+        logger.debug(f'adjusted values: {adjusted_dict}')
+        total_unmet = sum(month_data["not_met"] for month_data in adjusted_dict.values())
+        print("Total unmet:", total_unmet)
+
+        total_demand = 0
+        for month_data in final_monthly_dict.values():
+            total_demand += sum(month_data.values())
+        print("Total Demand:", total_demand)
+
+        demand_met = total_demand - total_unmet
+        total_generation = 0
+        for month_data in generation_monthly.values():
+            total_generation += sum(month_data.values())
+        print("Total Generation:", total_generation)
+
+        re_replacement = 1 - (total_unmet / total_demand)
+        print("Re Replacement:", re_replacement)
+
+        generation_price = capacity * total_generation * per_unit_cost
+        print(f"Generation Price: {generation_price}")
+
+        banking_price = round(generation_price / demand_met, 2) # INR/MWh
+        print(f"Banking Price: {banking_price}")
+
+        return {
+            "adjusted_dict": adjusted_dict,
+            "total_unmet": total_unmet,
+            "total_demand": total_demand,
+            "demand_met": demand_met,
+            "total_generation": total_generation,
+            "re_replacement": re_replacement * 100,
+            "generation_price": generation_price,
+            "banking_price": banking_price
+        }
+
+    def post(self, request):
+        data = request.data  # JSON body
+
+        requirement = data.get("requirement")
+        solar_id = data.get("solar_id")
+        wind_id = data.get("wind_id")
+        numeric_hourly_demand = data.get("numeric_hourly_demand")
+        per_unit_cost = data.get("per_unit_cost")
+        logger.debug(f'Per unit cost------------- {per_unit_cost}')
+
+        try:
+            requirement = ConsumerRequirements.objects.get(id=requirement)
+            master_data = MasterTable.objects.get(state=requirement.state)
+            monthly_consumption = MonthlyConsumptionData.objects.filter(requirement=requirement)
+            peak_config = PeakHours.objects.get(state__name=requirement.state)
+            solar = SolarPortfolio.objects.get(id=solar_id) if solar_id else None
+            wind = WindPortfolio.objects.get(id=wind_id) if wind_id else None
+
+            solar_monthly = {}
+            wind_monthly = {}
+
+            if solar:
+                profile = OptimizeCapacityAPI.extract_profile_data(solar.hourly_data.path)
+                state = solar.state
+                solar_monthly = self.calculate_monthly_slot_generation(profile, state)
+                logger.debug(f'Solar monthly data: {solar_monthly}')
+                
+            if wind:
+                profile = OptimizeCapacityAPI.extract_profile_data(wind.hourly_data.path)
+                state = wind.state
+                wind_monthly = self.calculate_monthly_slot_generation(profile, state)
+                logger.debug(f'Wind monthly data: {wind_monthly}')
+
+            final_monthly_dict = {}
+            if peak_config.peak_start_1 and peak_config.peak_end_1 and peak_config.peak_start_2 and peak_config.peak_end_2:
+                
+                peak_1_hours = peak_config.peak_end_1.hour - peak_config.peak_start_1.hour
+                peak_2_hours = peak_config.peak_end_2.hour - peak_config.peak_start_2.hour
+                total_peak_hours = peak_1_hours + peak_2_hours
+
+                for month_data in monthly_consumption:
+                    # Get month number from name
+                    month_number = list(calendar.month_name).index(month_data.month)
+                    if month_number == 0:
+                        continue  # skip invalid month
+
+                    days_in_month = monthrange(2025, month_number)[1]
+                    total_peak_consumption = month_data.peak_consumption
+
+                    # Split peak consumption
+                    peak_1_consumption = round((peak_1_hours / total_peak_hours) * total_peak_consumption, 2)
+                    peak_2_consumption = round((peak_2_hours / total_peak_hours) * total_peak_consumption, 2)
+
+                    off_peak_value = month_data.off_peak_consumption
+
+                    normal_value = round(
+                        month_data.monthly_consumption - (total_peak_consumption + off_peak_value), 2
+                    )
+
+                    # Save to dictionary
+                    final_monthly_dict[month_number] = {
+                        'peak_1': peak_1_consumption,
+                        'peak_2': peak_2_consumption,
+                        'off_peak': off_peak_value,
+                        'normal': normal_value
+                    }
+            
+            logger.debug(f'final_monthly_dict: {final_monthly_dict}')
+
+            results_solar = None
+            if solar:
+                results_solar = self.banking_price_calculations(final_monthly_dict, solar_monthly, 1, master_data, per_unit_cost)
+
+            results_wind = None
+            if wind:
+                results_wind = self.banking_price_calculations(final_monthly_dict, wind_monthly, 1, master_data, per_unit_cost)
+
+            final_response = {
+                "solar": results_solar,
+                "wind": results_wind
+            }
+
+            return Response(final_response, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            tb = traceback.format_exc()  # Get the full traceback
+            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 class OptimizeCapacityAPI(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -1547,6 +1782,50 @@ class OptimizeCapacityAPI(APIView):
                             cod_dates = [date for date in cod_dates if date is not None]
                             greatest_cod = max(cod_dates) if cod_dates else None
 
+                            
+                            # Prepare query parameters for the GET request
+                            banking_data = {
+                                "requirement": consumer_requirement.id,
+                                "numeric_hourly_demand": list(numeric_hourly_demand),
+                                "solar_id": solar.id if solar and solar.connectivity == 'STU' and solar.banking_available else None,
+                                "wind_id": wind.id if wind and wind.connectivity == 'STU' and wind.banking_available else None,
+                                "per_unit_cost": round(details["Per Unit Cost"] / 1000, 2)
+                            }
+                            
+                            # Forward token received from frontend
+                            auth_header = request.META.get('HTTP_AUTHORIZATION')  # 'Bearer <token>'
+                            headers = {
+                                "Authorization": auth_header,
+                                "Content-Type": "application/json"
+                            }
+                            if settings.ENVIRONMENT == 'local':
+                                logger.debug('Local environment detected')
+                                url="http://127.0.0.1:8000/api/energy/banking-charges"
+                            else:
+                                url="https://ext.exgglobal.com/api/api/energy/banking-charges"
+
+                            banking_available = False
+                            banking_charges = 0
+                            if any([banking_data["solar_id"], banking_data["wind_id"]]):
+                                logger.debug('entered in condition..............')
+                                try:
+                                    banking_response = requests.post(
+                                        url=url,
+                                        json=banking_data,
+                                        # headers=headers
+                                    )
+                                    if banking_response.status_code == 200:
+                                        banking_result = banking_response.json()
+                                        logger.debug(f"BankingCharges result for {combination_key}: {banking_result}")
+                                        banking_available = True
+                                        banking_charges = banking_result
+                                    else:
+                                        logger.warning(f"BankingCharges API failed: {banking_response.content}")
+                                except Exception as e:
+                                    logger.error(f"Error calling BankingCharges API: {e}")
+
+
+
                             # Map each portfolio to its state
                             state = {}
                             if solar:
@@ -1642,6 +1921,8 @@ class OptimizeCapacityAPI(APIView):
                                     "capital_cost_solar": capital_cost_solar,
                                     "capital_cost_wind": capital_cost_wind,
                                     "capital_cost_ess": capital_cost_ess,
+                                    "banking_available": banking_available,
+                                    "banking_charges": banking_charges,
                                     "downloadable": {
                                         "consumer": mapped_username,
                                         "generator": generator.username,
