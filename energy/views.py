@@ -1745,7 +1745,7 @@ class OptimizeCapacityAPI(APIView):
         except Exception as e:
             tb = traceback.format_exc()  # Get the full traceback
             traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
-            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": str(e), "Traceback": tb}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 class ConsumptionPatternAPI(APIView):
     authentication_classes = [JWTAuthentication]
