@@ -1241,27 +1241,27 @@ class BankingCharges(APIView):
         # ✅ Result:
         logger.debug(f'adjusted values: {adjusted_dict}')
         total_unmet = sum(month_data["not_met"] for month_data in adjusted_dict.values())
-        print("Total unmet:", total_unmet)
+        logger.debug("Total unmet:", total_unmet)
 
         total_demand = 0
         for month_data in final_monthly_dict.values():
             total_demand += sum(month_data.values())
-        print("Total Demand:", total_demand)
+        logger.debug("Total Demand:", total_demand)
 
         demand_met = total_demand - total_unmet
         total_generation = 0
         for month_data in generation_monthly.values():
             total_generation += sum(month_data.values())
-        print("Total Generation:", total_generation)
+        logger.debug("Total Generation:", total_generation)
 
         re_replacement = 1 - (total_unmet / total_demand)
-        print("Re Replacement:", re_replacement)
+        logger.debug("Re Replacement:", re_replacement)
 
-        generation_price = capacity * total_generation * per_unit_cost
-        print(f"Generation Price: {generation_price}")
+        generation_price = capacity * total_generation * per_unit_cost * 1000
+        logger.debug(f"Generation Price: {generation_price}")
 
         banking_price = round(generation_price / demand_met, 2) # INR/MWh
-        print(f"Banking Price: {banking_price}")
+        logger.debug(f"Banking Price: {banking_price}")
 
         return {
             "adjusted_dict": adjusted_dict,
