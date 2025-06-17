@@ -537,24 +537,26 @@ class MonthlyConsumptionDataAPI(APIView):
 
             if instance:
                 # Update the existing record
-                serializer = MonthlyConsumptionDataSerializer(instance, data=item)
-                if serializer.is_valid():
-                    serializer.save()
-                else:
-                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                serializer = MonthlyConsumptionDataSerializer(instance, data=item, partial=True)
             else:
                 # Create a new record
                 serializer = MonthlyConsumptionDataSerializer(data=item)
-                if serializer.is_valid():
-                    serializer.save()
-                else:
-                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            if serializer.is_valid():
+                saved_instance = serializer.save()
+
+                # Check if any of the tracked fields are null
+                fields_to_check = ['monthly_consumption', 'peak_consumption', 'off_peak_consumption']
+                has_null = any(getattr(saved_instance, field) is None for field in fields_to_check)
+
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         # Call the calculate_hourly_demand method
         OptimizeCapacityAPI.calculate_hourly_demand(consumer_requirement, consumer_requirement.state)
 
         return Response(
-            {"message": "Data processed successfully."},
+            {"message": "Data processed successfully.", "fields_updated": not has_null},
             status=status.HTTP_200_OK,
         )
     
