@@ -552,8 +552,9 @@ class MonthlyConsumptionDataAPI(APIView):
             else:
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # Call the calculate_hourly_demand method
-        OptimizeCapacityAPI.calculate_hourly_demand(consumer_requirement, consumer_requirement.state)
+        if not has_null:
+            # Call the calculate_hourly_demand method
+            OptimizeCapacityAPI.calculate_hourly_demand(consumer_requirement, consumer_requirement.state)
 
         return Response(
             {"message": "Data processed successfully.", "fields_updated": not has_null},
