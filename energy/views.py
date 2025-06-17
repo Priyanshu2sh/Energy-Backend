@@ -1782,7 +1782,16 @@ class OptimizeCapacityAPI(APIView):
                             cod_dates = [date for date in cod_dates if date is not None]
                             greatest_cod = max(cod_dates) if cod_dates else None
 
-                            
+                            if solar:
+                                logger.debug(f'ssss: {solar.connectivity} {solar.banking_available}')
+                            else:
+                                logger.debug('nooooo solar')
+
+                            if wind:
+                                logger.debug(f'ssss: {wind.connectivity} {wind.banking_available}')
+                            else:
+                                logger.debug('nooooo wind')
+
                             # Prepare query parameters for the GET request
                             banking_data = {
                                 "requirement": consumer_requirement.id,
