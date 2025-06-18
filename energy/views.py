@@ -2886,7 +2886,7 @@ class NegotiationWindowListAPI(APIView):
                 "terms_sheet_id": window.terms_sheet.id,
                 "tariff_id": tariff.id,
                 "offer_tariff": round(tariff.offer_tariff, 2),
-                "tariff_status": "upcoming" if window.start_time > timezone.now() else tariff.window_status,
+                "tariff_status": "Upcoming" if window.start_time > timezone.now() else tariff.window_status,
                 "start_time": localtime(window.start_time).strftime('%Y-%m-%d %H:%M:%S'),
                 "end_time": localtime(window.end_time).strftime('%Y-%m-%d %H:%M:%S'),
                 "t_consumer": window.terms_sheet.consumer.id,
@@ -4080,6 +4080,10 @@ class SensitivityAPI(APIView):
             record = RETariffMasterTable.objects.filter(industry=consumer_requirement.industry).first()
             # Initialize final aggregated response
             aggregated_response = {}
+
+            if not combinations:
+                logger.error("No combinations provided.")
+                return Response({"error": "No combinations provided."}, status=400)
 
             for combination in combinations:
                 input_data = {}  # Initialize the final dictionary

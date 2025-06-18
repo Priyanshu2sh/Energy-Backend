@@ -17,7 +17,7 @@ import random
 from django.contrib.auth.hashers import check_password
 from django.utils.timezone import now
 from datetime import datetime, timedelta
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from twilio.rest import Client
 from django.utils.crypto import get_random_string
 from thefuzz import fuzz
@@ -423,6 +423,7 @@ class AddSubUser(APIView):
         return Response({'message': f'Sub-user {email} added successfully. An email has been sent to set their password.'}, status=status.HTTP_201_CREATED)
 
 class SetPassword(APIView):
+    permission_classes = [AllowAny]  
 
     def post(self, request, token):
         data = request.data
