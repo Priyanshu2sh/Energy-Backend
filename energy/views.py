@@ -1218,11 +1218,14 @@ class BankingCharges(APIView):
                 solar_value = solar_data.get(key, 0)
                 # Subtract solar from actual and multiply
                 adjusted_value = round(final_value - (solar_value * capacity) - banked, 2)
+
+                logger.debug(f'======={key}=======')
                 logger.debug(f'banked: {banked}')
                 logger.debug(f'not_met: {not_met}')
                 logger.debug(f'adjusted_value: {adjusted_value}')
                 logger.debug('--------------------------------')
-
+                if key == 'off_peak':
+                    banked = 0
                 while True:
                     # if the demand is not met
                     if adjusted_value > 0:
@@ -1298,12 +1301,14 @@ class BankingCharges(APIView):
             wind_monthly = {}
 
             if solar:
+                available_capacity_solar = solar.available_capacity
                 profile = OptimizeCapacityAPI.extract_profile_data(solar.hourly_data.path)
                 state = solar.state
                 solar_monthly = self.calculate_monthly_slot_generation(profile, state)
                 logger.debug(f'Solar monthly data: {solar_monthly}')
                 
             if wind:
+                available_capacity_wind = wind.available_capacity
                 profile = OptimizeCapacityAPI.extract_profile_data(wind.hourly_data.path)
                 state = wind.state
                 wind_monthly = self.calculate_monthly_slot_generation(profile, state)
@@ -1343,15 +1348,53 @@ class BankingCharges(APIView):
                         'normal': normal_value
                     }
             
-            logger.debug(f'final_monthly_dict: {final_monthly_dict}')
+
+            # final_monthly_dict = {1: {'peak_1': 135.718, 'peak_2': 0, 'off_peak': 135.718, 'normal': 157.561}, 2: {'peak_1': 142.975, 'peak_2': 0, 'off_peak': 142.975, 'normal': 162.059}, 3: {'peak_1': 135.531, 'peak_2': 0, 'off_peak': 135.531, 'normal': 150.038}, 4: {'peak_1': 142.832, 'peak_2': 0, 'off_peak': 142.832, 'normal': 165.669}, 5: {'peak_1': 154.122, 'peak_2': 0, 'off_peak': 154.122, 'normal': 181.509}, 6: {'peak_1': 147.186, 'peak_2': 0, 'off_peak': 147.186, 'normal': 172.573}, 7: {'peak_1': 159.819, 'peak_2': 0, 'off_peak': 159.819, 'normal': 195.103}, 8: {'peak_1': 154.073, 'peak_2': 0, 'off_peak': 154.073, 'normal': 185.739}, 9: {'peak_1': 152.705, 'peak_2': 0, 'off_peak': 152.705, 'normal': 181.539}, 10: {'peak_1': 113.608, 'peak_2': 0, 'off_peak': 113.608, 'normal': 108.177}, 11: {'peak_1': 110.183, 'peak_2': 0, 'off_peak': 110.183, 'normal': 97.058}, 12: {'peak_1': 112.441, 'peak_2': 0, 'off_peak': 112.441, 'normal': 108.886}}
+
+            # solar_monthly = {1: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 2: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 3: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 4: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 5: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 6: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 7: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 8: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 9: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 10: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 11: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 12: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}}
 
             results_solar = None
             if solar:
-                results_solar = self.banking_price_calculations(final_monthly_dict, solar_monthly, 1, master_data, per_unit_cost)
+                logger.debug(f'final_monthly_dict: {final_monthly_dict}')
+                logger.debug(f'solar_monthly: {solar_monthly}')
+                low = 1
+                high = available_capacity_solar
+                precision = 0.01
+                max_iterations = 100
+                for _ in range(max_iterations):
+                    mid = (low + high) / 2
+                    logger.debug(f'solar capacity---- {mid}')
+                    results_solar = self.banking_price_calculations(final_monthly_dict, solar_monthly, mid, master_data, per_unit_cost)
+                    current_re = results_solar["re_replacement"]
+
+                    if abs(current_re - 65) < precision:
+                        break
+                    elif current_re < 65:
+                        low = mid
+                    else:
+                        high = mid
+
 
             results_wind = None
             if wind:
-                results_wind = self.banking_price_calculations(final_monthly_dict, wind_monthly, 1, master_data, per_unit_cost)
+                logger.debug(f'final_monthly_dict: {final_monthly_dict}')
+                logger.debug(f'wind_monthly: {wind_monthly}')
+                low = 1
+                high = available_capacity_wind
+                precision = 0.01
+                max_iterations = 100
+                for _ in range(max_iterations):
+                    mid = (low + high) / 2
+                    logger.debug(f'wind capacity---- {mid}')
+                    results_wind = self.banking_price_calculations(final_monthly_dict, wind_monthly, mid, master_data, per_unit_cost)
+                    current_re = results_solar["re_replacement"]
+
+                    if abs(current_re - 65) < precision:
+                        break
+                    elif current_re < 65:
+                        low = mid
+                    else:
+                        high = mid
 
             final_response = {
                 "solar": results_solar,
