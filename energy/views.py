@@ -1205,7 +1205,6 @@ class BankingCharges(APIView):
     @staticmethod
     def banking_price_calculations(final_monthly_dict, generation_monthly, capacity, master_data, per_unit_cost):
 
-        capacity = 1
         adjusted_dict = {}
         for month in final_monthly_dict:
             # Get corresponding data
