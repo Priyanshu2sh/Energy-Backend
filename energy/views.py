@@ -1916,6 +1916,7 @@ class OptimizeCapacityAPI(APIView):
                                                 capital_cost_solar = solar.capital_cost
                                                 capital_cost_wind = 0
                                                 capital_cost_ess = 0
+                                                capacity = data['s_capacity']
                                             elif i == 1 and wind_data:
                                                 data = wind_data
                                                 state = wind.state
@@ -1924,6 +1925,7 @@ class OptimizeCapacityAPI(APIView):
                                                 capital_cost_solar = 0
                                                 capital_cost_wind = wind.capital_cost
                                                 capital_cost_ess = 0
+                                                capacity = data['w_capacity']
 
                                             combo = Combination.objects.filter(combination=data['combination'], requirement=consumer_requirement, annual_demand_offset=round(data["re_replacement"], 0)).first()
                                             terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
@@ -1971,6 +1973,7 @@ class OptimizeCapacityAPI(APIView):
                                             if data['combination'] not in aggregated_response:
                                                 aggregated_response[data['combination']] = {
                                                     **data,
+                                                    'capacity': capacity,
                                                     'Per Unit Cost': combo.per_unit_cost,
                                                     'Final Cost': combo.final_cost,
                                                     'OA_cost': ISTS_charges + master_record.state_charges,
