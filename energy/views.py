@@ -687,6 +687,7 @@ class CSVFileAPI(APIView):
                 Q(off_peak_consumption__isnull=True)
             ).values_list('month', flat=True)
 
+            fields_updated = True
             if not incomplete_months:
                 # Call the calculate_hourly_demand method
                 OptimizeCapacityAPI.calculate_hourly_demand(requirement, requirement.state)
