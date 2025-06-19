@@ -678,8 +678,20 @@ class CSVFileAPI(APIView):
                 monthly_consumption.monthly_bill_amount=float(row['Monthly Bill Amount (INR cr)'].replace(',', ''))
                 monthly_consumption.save()
 
+            # check if any required fields are null
+            incomplete_months = MonthlyConsumptionData.objects.filter(
+                requirement=requirement
+            ).filter(
+                Q(monthly_consumption__isnull=True) |
+                Q(peak_consumption__isnull=True) |
+                Q(off_peak_consumption__isnull=True)
+            ).values_list('month', flat=True)
+
+            if not incomplete_months:
                 # Call the calculate_hourly_demand method
                 OptimizeCapacityAPI.calculate_hourly_demand(requirement, requirement.state)
+            else:
+                fields_updated = False
 
             if not row_found:
                 return Response(
@@ -694,7 +706,7 @@ class CSVFileAPI(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
                 
-            return Response({'message': 'Success'}, status=status.HTTP_201_CREATED)
+            return Response({'message': 'Success', 'fields_updated': fields_updated, 'Note': 'Missing required values in monthly data.'}, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             tb = traceback.format_exc()  # Get the full traceback
