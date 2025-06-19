@@ -1258,11 +1258,11 @@ class BankingCharges(APIView):
 
         # ✅ Result:
         logger.debug(f'adjusted values: {adjusted_dict}')
-        total_unmet = sum(month_data["not_met"] for month_data in adjusted_dict.values())
+        total_unmet = sum(month_data.get("not_met", 0) for month_data in adjusted_dict.values())
         logger.debug(f"Total unmet: {total_unmet}")
 
         # curtailment
-        curtailment = sum(month_data["curtailment"] for month_data in adjusted_dict.values())
+        curtailment = sum(month_data.get("curtailment", 0) for month_data in adjusted_dict.values())
         logger.debug(f"Curtailment: {curtailment}")
 
         total_demand = 0
