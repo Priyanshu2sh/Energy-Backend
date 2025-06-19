@@ -1972,6 +1972,7 @@ class OptimizeCapacityAPI(APIView):
                                                 aggregated_response[data['combination']] = {
                                                     **data,
                                                     'Per Unit Cost': combo.per_unit_cost,
+                                                    'Final Cost': combo.final_cost,
                                                     'OA_cost': ISTS_charges + master_record.state_charges,
                                                     'ISTS_charges': ISTS_charges,
                                                     'state_charges': master_record.state_charges,
