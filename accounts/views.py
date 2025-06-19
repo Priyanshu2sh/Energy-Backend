@@ -423,6 +423,7 @@ class AddSubUser(APIView):
         return Response({'message': f'Sub-user {email} added successfully. An email has been sent to set their password.'}, status=status.HTTP_201_CREATED)
 
 class SetPassword(APIView):
+    authentication_classes = []
     permission_classes = [AllowAny]  
 
     def post(self, request, token):

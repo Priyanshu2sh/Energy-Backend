@@ -297,6 +297,7 @@ class Combination(models.Model):
     request_sent = models.BooleanField(default=False)
     terms_sheet_sent = models.BooleanField(default=False)
     connectivity = models.CharField(max_length=255, blank=True, null=True)
+    banking_available = models.BooleanField(default=False)
 
     def __str__(self):
         return f"{self.combination}"
