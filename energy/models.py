@@ -680,6 +680,8 @@ class CapacitySizingCombination(models.Model):
     curtailment = models.JSONField(blank=True, null=True)
     total_demand_met_by_allocation = models.JSONField(blank=True, null=True)
     demand_met = models.JSONField(blank=True, null=True)
+    state = models.JSONField(blank=True, null=True)
+    site_name = models.JSONField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.generator} - {self.record_name} - {self.combination}"
