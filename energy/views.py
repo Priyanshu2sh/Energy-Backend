@@ -1810,7 +1810,7 @@ class OptimizeCapacityAPI(APIView):
                     # if response_data != 'The demand cannot be met by the IPPs':
                     if not response_data.get('error'):
                         for combination_key, details in response_data.items():
-                        # Extract user and components from combination_key
+                            # Extract user and components from combination_key
                             components = combination_key.split('-')
                             
 
@@ -1861,15 +1861,6 @@ class OptimizeCapacityAPI(APIView):
                             cod_dates = [date for date in cod_dates if date is not None]
                             greatest_cod = max(cod_dates) if cod_dates else None
 
-                            if solar:
-                                logger.debug(f'ssss: {solar.connectivity} {solar.banking_available} {solar.user.username}')
-                            else:
-                                logger.debug('nooooo solar')
-
-                            if wind:
-                                logger.debug(f'ssss: {wind.connectivity} {wind.banking_available} {wind.user.username}')
-                            else:
-                                logger.debug('nooooo wind')
 
                             # Prepare query parameters for the GET request
                             banking_data = {
@@ -4043,7 +4034,68 @@ class CapacitySizingAPI(APIView):
                 return Response({"error": "The demand cannot be met by the IPPs."}, status=status.HTTP_200_OK)
             
             for combination_key, details in response_data.items():
-            # Extract user and components from combination_key                
+                # Extract user and components from combination_key
+                components = combination_key.split('-')
+                            
+                # Safely extract components, ensuring that we have enough elements
+                username = components[0] if len(components) > 0 else None  # Example: 'IPP241'
+                component_1 = components[1] if len(components) > 1 else None  # Example: 'Solar_1' (if present)
+                component_2 = components[2] if len(components) > 2 else None  # Example: 'Wind_1' (if present)
+                component_3 = components[3] if len(components) > 3 else None  # Example: 'ESS_1' (if present)
+
+                generator = User.objects.get(username=username)
+
+                solar = wind = ess = None
+                solar_state = wind_state = ess_state = None
+
+                # Helper function to fetch the component and its COD
+                def get_component_and_cod(component_name, generator, portfolio_model):
+                    try:
+                        portfolio = portfolio_model.objects.get(user=generator, project=component_name)
+                        return portfolio, portfolio.cod, portfolio.state, portfolio.site_name, portfolio.capital_cost
+                    except portfolio_model.DoesNotExist:
+                        return None, None, None, None, None
+
+                # Fetch solar, wind, and ESS components and their CODs
+                if component_1:
+                    logger.debug('component 1')
+                    if 'Solar' in component_1:
+                        solar, solar_cod, solar_state, solar_site, solar_capital_cost = get_component_and_cod(component_1, generator, SolarPortfolio)
+                    elif 'Wind' in component_1:
+                        wind, wind_cod, wind_state, wind_site, wind_capital_cost = get_component_and_cod(component_1, generator, WindPortfolio)
+                    elif 'ESS' in component_1:
+                        ess, ess_cod, ess_state, ess_site, ess_capital_cost = get_component_and_cod(component_1, generator, ESSPortfolio)
+
+                if component_2:
+                    logger.debug('component 2')
+                    if 'Wind' in component_2:
+                        wind, wind_cod, wind_state, wind_site, wind_capital_cost = get_component_and_cod(component_2, generator, WindPortfolio)
+                    elif 'ESS' in component_2:
+                        ess, ess_cod, ess_state, ess_site, ess_capital_cost = get_component_and_cod(component_2, generator, ESSPortfolio)
+
+                if component_3:
+                    logger.debug('component 3')
+                    if 'ESS' in component_3:
+                        ess, ess_cod, ess_state, ess_site, ess_capital_cost = get_component_and_cod(component_3, generator, ESSPortfolio)
+
+                # Map each portfolio to its state
+                state = {}
+                if solar:
+                    state[solar.project] = solar_state
+                if wind:
+                    state[wind.project] = wind_state
+                if ess:
+                    state[ess.project] = ess_state
+
+                # Map each portfolio to its site name
+                site_name = {}
+                if solar:
+                    site_name[solar.project] = solar_site
+                if wind:
+                    site_name[wind.project] = wind_site
+                if ess:
+                    site_name[ess.project] = ess_site
+
                 OA_cost = (details["Final Cost"] - details['Per Unit Cost']) / 1000
                 details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
                 details['Final Cost'] = details['Final Cost'] / 1000
@@ -4053,6 +4105,8 @@ class CapacitySizingAPI(APIView):
                     aggregated_response[combination_key] = {
                         **details,
                         'OA_cost': OA_cost,
+                        'state': state,
+                        'site_name': site_name
                     }
                 else:
                     # Merge the details if combination already exists
@@ -4523,7 +4577,7 @@ class SensitivityAPI(APIView):
                         filtered_parts = [str(part) for part in combi_parts if part is not None]
 
                         # Join with underscore
-                        combi = "_".join(filtered_parts)
+                        combi = "-".join(filtered_parts)
                         print(combi)
                         if combi not in aggregated_response:
                             aggregated_response[combi] = {}
