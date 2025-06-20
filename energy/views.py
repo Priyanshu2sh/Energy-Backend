@@ -1404,7 +1404,7 @@ class BankingCharges(APIView):
             if wind:
                 logger.debug(f'final_monthly_dict: {final_monthly_dict}')
                 logger.debug(f'wind_monthly: {wind_monthly}')
-                low = 1
+                low = 50
                 high = available_capacity_wind
                 precision = 0.01
                 max_iterations = 100
@@ -1414,7 +1414,7 @@ class BankingCharges(APIView):
                     results_wind = self.banking_price_calculations(final_monthly_dict, wind_monthly, mid, master_data, per_unit_cost)
                     current_re = results_solar["re_replacement"]
 
-                    if abs(current_re - 65) < precision or current_re == 0:
+                    if abs(current_re - 65) < precision:
                         break
                     elif current_re < 65:
                         low = mid
