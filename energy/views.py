@@ -1414,7 +1414,7 @@ class BankingCharges(APIView):
                     results_wind = self.banking_price_calculations(final_monthly_dict, wind_monthly, mid, master_data, per_unit_cost)
                     current_re = results_solar["re_replacement"]
 
-                    if abs(current_re - 65) < precision:
+                    if abs(current_re - 65) < precision or current_re == 0:
                         break
                     elif current_re < 65:
                         low = mid
@@ -4259,6 +4259,7 @@ class SensitivityAPI(APIView):
         optimize_capacity_user = data.get("optimize_capacity_user") #consumer or generator
         id = data.get("requirement_id")
         combinations = data.get("combinations")
+        per_unit_costs = data.get("per_unit_costs")
         
         try:
             # Fetch consumer details
@@ -4404,190 +4405,277 @@ class SensitivityAPI(APIView):
                                 "capital_cost": ess.capital_cost,
                             }
 
-            valid_combinations = []
+                valid_combinations = []
 
-            if new_list != generator.id:
+                if new_list != generator.id:
 
-                HourlyDemand.objects.get_or_create(requirement=consumer_requirement)
-                hourly_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
+                    HourlyDemand.objects.get_or_create(requirement=consumer_requirement)
+                    hourly_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
 
-                if hourly_demand and hourly_demand.hourly_demand is not None:
-                    # Split the comma-separated string into a list of values
-                    hourly_demand_list = hourly_demand.hourly_demand.split(',')
-                    # Convert list to a Pandas Series (ensures it has an index)
-                    hourly_demand_series = pd.Series(hourly_demand_list)
-                    # Convert all values to numeric (float), coercing errors to NaN
-                    hourly_demand = pd.to_numeric(hourly_demand_series, errors='coerce')
-                    # Print the numeric Series with index numbers
-                else:
-                    # monthly data conversion in hourly data
-                    hourly_demand = self.calculate_hourly_demand(consumer_requirement)
-                
-                # 8760 rows should be there if more then remove extra and if less then show error
-                if len(hourly_demand) > 8760:
-                    hourly_demand = hourly_demand.iloc[:8760]
-                elif len(hourly_demand) < 8760:
-                    padding_length = 8760 - len(hourly_demand)
-                    hourly_demand = pd.concat([hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
-                    
-                logger.debug(f'length: {len(hourly_demand)}')
-                re_replacement = 25
-                for i in range(1, 11):
-                    if i == 7:
-                        re_replacement = 80
-                    elif i == 8:
-                        re_replacement = 85
-                    elif i == 9:
-                        re_replacement = 90
-                    elif i == 10:
-                        re_replacement = 95
-                            
-                    logger.debug(re_replacement)
-                    logger.debug(input_data)
-                    response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, OA_cost=(ISTS_charges + master_record.state_charges)*1000)
-
-                    logger.debug('***********')
-                    logger.debug(f'response_data: {response_data}')
-
-                    # if response_data != 'The demand cannot be met by the IPPs':
-                    if not response_data.get('error'):
-                        for combination_key, details in response_data.items():
-                        # Extract user and components from combination_key
-                            components = combination_key.split('-')
-
-                            # Safely extract components, ensuring that we have enough elements
-                            username = components[0] if len(components) > 0 else None  # Example: 'IPP241'
-                            component_1 = components[1] if len(components) > 1 else None  # Example: 'Solar_1' (if present)
-                            component_2 = components[2] if len(components) > 2 else None  # Example: 'Wind_1' (if present)
-                            component_3 = components[3] if len(components) > 3 else None  # Example: 'ESS_1' (if present)
-
-                            generator = User.objects.get(username=username)
-
-                            solar = wind = ess = None
-                            solar_state = wind_state = ess_state = None
-
-                            # Helper function to fetch the component and its COD
-                            def get_component_and_cod(component_name, generator, portfolio_model):
-                                try:
-                                    portfolio = portfolio_model.objects.get(user=generator, project=component_name)
-                                    return portfolio, portfolio.cod, portfolio.state
-                                except portfolio_model.DoesNotExist:
-                                    return None, None, None
-
-                            # Fetch solar, wind, and ESS components and their CODs
-                            if component_1:
-                                if 'Solar' in component_1:
-                                    solar, solar_cod, solar_state  = get_component_and_cod(component_1, generator, SolarPortfolio)
-                                elif 'Wind' in component_1:
-                                    wind, wind_cod, wind_state  = get_component_and_cod(component_1, generator, WindPortfolio)
-                                elif 'ESS' in component_1:
-                                    ess, ess_cod, ess_state  = get_component_and_cod(component_1, generator, ESSPortfolio)
-
-                            if component_2:
-                                if 'Wind' in component_2:
-                                    wind, wind_cod, wind_state  = get_component_and_cod(component_2, generator, WindPortfolio)
-                                elif 'ESS' in component_2:
-                                    ess, ess_cod, ess_state  = get_component_and_cod(component_2, generator, ESSPortfolio)
-
-                            if component_3:
-                                if 'ESS' in component_3:
-                                    ess, ess_cod, ess_state  = get_component_and_cod(component_3, generator, ESSPortfolio)
-
-                            # Determine the greatest COD
-                            cod_dates = [solar_cod if solar else None, wind_cod if wind else None, ess_cod if ess else None]
-                            cod_dates = [date for date in cod_dates if date is not None]
-                            greatest_cod = max(cod_dates) if cod_dates else None
-
-                            # Map each portfolio to its state
-                            state = {}
-                            if solar:
-                                state[solar.project] = solar_state
-                            if wind:
-                                state[wind.project] = wind_state
-                            if ess:
-                                state[ess.project] = ess_state
-
-                            annual_demand_met = (details["Annual Demand Met"]) / 1000
-
-                            combo = Combination.objects.filter(combination=combination_key, requirement=consumer_requirement, annual_demand_offset=details["Annual Demand Offset"]).first()
-                            terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
-
-                            terms_sheet_sent = False
-                            if combo:
-                                terms_sheet_sent = combo.terms_sheet_sent
-                            else:
-                                # Save to Combination table
-                                combo, created = Combination.objects.get_or_create(
-                                    requirement=consumer_requirement,
-                                    generator=generator,
-                                    re_replacement=re_replacement if re_replacement else 65,
-                                    combination=combination_key,
-                                    state=state,
-                                    optimal_solar_capacity=details["Optimal Solar Capacity (MW)"],
-                                    optimal_wind_capacity=details["Optimal Wind Capacity (MW)"],
-                                    optimal_battery_capacity=details["Optimal Battery Capacity (MW)"],
-                                    per_unit_cost=details["Per Unit Cost"]/1000,
-                                    final_cost=details['Final Cost'] / 1000,
-                                    annual_demand_offset=details["Annual Demand Offset"],
-                                    annual_demand_met=annual_demand_met,
-                                    annual_curtailment=details["Annual Curtailment"],
-                                    connectivity=connectivity
-                                )
-
-                            sent_from_you = False
-                            if terms_sheet:
-                                if terms_sheet.from_whom == optimize_capacity_user:
-                                    sent_from_you = True
-                                else:
-                                    sent_from_you = False
-
-                            re_index = generator.re_index
-
-                            if re_index is None:
-                                re_index = 0
-
-                            OA_cost = (details["Final Cost"] - details['Per Unit Cost']) / 1000
-                            details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
-                            details['Final Cost'] = details['Final Cost'] / 1000
-                            details["Annual Demand Met"] = (details["Annual Demand Met"]) / 1000
-
-                            # Update the aggregated response dictionary
-                            if combination_key not in aggregated_response:
-                                aggregated_response[combination_key] = {}
-                            aggregated_response[combination_key][re_replacement] = {
-                                **details,
-                                'OA_cost': ISTS_charges + master_record.state_charges,
-                                'ISTS_charges': ISTS_charges,
-                                'state_charges': master_record.state_charges,
-                                "state": state,
-                                "greatest_cod": greatest_cod,
-                                "terms_sheet_sent": terms_sheet_sent,
-                                "sent_from_you": sent_from_you,
-                                "connectivity": connectivity,
-                                "re_index": re_index,
-                                "re_replacement": re_replacement,
-                                "per_unit_savings": grid_tariff.cost - details['Per Unit Cost'] - ISTS_charges - master_record.state_charges,
-                            }
+                    if hourly_demand and hourly_demand.hourly_demand is not None:
+                        # Split the comma-separated string into a list of values
+                        hourly_demand_list = hourly_demand.hourly_demand.split(',')
+                        # Convert list to a Pandas Series (ensures it has an index)
+                        hourly_demand_series = pd.Series(hourly_demand_list)
+                        # Convert all values to numeric (float), coercing errors to NaN
+                        hourly_demand = pd.to_numeric(hourly_demand_series, errors='coerce')
+                        # Print the numeric Series with index numbers
                     else:
-                        print('newwwwwwww')
-                        combi_parts = [
-                            response_data.get('ipp'),
-                            response_data.get('solar'),
-                            response_data.get('wind'),
-                            response_data.get('ess')
-                        ]
+                        # monthly data conversion in hourly data
+                        hourly_demand = self.calculate_hourly_demand(consumer_requirement)
+                    
+                    # 8760 rows should be there if more then remove extra and if less then show error
+                    if len(hourly_demand) > 8760:
+                        hourly_demand = hourly_demand.iloc[:8760]
+                    elif len(hourly_demand) < 8760:
+                        padding_length = 8760 - len(hourly_demand)
+                        hourly_demand = pd.concat([hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
+                        
+                    logger.debug(f'length: {len(hourly_demand)}')
+                    re_replacement = 25
+                    for i in range(1, 11):
+                        if i == 7:
+                            re_replacement = 80
+                        elif i == 8:
+                            re_replacement = 85
+                        elif i == 9:
+                            re_replacement = 90
+                        elif i == 10:
+                            re_replacement = 95
 
-                        # Remove None values
-                        filtered_parts = [str(part) for part in combi_parts if part is not None]
+                        # banking combinations condition
+                        if solar_data and not wind_data:
+                            # Prepare query parameters for the GET request
+                            banking_data = {
+                                "requirement": consumer_requirement.id,
+                                "numeric_hourly_demand": list(hourly_demand),
+                                "solar_id": solar.id if solar and solar.connectivity == 'STU' and solar.banking_available else None,
+                                "wind_id": wind.id if wind and wind.connectivity == 'STU' and wind.banking_available else None,
+                                "per_unit_cost": round(details["Per Unit Cost"] / 1000, 2)
+                            }
+                                    
+                            # Forward token received from frontend
+                            auth_header = request.META.get('HTTP_AUTHORIZATION')  # 'Bearer <token>'
+                            headers = {
+                                "Authorization": auth_header,
+                                "Content-Type": "application/json"
+                            }
+                            if settings.ENVIRONMENT == 'local':
+                                logger.debug('Local environment detected')
+                                url="http://127.0.0.1:8000/api/energy/banking-charges"
+                            else:
+                                url="https://ext.exgglobal.com/api/api/energy/banking-charges"
 
-                        # Join with underscore
-                        combi = "-".join(filtered_parts)
-                        print(combi)
-                        if combi not in aggregated_response:
-                            aggregated_response[combi] = {}
-                        aggregated_response[combi][re_replacement] = "The demand cannot be met"
+                            logger.debug(f'Banking Data: {banking_data}')
+                            logger.debug('not entered in condition..............')
+                            if any([banking_data["solar_id"], banking_data["wind_id"]]):
+                                logger.debug('entered in condition..............')
+                                try:
+                                    banking_response = requests.post(
+                                        url=url,
+                                        json=banking_data,
+                                        # headers=headers
+                                    )
+                                    if banking_response.status_code == 200:
+                                        banking_result = banking_response.json()
+                                        logger.debug(f"BankingCharges result for {combination_key}: {banking_result}")
+                                        solar_data = banking_result['solar'] if banking_result['solar'] else None
+                                        wind_data = banking_result['wind'] if banking_result['wind'] else None
+                                    else:
+                                        logger.error(f"BankingCharges API failed: {banking_response.content}")
+                                except Exception as e:
+                                    tb = traceback.format_exc()  # Get the full traceback
+                                    traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
+                                    logger.error(f"Error calling BankingCharges API: {e}")
+                        elif wind_data and not solar_data:
+                            # Prepare query parameters for the GET request
+                            banking_data = {
+                                "requirement": consumer_requirement.id,
+                                "numeric_hourly_demand": list(hourly_demand),
+                                "solar_id": solar.id if solar and solar.connectivity == 'STU' and solar.banking_available else None,
+                                "wind_id": wind.id if wind and wind.connectivity == 'STU' and wind.banking_available else None,
+                                "per_unit_cost": round(details["Per Unit Cost"] / 1000, 2)
+                            }
+                                    
+                            # Forward token received from frontend
+                            auth_header = request.META.get('HTTP_AUTHORIZATION')  # 'Bearer <token>'
+                            headers = {
+                                "Authorization": auth_header,
+                                "Content-Type": "application/json"
+                            }
+                            if settings.ENVIRONMENT == 'local':
+                                logger.debug('Local environment detected')
+                                url="http://127.0.0.1:8000/api/energy/banking-charges"
+                            else:
+                                url="https://ext.exgglobal.com/api/api/energy/banking-charges"
 
-                    re_replacement += 10        
+                            logger.debug(f'Banking Data: {banking_data}')
+                            logger.debug('not entered in condition..............')
+                            if any([banking_data["solar_id"], banking_data["wind_id"]]):
+                                logger.debug('entered in condition..............')
+                                try:
+                                    banking_response = requests.post(
+                                        url=url,
+                                        json=banking_data,
+                                        # headers=headers
+                                    )
+                                    if banking_response.status_code == 200:
+                                        banking_result = banking_response.json()
+                                        logger.debug(f"BankingCharges result for {combination_key}: {banking_result}")
+                                        solar_data = banking_result['solar'] if banking_result['solar'] else None
+                                        wind_data = banking_result['wind'] if banking_result['wind'] else None
+                                    else:
+                                        logger.error(f"BankingCharges API failed: {banking_response.content}")
+                                except Exception as e:
+                                    tb = traceback.format_exc()  # Get the full traceback
+                                    traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
+                                    logger.error(f"Error calling BankingCharges API: {e}")                         
+                        else:
+                            logger.debug(re_replacement)
+                            logger.debug(input_data)
+                            response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, OA_cost=(ISTS_charges + master_record.state_charges)*1000)
+
+                            logger.debug('***********')
+                            logger.debug(f'response_data: {response_data}')
+                            # if response_data != 'The demand cannot be met by the IPPs':
+                            if not response_data.get('error'):
+                                for combination_key, details in response_data.items():
+                                # Extract user and components from combination_key
+                                    components = combination_key.split('-')
+
+                                    # Safely extract components, ensuring that we have enough elements
+                                    username = components[0] if len(components) > 0 else None  # Example: 'IPP241'
+                                    component_1 = components[1] if len(components) > 1 else None  # Example: 'Solar_1' (if present)
+                                    component_2 = components[2] if len(components) > 2 else None  # Example: 'Wind_1' (if present)
+                                    component_3 = components[3] if len(components) > 3 else None  # Example: 'ESS_1' (if present)
+
+                                    generator = User.objects.get(username=username)
+
+                                    solar = wind = ess = None
+                                    solar_state = wind_state = ess_state = None
+
+                                    # Helper function to fetch the component and its COD
+                                    def get_component_and_cod(component_name, generator, portfolio_model):
+                                        try:
+                                            portfolio = portfolio_model.objects.get(user=generator, project=component_name)
+                                            return portfolio, portfolio.cod, portfolio.state
+                                        except portfolio_model.DoesNotExist:
+                                            return None, None, None
+
+                                    # Fetch solar, wind, and ESS components and their CODs
+                                    if component_1:
+                                        if 'Solar' in component_1:
+                                            solar, solar_cod, solar_state  = get_component_and_cod(component_1, generator, SolarPortfolio)
+                                        elif 'Wind' in component_1:
+                                            wind, wind_cod, wind_state  = get_component_and_cod(component_1, generator, WindPortfolio)
+                                        elif 'ESS' in component_1:
+                                            ess, ess_cod, ess_state  = get_component_and_cod(component_1, generator, ESSPortfolio)
+
+                                    if component_2:
+                                        if 'Wind' in component_2:
+                                            wind, wind_cod, wind_state  = get_component_and_cod(component_2, generator, WindPortfolio)
+                                        elif 'ESS' in component_2:
+                                            ess, ess_cod, ess_state  = get_component_and_cod(component_2, generator, ESSPortfolio)
+
+                                    if component_3:
+                                        if 'ESS' in component_3:
+                                            ess, ess_cod, ess_state  = get_component_and_cod(component_3, generator, ESSPortfolio)
+
+                                    # Determine the greatest COD
+                                    cod_dates = [solar_cod if solar else None, wind_cod if wind else None, ess_cod if ess else None]
+                                    cod_dates = [date for date in cod_dates if date is not None]
+                                    greatest_cod = max(cod_dates) if cod_dates else None
+
+                                    # Map each portfolio to its state
+                                    state = {}
+                                    if solar:
+                                        state[solar.project] = solar_state
+                                    if wind:
+                                        state[wind.project] = wind_state
+                                    if ess:
+                                        state[ess.project] = ess_state
+
+                                    annual_demand_met = (details["Annual Demand Met"]) / 1000
+
+                                    combo = Combination.objects.filter(combination=combination_key, requirement=consumer_requirement, annual_demand_offset=details["Annual Demand Offset"]).first()
+                                    terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
+
+                                    terms_sheet_sent = False
+                                    if combo:
+                                        terms_sheet_sent = combo.terms_sheet_sent
+                                    else:
+                                        # Save to Combination table
+                                        combo, created = Combination.objects.get_or_create(
+                                            requirement=consumer_requirement,
+                                            generator=generator,
+                                            re_replacement=re_replacement if re_replacement else 65,
+                                            combination=combination_key,
+                                            state=state,
+                                            optimal_solar_capacity=details["Optimal Solar Capacity (MW)"],
+                                            optimal_wind_capacity=details["Optimal Wind Capacity (MW)"],
+                                            optimal_battery_capacity=details["Optimal Battery Capacity (MW)"],
+                                            per_unit_cost=details["Per Unit Cost"]/1000,
+                                            final_cost=details['Final Cost'] / 1000,
+                                            annual_demand_offset=details["Annual Demand Offset"],
+                                            annual_demand_met=annual_demand_met,
+                                            annual_curtailment=details["Annual Curtailment"],
+                                            connectivity=connectivity
+                                        )
+
+                                    sent_from_you = False
+                                    if terms_sheet:
+                                        if terms_sheet.from_whom == optimize_capacity_user:
+                                            sent_from_you = True
+                                        else:
+                                            sent_from_you = False
+
+                                    re_index = generator.re_index
+
+                                    if re_index is None:
+                                        re_index = 0
+
+                                    OA_cost = (details["Final Cost"] - details['Per Unit Cost']) / 1000
+                                    details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
+                                    details['Final Cost'] = details['Final Cost'] / 1000
+                                    details["Annual Demand Met"] = (details["Annual Demand Met"]) / 1000
+
+                                    # Update the aggregated response dictionary
+                                    if combination_key not in aggregated_response:
+                                        aggregated_response[combination_key] = {}
+                                    aggregated_response[combination_key][re_replacement] = {
+                                        **details,
+                                        'OA_cost': ISTS_charges + master_record.state_charges,
+                                        'ISTS_charges': ISTS_charges,
+                                        'state_charges': master_record.state_charges,
+                                        "state": state,
+                                        "greatest_cod": greatest_cod,
+                                        "terms_sheet_sent": terms_sheet_sent,
+                                        "sent_from_you": sent_from_you,
+                                        "connectivity": connectivity,
+                                        "re_index": re_index,
+                                        "re_replacement": re_replacement,
+                                        "per_unit_savings": grid_tariff.cost - details['Per Unit Cost'] - ISTS_charges - master_record.state_charges,
+                                    }
+                            else:
+                                print('newwwwwwww')
+                                combi_parts = [
+                                    response_data.get('ipp'),
+                                    response_data.get('solar'),
+                                    response_data.get('wind'),
+                                    response_data.get('ess')
+                                ]
+
+                                # Remove None values
+                                filtered_parts = [str(part) for part in combi_parts if part is not None]
+
+                                # Join with underscore
+                                combi = "-".join(filtered_parts)
+                                print(combi)
+                                if combi not in aggregated_response:
+                                    aggregated_response[combi] = {}
+                                aggregated_response[combi][re_replacement] = "The demand cannot be met"
+
+                        re_replacement += 10        
                             
             if not aggregated_response and optimize_capacity_user=='Consumer':
                 return Response({"error": "The demand cannot be met by the IPPs."}, status=status.HTTP_200_OK)
