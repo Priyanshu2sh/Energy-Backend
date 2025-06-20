@@ -1404,7 +1404,7 @@ class BankingCharges(APIView):
             if wind:
                 logger.debug(f'final_monthly_dict: {final_monthly_dict}')
                 logger.debug(f'wind_monthly: {wind_monthly}')
-                low = 50
+                low = 1
                 high = available_capacity_wind
                 precision = 0.01
                 max_iterations = 100
