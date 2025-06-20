@@ -1320,6 +1320,7 @@ class BankingCharges(APIView):
             if solar:
                 available_capacity_solar = solar.available_capacity
                 profile = OptimizeCapacityAPI.extract_profile_data(solar.hourly_data.path)
+                profile = profile / solar.available_capacity
                 state = solar.state
                 s_project = solar.project
                 solar_ipp = solar.user.username
@@ -1329,6 +1330,7 @@ class BankingCharges(APIView):
             if wind:
                 available_capacity_wind = wind.available_capacity
                 profile = OptimizeCapacityAPI.extract_profile_data(wind.hourly_data.path)
+                profile = profile / wind.available_capacity
                 state = wind.state
                 w_project = wind.project
                 wind_ipp = wind.user.username
