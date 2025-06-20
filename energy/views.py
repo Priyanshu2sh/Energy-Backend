@@ -1964,6 +1964,10 @@ class OptimizeCapacityAPI(APIView):
                                             if data['combination'] not in aggregated_response:
                                                 aggregated_response[data['combination']] = {
                                                     **data,
+                                                    'Optimal Solar Capacity (MW)': data['s_capacity'],
+                                                    'Optimal Wind Capacity (MW)': data['w_capacity'],
+                                                    'Optimal Battery Capacity (MW)': data['b_capacity'],
+                                                    'Annual Demand Offset': data['re_replacement'],
                                                     'capacity': capacity,
                                                     'Per Unit Cost': combo.per_unit_cost,
                                                     'Final Cost': combo.final_cost,
