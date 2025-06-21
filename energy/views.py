@@ -4508,9 +4508,7 @@ class SensitivityAPI(APIView):
                             banking_data = {
                                 "requirement": consumer_requirement.id,
                                 "numeric_hourly_demand": list(hourly_demand),
-                                "solar_id": solar.id if solar and solar.connectivity == 'STU' and solar.banking_available else None,
-                                "wind_id": wind.id if wind and wind.connectivity == 'STU' and wind.banking_available else None,
-                                "per_unit_cost": round(details["Per Unit Cost"] / 1000, 2)
+                                "solar_id": solar.id if solar and solar.connectivity == 'STU' and solar.banking_available else None
                             }
                                     
                             # Forward token received from frontend
@@ -4527,7 +4525,7 @@ class SensitivityAPI(APIView):
 
                             logger.debug(f'Banking Data: {banking_data}')
                             logger.debug('not entered in condition..............')
-                            if any([banking_data["solar_id"], banking_data["wind_id"]]):
+                            if banking_data["solar_id"]:
                                 logger.debug('entered in condition..............')
                                 try:
                                     banking_response = requests.post(
@@ -4539,7 +4537,19 @@ class SensitivityAPI(APIView):
                                         banking_result = banking_response.json()
                                         logger.debug(f"BankingCharges result for {combination_key}: {banking_result}")
                                         solar_data = banking_result['solar'] if banking_result['solar'] else None
-                                        wind_data = banking_result['wind'] if banking_result['wind'] else None
+                                        if solar_data['combination'] not in aggregated_response:
+                                            aggregated_response[solar_data['combination']] = {}
+                                        aggregated_response[solar_data['combination']][re_replacement] = {
+                                            **solar_data,
+                                            'OA_cost': ISTS_charges + master_record.state_charges,
+                                            'ISTS_charges': ISTS_charges,
+                                            'state_charges': master_record.state_charges,
+                                            "state": state,
+                                            "greatest_cod": greatest_cod,
+                                            "connectivity": connectivity,
+                                            "re_replacement": re_replacement,
+                                            "per_unit_savings": grid_tariff.cost - details['Per Unit Cost'] - ISTS_charges - master_record.state_charges,           
+                                        }
                                     else:
                                         logger.error(f"BankingCharges API failed: {banking_response.content}")
                                 except Exception as e:
@@ -4551,9 +4561,7 @@ class SensitivityAPI(APIView):
                             banking_data = {
                                 "requirement": consumer_requirement.id,
                                 "numeric_hourly_demand": list(hourly_demand),
-                                "solar_id": solar.id if solar and solar.connectivity == 'STU' and solar.banking_available else None,
-                                "wind_id": wind.id if wind and wind.connectivity == 'STU' and wind.banking_available else None,
-                                "per_unit_cost": round(details["Per Unit Cost"] / 1000, 2)
+                                "wind_id": wind.id if wind and wind.connectivity == 'STU' and wind.banking_available else None
                             }
                                     
                             # Forward token received from frontend
@@ -4570,7 +4578,7 @@ class SensitivityAPI(APIView):
 
                             logger.debug(f'Banking Data: {banking_data}')
                             logger.debug('not entered in condition..............')
-                            if any([banking_data["solar_id"], banking_data["wind_id"]]):
+                            if banking_data["wind_id"]:
                                 logger.debug('entered in condition..............')
                                 try:
                                     banking_response = requests.post(
@@ -4581,8 +4589,20 @@ class SensitivityAPI(APIView):
                                     if banking_response.status_code == 200:
                                         banking_result = banking_response.json()
                                         logger.debug(f"BankingCharges result for {combination_key}: {banking_result}")
-                                        solar_data = banking_result['solar'] if banking_result['solar'] else None
                                         wind_data = banking_result['wind'] if banking_result['wind'] else None
+                                        if wind_data['combination'] not in aggregated_response:
+                                            aggregated_response[wind_data['combination']] = {}
+                                        aggregated_response[wind_data['combination']][re_replacement] = {
+                                            **wind_data,
+                                            'OA_cost': ISTS_charges + master_record.state_charges,
+                                            'ISTS_charges': ISTS_charges,
+                                            'state_charges': master_record.state_charges,
+                                            "state": state,
+                                            "greatest_cod": greatest_cod,
+                                            "connectivity": connectivity,
+                                            "re_replacement": re_replacement,
+                                            "per_unit_savings": grid_tariff.cost - details['Per Unit Cost'] - ISTS_charges - master_record.state_charges,           
+                                        }
                                     else:
                                         logger.error(f"BankingCharges API failed: {banking_response.content}")
                                 except Exception as e:
@@ -4654,46 +4674,6 @@ class SensitivityAPI(APIView):
                                     if ess:
                                         state[ess.project] = ess_state
 
-                                    annual_demand_met = (details["Annual Demand Met"]) / 1000
-
-                                    combo = Combination.objects.filter(combination=combination_key, requirement=consumer_requirement, annual_demand_offset=details["Annual Demand Offset"]).first()
-                                    terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
-
-                                    terms_sheet_sent = False
-                                    if combo:
-                                        terms_sheet_sent = combo.terms_sheet_sent
-                                    else:
-                                        # Save to Combination table
-                                        combo, created = Combination.objects.get_or_create(
-                                            requirement=consumer_requirement,
-                                            generator=generator,
-                                            re_replacement=re_replacement if re_replacement else 65,
-                                            combination=combination_key,
-                                            state=state,
-                                            optimal_solar_capacity=details["Optimal Solar Capacity (MW)"],
-                                            optimal_wind_capacity=details["Optimal Wind Capacity (MW)"],
-                                            optimal_battery_capacity=details["Optimal Battery Capacity (MW)"],
-                                            per_unit_cost=details["Per Unit Cost"]/1000,
-                                            final_cost=details['Final Cost'] / 1000,
-                                            annual_demand_offset=details["Annual Demand Offset"],
-                                            annual_demand_met=annual_demand_met,
-                                            annual_curtailment=details["Annual Curtailment"],
-                                            connectivity=connectivity
-                                        )
-
-                                    sent_from_you = False
-                                    if terms_sheet:
-                                        if terms_sheet.from_whom == optimize_capacity_user:
-                                            sent_from_you = True
-                                        else:
-                                            sent_from_you = False
-
-                                    re_index = generator.re_index
-
-                                    if re_index is None:
-                                        re_index = 0
-
-                                    OA_cost = (details["Final Cost"] - details['Per Unit Cost']) / 1000
                                     details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
                                     details['Final Cost'] = details['Final Cost'] / 1000
                                     details["Annual Demand Met"] = (details["Annual Demand Met"]) / 1000
@@ -4708,10 +4688,7 @@ class SensitivityAPI(APIView):
                                         'state_charges': master_record.state_charges,
                                         "state": state,
                                         "greatest_cod": greatest_cod,
-                                        "terms_sheet_sent": terms_sheet_sent,
-                                        "sent_from_you": sent_from_you,
                                         "connectivity": connectivity,
-                                        "re_index": re_index,
                                         "re_replacement": re_replacement,
                                         "per_unit_savings": grid_tariff.cost - details['Per Unit Cost'] - ISTS_charges - master_record.state_charges,
                                     }
