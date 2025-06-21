@@ -1441,7 +1441,7 @@ class BankingCharges(APIView):
                 precision = 0.01
                 max_iterations = 100
                 for _ in range(max_iterations):
-                    mid = round((low + high) / 2, 2)
+                    mid = (low + high) / 2
                     logger.debug(f'solar capacity---- {mid}')
                     results_solar = self.banking_price_calculations(final_monthly_dict, solar_monthly, mid, master_data, s_expected_tariff)
                     current_re = results_solar["re_replacement"]
@@ -1467,7 +1467,7 @@ class BankingCharges(APIView):
                 precision = 0.01
                 max_iterations = 100
                 for _ in range(max_iterations):
-                    mid = round((low + high) / 2, 2)
+                    mid = (low + high) / 2
                     logger.debug(f'wind capacity---- {mid}')
                     results_wind = self.banking_price_calculations(final_monthly_dict, wind_monthly, mid, master_data, w_expected_tariff)
                     current_re = results_wind["re_replacement"]
