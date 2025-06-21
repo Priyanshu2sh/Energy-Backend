@@ -1264,7 +1264,6 @@ class BankingCharges(APIView):
                         banked = 0
                     elif adjusted_value < 0:
                         curtailment += abs(adjusted_value)
-                        adjusted_value = 0
                         logger.debug(f'Negative off-peak added to curtailment')
 
                     if curtailment > 0:
@@ -1983,7 +1982,7 @@ class OptimizeCapacityAPI(APIView):
                                             if combo:
                                                 terms_sheet_sent = combo.terms_sheet_sent
                                             else:
-                                                banking_price = round(data["banking_price"] / 1000, 2)
+                                                banking_price = data["banking_price"]
                                                 # Save to Combination table
                                                 combo, created = Combination.objects.get_or_create(
                                                     requirement=consumer_requirement,
