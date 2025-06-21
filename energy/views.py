@@ -1226,35 +1226,75 @@ class BankingCharges(APIView):
             adjusted_dict[month] = {}
             banked = 0
             not_met = 0
+
             for key in ['peak_1', 'peak_2', 'normal', 'off_peak']:
-                final_value = final_data.get(key, 0)
-                solar_value = solar_data.get(key, 0)
-                # Subtract solar from actual and multiply
-                adjusted_value = round(final_value - (solar_value * capacity) - banked, 2)
+                final_value = round(final_data.get(key, 0), 2)
+                gen_value = round(solar_data.get(key, 0) * capacity, 2)
+                
+                adjusted_value = round(final_value - gen_value, 2)
 
                 logger.debug(f'======={key}=======')
-                logger.debug(f'banked: {banked}')
-                logger.debug(f'not_met: {not_met}')
-                logger.debug(f'adjusted_value: {adjusted_value}')
-                logger.debug('--------------------------------')
-                if key == 'off_peak':
-                    banked = 0
-                while True:
-                    # if the demand is not met
+                logger.debug(f'Original Demand: {final_value}')
+                logger.debug(f'Generation ({capacity} MW): {gen_value}')
+                logger.debug(f'Banked Available: {banked}')
+                logger.debug(f'Initial Adjusted Value: {adjusted_value}')
+
+                if adjusted_value > 0:
+                    # Try to meet the demand using banked energy
+                    if banked > 0:
+                        used_banked = min(adjusted_value, banked)
+                        adjusted_value = round(adjusted_value - used_banked, 2)
+                        banked = round(banked - used_banked, 2)
+                        logger.debug(f'Used banked: {used_banked}')
                     if adjusted_value > 0:
-                        if banked == 0:
-                            not_met += adjusted_value
-                            break
-                        else:
-                            adjusted_value -= banked
-                    # extra generation
-                    else:
-                        banked = abs(adjusted_value) * (1 - (master_data.banking_charges/100))
-                        adjusted_dict[month]['curtailment'] = abs(adjusted_value)
-                        break
+                        not_met += adjusted_value
+                        logger.debug(f'Unmet after banking: {adjusted_value}')
+                else:
+                    # Excess generation → bank it
+                    curtailment = abs(adjusted_value)
+                    banked = round(curtailment * (1 - (master_data.banking_charges / 100)), 2)
+                    adjusted_dict[month]['curtailment'] = round(curtailment, 2)
+                    adjusted_value = 0
+                    logger.debug(f'Excess → Curtailment: {curtailment}, Banked stored: {banked}')
 
                 adjusted_dict[month][key] = round(adjusted_value, 2)
                 adjusted_dict[month]['not_met'] = round(not_met, 2)
+                logger.debug(f'Final Adjusted Value: {adjusted_value}')
+                logger.debug('--------------------------------')
+
+
+            # adjusted_dict[month] = {}
+            # banked = 0
+            # not_met = 0
+            # for key in ['peak_1', 'peak_2', 'normal', 'off_peak']:
+            #     final_value = final_data.get(key, 0)
+            #     solar_value = solar_data.get(key, 0)
+            #     # Subtract solar from actual and multiply
+            #     adjusted_value = round(final_value - (solar_value * capacity) - banked, 2)
+
+            #     logger.debug(f'======={key}=======')
+            #     logger.debug(f'banked: {banked}')
+            #     logger.debug(f'not_met: {not_met}')
+            #     logger.debug(f'adjusted_value: {adjusted_value}')
+            #     logger.debug('--------------------------------')
+            #     if 
+            #         banked = 0
+            #     while True:
+            #         # if the demand is not met
+            #         if adjusted_value > 0:
+            #             if banked == 0:
+            #                 not_met += adjusted_value
+            #                 break
+            #             else:
+            #                 adjusted_value -= banked
+            #         # extra generation
+            #         else:
+            #             banked = abs(adjusted_value) * (1 - (master_data.banking_charges/100))
+            #             adjusted_dict[month]['curtailment'] = abs(adjusted_value)
+            #             break
+
+            #     adjusted_dict[month][key] = round(adjusted_value, 2)
+            #     adjusted_dict[month]['not_met'] = round(not_met, 2)
 
         # ✅ Result:
         logger.debug(f'adjusted values: {adjusted_dict}')
