@@ -4535,7 +4535,6 @@ class SensitivityAPI(APIView):
                                     )
                                     if banking_response.status_code == 200:
                                         banking_result = banking_response.json()
-                                        logger.debug(f"BankingCharges result for {combination_key}: {banking_result}")
                                         solar_data = banking_result['solar'] if banking_result['solar'] else None
                                         if solar_data['combination'] not in aggregated_response:
                                             aggregated_response[solar_data['combination']] = {}
@@ -4588,7 +4587,6 @@ class SensitivityAPI(APIView):
                                     )
                                     if banking_response.status_code == 200:
                                         banking_result = banking_response.json()
-                                        logger.debug(f"BankingCharges result for {combination_key}: {banking_result}")
                                         wind_data = banking_result['wind'] if banking_result['wind'] else None
                                         if wind_data['combination'] not in aggregated_response:
                                             aggregated_response[wind_data['combination']] = {}
