@@ -1216,7 +1216,7 @@ class BankingCharges(APIView):
         return result
 
     @staticmethod
-    def banking_price_calculations(final_monthly_dict, generation_monthly, capacity, master_data, per_unit_cost):
+    def banking_price_calculations(final_monthly_dict, generation_monthly, capacity, master_data, expected_tariff):
 
         adjusted_dict = {}
         for month in final_monthly_dict:
@@ -1279,7 +1279,7 @@ class BankingCharges(APIView):
         re_replacement = 1 - (total_unmet / total_demand)
         logger.debug(f"Re Replacement: {re_replacement}")
 
-        generation_price = capacity * total_generation * per_unit_cost * 1000
+        generation_price = capacity * total_generation * expected_tariff * 1000
         logger.debug(f"Generation Price: {generation_price}")
 
         banking_price = round(generation_price / demand_met, 2) # INR/MWh
@@ -1322,6 +1322,7 @@ class BankingCharges(APIView):
                 profile = OptimizeCapacityAPI.extract_profile_data(solar.hourly_data.path)
                 profile = profile / solar.available_capacity
                 state = solar.state
+                s_expected_tariff = solar.expected_tariff
                 s_project = solar.project
                 solar_ipp = solar.user.username
                 solar_monthly = self.calculate_monthly_slot_generation(profile, state)
@@ -1332,6 +1333,7 @@ class BankingCharges(APIView):
                 profile = OptimizeCapacityAPI.extract_profile_data(wind.hourly_data.path)
                 profile = profile / wind.available_capacity
                 state = wind.state
+                w_expected_tariff = wind.expected_tariff
                 w_project = wind.project
                 wind_ipp = wind.user.username
                 wind_monthly = self.calculate_monthly_slot_generation(profile, state)
@@ -1387,7 +1389,7 @@ class BankingCharges(APIView):
                 for _ in range(max_iterations):
                     mid = (low + high) / 2
                     logger.debug(f'solar capacity---- {mid}')
-                    results_solar = self.banking_price_calculations(final_monthly_dict, solar_monthly, mid, master_data, per_unit_cost)
+                    results_solar = self.banking_price_calculations(final_monthly_dict, solar_monthly, mid, master_data, s_expected_tariff)
                     current_re = results_solar["re_replacement"]
 
                     if abs(current_re - 65) < precision:
@@ -1413,7 +1415,7 @@ class BankingCharges(APIView):
                 for _ in range(max_iterations):
                     mid = (low + high) / 2
                     logger.debug(f'wind capacity---- {mid}')
-                    results_wind = self.banking_price_calculations(final_monthly_dict, wind_monthly, mid, master_data, per_unit_cost)
+                    results_wind = self.banking_price_calculations(final_monthly_dict, wind_monthly, mid, master_data, w_expected_tariff)
                     current_re = results_solar["re_replacement"]
 
                     if abs(current_re - 65) < precision:
