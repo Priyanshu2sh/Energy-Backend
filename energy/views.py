@@ -1279,7 +1279,7 @@ class BankingCharges(APIView):
         re_replacement = 1 - (total_unmet / total_demand)
         logger.debug(f"Re Replacement: {re_replacement}")
 
-        generation_price = capacity * total_generation * expected_tariff * 1000
+        generation_price = capacity * total_generation * expected_tariff
         logger.debug(f"Generation Price: {generation_price}")
 
         banking_price = round(generation_price / demand_met, 2) # INR/MWh
