@@ -1251,11 +1251,25 @@ class BankingCharges(APIView):
                         logger.debug(f'Unmet after banking: {adjusted_value}')
                 else:
                     # Excess generation → bank it
-                    curtailment = abs(adjusted_value)
-                    banked = round(curtailment * (1 - (master_data.banking_charges / 100)), 2)
-                    adjusted_dict[month]['curtailment'] = round(curtailment, 2)
+                    excess = abs(adjusted_value)
+                    banked = round(excess * (1 - (master_data.banking_charges / 100)), 2)
                     adjusted_value = 0
-                    logger.debug(f'Excess → Curtailment: {curtailment}, Banked stored: {banked}')
+                    logger.debug(f'Excess → Banked: {banked} (from {excess})')
+
+                # If off_peak (last slot), add remaining banked or negative value to curtailment
+                if key == 'off_peak':
+                    curtailment = 0
+                    if banked > 0:
+                        curtailment += banked
+                        logger.debug(f'Remaining banked added to curtailment: {banked}')
+                        banked = 0
+                    elif adjusted_value < 0:
+                        curtailment += abs(adjusted_value)
+                        adjusted_value = 0
+                        logger.debug(f'Negative off-peak added to curtailment')
+
+                    if curtailment > 0:
+                        adjusted_dict[month]['curtailment'] = round(curtailment, 2)
 
                 adjusted_dict[month][key] = round(adjusted_value, 2)
                 adjusted_dict[month]['not_met'] = round(not_met, 2)
