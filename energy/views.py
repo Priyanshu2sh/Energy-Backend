@@ -1228,10 +1228,10 @@ class BankingCharges(APIView):
             not_met = 0
 
             for key in ['peak_1', 'peak_2', 'normal', 'off_peak']:
-                final_value = round(final_data.get(key, 0), 2)
-                gen_value = round(solar_data.get(key, 0) * capacity, 2)
+                final_value = final_data.get(key, 0)
+                gen_value = solar_data.get(key, 0) * capacity
                 
-                adjusted_value = round(final_value - gen_value, 2)
+                adjusted_value = final_value - gen_value
 
                 logger.debug(f'======={key}=======')
                 logger.debug(f'Original Demand: {final_value}')
@@ -1243,8 +1243,8 @@ class BankingCharges(APIView):
                     # Try to meet the demand using banked energy
                     if banked > 0:
                         used_banked = min(adjusted_value, banked)
-                        adjusted_value = round(adjusted_value - used_banked, 2)
-                        banked = round(banked - used_banked, 2)
+                        adjusted_value = adjusted_value - used_banked
+                        banked = banked - used_banked
                         logger.debug(f'Used banked: {used_banked}')
                     if adjusted_value > 0:
                         not_met += adjusted_value
@@ -1252,8 +1252,7 @@ class BankingCharges(APIView):
                 else:
                     # Excess generation → bank it
                     excess = abs(adjusted_value)
-                    banked = round(excess * (1 - (master_data.banking_charges / 100)), 2)
-                    adjusted_value = 0
+                    banked = excess * (1 - (master_data.banking_charges / 100))
                     logger.debug(f'Excess → Banked: {banked} (from {excess})')
 
                 # If off_peak (last slot), add remaining banked or negative value to curtailment
