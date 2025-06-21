@@ -1253,8 +1253,8 @@ class BankingCharges(APIView):
                         adjusted_dict[month]['curtailment'] = abs(adjusted_value)
                         break
 
-                adjusted_dict[month][key] = adjusted_value
-                adjusted_dict[month]['not_met'] = not_met
+                adjusted_dict[month][key] = round(adjusted_value, 2)
+                adjusted_dict[month]['not_met'] = round(not_met, 2)
 
         # ✅ Result:
         logger.debug(f'adjusted values: {adjusted_dict}')
@@ -1277,6 +1277,7 @@ class BankingCharges(APIView):
         logger.debug(f"Total Generation: {total_generation}")
 
         re_replacement = 1 - (total_unmet / total_demand)
+        re_replacement = re_replacement * 100
         logger.debug(f"Re Replacement: {re_replacement}")
 
         generation_price = capacity * total_generation * expected_tariff
@@ -1291,7 +1292,7 @@ class BankingCharges(APIView):
             "total_demand": total_demand,
             "demand_met": demand_met,
             "total_generation": total_generation,
-            "re_replacement": re_replacement * 100,
+            "re_replacement": re_replacement,
             "generation_price": generation_price,
             "banking_price": banking_price
         }
@@ -1387,7 +1388,7 @@ class BankingCharges(APIView):
                 precision = 0.01
                 max_iterations = 100
                 for _ in range(max_iterations):
-                    mid = (low + high) / 2
+                    mid = round((low + high) / 2, 2)
                     logger.debug(f'solar capacity---- {mid}')
                     results_solar = self.banking_price_calculations(final_monthly_dict, solar_monthly, mid, master_data, s_expected_tariff)
                     current_re = results_solar["re_replacement"]
@@ -1413,10 +1414,10 @@ class BankingCharges(APIView):
                 precision = 0.01
                 max_iterations = 100
                 for _ in range(max_iterations):
-                    mid = (low + high) / 2
+                    mid = round((low + high) / 2, 2)
                     logger.debug(f'wind capacity---- {mid}')
                     results_wind = self.banking_price_calculations(final_monthly_dict, wind_monthly, mid, master_data, w_expected_tariff)
-                    current_re = results_solar["re_replacement"]
+                    current_re = results_wind["re_replacement"]
 
                     if abs(current_re - 65) < precision:
                         break
