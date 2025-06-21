@@ -1253,6 +1253,7 @@ class BankingCharges(APIView):
                     # Excess generation → bank it
                     excess = abs(adjusted_value)
                     banked = excess * (1 - (master_data.banking_charges / 100))
+                    adjusted_value = 0
                     logger.debug(f'Excess → Banked: {banked} (from {excess})')
 
                 # If off_peak (last slot), add remaining banked or negative value to curtailment
@@ -1264,6 +1265,7 @@ class BankingCharges(APIView):
                         banked = 0
                     elif adjusted_value < 0:
                         curtailment += abs(adjusted_value)
+                        adjusted_value = 0
                         logger.debug(f'Negative off-peak added to curtailment')
 
                     if curtailment > 0:
