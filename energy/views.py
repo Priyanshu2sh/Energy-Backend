@@ -1359,6 +1359,8 @@ class BankingCharges(APIView):
         wind_id = data.get("wind_id")
         numeric_hourly_demand = data.get("numeric_hourly_demand")
         re_replacement = data.get("re_replacement")
+        if re_replacement is None:
+            re_replacement = 65
 
         try:
             requirement = ConsumerRequirements.objects.get(id=requirement)
