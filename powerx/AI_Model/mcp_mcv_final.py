@@ -83,6 +83,8 @@ def preprocess_data(latest_data):
     latest_data = latest_data[cols]
     latest_data = latest_data.set_index('prediction Date')
     
+    latest_data['hour'] = range(1, len(latest_data) + 1)
+    
     # Calculate Avg_Week_Hourly_MCP and Avg_Week_Hourly_MCV
     latest_data['Avg_Week_Hourly_MCP'] = (
         latest_data.groupby('hour')['mcp']

@@ -1358,8 +1358,7 @@ class BankingCharges(APIView):
         solar_id = data.get("solar_id")
         wind_id = data.get("wind_id")
         numeric_hourly_demand = data.get("numeric_hourly_demand")
-        per_unit_cost = data.get("per_unit_cost")
-        logger.debug(f'Per unit cost------------- {per_unit_cost}')
+        re_replacement = data.get("re_replacement")
 
         try:
             requirement = ConsumerRequirements.objects.get(id=requirement)
@@ -1447,9 +1446,9 @@ class BankingCharges(APIView):
                     results_solar = self.banking_price_calculations(final_monthly_dict, solar_monthly, mid, master_data, s_expected_tariff)
                     current_re = results_solar["re_replacement"]
 
-                    if abs(current_re - 65) < precision:
+                    if abs(current_re - re_replacement) < precision:
                         break
-                    elif current_re < 65:
+                    elif current_re < re_replacement:
                         low = mid
                     else:
                         high = mid
@@ -1473,9 +1472,9 @@ class BankingCharges(APIView):
                     results_wind = self.banking_price_calculations(final_monthly_dict, wind_monthly, mid, master_data, w_expected_tariff)
                     current_re = results_wind["re_replacement"]
 
-                    if abs(current_re - 65) < precision:
+                    if abs(current_re - re_replacement) < precision:
                         break
-                    elif current_re < 65:
+                    elif current_re < re_replacement:
                         low = mid
                     else:
                         high = mid
@@ -1927,7 +1926,7 @@ class OptimizeCapacityAPI(APIView):
                                 "numeric_hourly_demand": list(numeric_hourly_demand),
                                 "solar_id": solar.id if solar and solar.connectivity == 'STU' and solar.banking_available else None,
                                 "wind_id": wind.id if wind and wind.connectivity == 'STU' and wind.banking_available else None,
-                                "per_unit_cost": round(details["Per Unit Cost"] / 1000, 2)
+                                "re_replacement": re_replacement
                             }
                             
                             # Forward token received from frontend
