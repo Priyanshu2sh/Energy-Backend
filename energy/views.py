@@ -1254,7 +1254,6 @@ class BankingCharges(APIView):
                     excess = abs(adjusted_value)
                     banked = excess * (1 - (master_data.banking_charges / 100))
                     adjusted_value = 0
-                    logger.debug(f'Excess → Banked: {banked} (from {excess})')
 
                 # If off_peak (last slot), add remaining banked or negative value to curtailment
                 if key == 'off_peak':
@@ -4541,14 +4540,19 @@ class SensitivityAPI(APIView):
                                             aggregated_response[solar_data['combination']] = {}
                                         aggregated_response[solar_data['combination']][re_replacement] = {
                                             **solar_data,
+                                            'Optimal Solar Capacity (MW)': solar_data['s_capacity'],
+                                            'Optimal Wind Capacity (MW)': solar_data['w_capacity'],
+                                            'Optimal Battery Capacity (MW)': solar_data['b_capacity'],
+                                            'Annual Demand Offset': solar_data['re_replacement'],
+                                            'capacity': solar_data['s_capacity'],
+                                            'Per Unit Cost': solar_data['banking_price'],
+                                            'Final Cost': solar_data['banking_price'] + master_record.state_charges,
                                             'OA_cost': ISTS_charges + master_record.state_charges,
                                             'ISTS_charges': ISTS_charges,
                                             'state_charges': master_record.state_charges,
                                             "state": solar.state,
-                                            "greatest_cod": greatest_cod,
                                             "connectivity": connectivity,
-                                            "re_replacement": re_replacement,
-                                            "per_unit_savings": grid_tariff.cost - details['Per Unit Cost'] - ISTS_charges - master_record.state_charges,           
+                                            "re_replacement": re_replacement           
                                         }
                                     else:
                                         logger.error(f"BankingCharges API failed: {banking_response.content}")
@@ -4593,14 +4597,19 @@ class SensitivityAPI(APIView):
                                             aggregated_response[wind_data['combination']] = {}
                                         aggregated_response[wind_data['combination']][re_replacement] = {
                                             **wind_data,
+                                            'Optimal Solar Capacity (MW)': wind_data['s_capacity'],
+                                            'Optimal Wind Capacity (MW)': wind_data['w_capacity'],
+                                            'Optimal Battery Capacity (MW)': wind_data['b_capacity'],
+                                            'Annual Demand Offset': wind_data['re_replacement'],
+                                            'capacity': wind_data['s_capacity'],
+                                            'Per Unit Cost': wind_data['banking_price'],
+                                            'Final Cost': wind_data['banking_price'] + master_record.state_charges,
                                             'OA_cost': ISTS_charges + master_record.state_charges,
                                             'ISTS_charges': ISTS_charges,
                                             'state_charges': master_record.state_charges,
                                             "state": wind.state,
-                                            "greatest_cod": greatest_cod,
                                             "connectivity": connectivity,
-                                            "re_replacement": re_replacement,
-                                            "per_unit_savings": grid_tariff.cost - details['Per Unit Cost'] - ISTS_charges - master_record.state_charges,           
+                                            "re_replacement": re_replacement           
                                         }
                                     else:
                                         logger.error(f"BankingCharges API failed: {banking_response.content}")
