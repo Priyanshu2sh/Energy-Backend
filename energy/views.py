@@ -4016,11 +4016,18 @@ class CapacitySizingAPI(APIView):
             solar_portfolio_ids = data.get("solar_portfolio", [])
             wind_portfolio_ids = data.get("wind_portfolio", [])
             ess_portfolio_ids = data.get("ess_portfolio", [])
+            logger.debug(f'solar p: {solar_portfolio_ids}')
+            logger.debug(f'wind p: {wind_portfolio_ids}')
+            logger.debug(f'ess p: {ess_portfolio_ids}')
 
             # Query generator's portfolios
             solar_data = SolarPortfolio.objects.filter(id__in=solar_portfolio_ids)
             wind_data = WindPortfolio.objects.filter(id__in=wind_portfolio_ids)
             ess_data = ESSPortfolio.objects.filter(id__in=ess_portfolio_ids)
+            logger.debug(f'solar data: {solar_data}')
+            logger.debug(f'wind data: {wind_data}')
+            logger.debug(f'ess data: {ess_data}')
+
 
             solar_project = []
             wind_project = []
@@ -4045,6 +4052,7 @@ class CapacitySizingAPI(APIView):
                         "marginal_cost": solar.expected_tariff * 1000,
                         "capital_cost": solar.capital_cost,
                     }
+            logger.debug(f'sssss: {input_data}')
             # Add Wind projects if wind_data exists
             if wind_data.exists():
                 input_data[generator.username]["Wind"] = {}
@@ -4062,6 +4070,7 @@ class CapacitySizingAPI(APIView):
                         "marginal_cost": wind.expected_tariff * 1000,
                         "capital_cost": wind.capital_cost,
                     }
+            logger.debug(f'sssss: {input_data}')
             # Add ESS projects if ess_data exists
             if ess_data.exists():
                 input_data[generator.username]["ESS"] = {}
@@ -4073,6 +4082,7 @@ class CapacitySizingAPI(APIView):
                         "marginal_cost": ess.expected_tariff * 1000,
                         "capital_cost": ess.capital_cost,
                     }
+            logger.debug(f'sssss: {input_data}')
             
             
             valid_combinations = []  
