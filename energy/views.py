@@ -510,17 +510,39 @@ class MonthlyConsumptionDataAPI(APIView):
         return Response(sorted_data, status=status.HTTP_200_OK)
 
     def post(self, request):
-        # Iterate over the input data
-        for item in request.data:
-            requirement = item.get("requirement")
-            month = item.get("month")
+        data = request.data
 
-            # Validate requirement and month presence
-            if not requirement or not month:
+        # Handle single object or list
+        if isinstance(data, dict):
+            data = [data]
+
+        # These fields MUST exist and not be null
+        required_fields = [
+            "requirement",
+            "month",
+            "monthly_consumption",
+            "peak_consumption",
+            "off_peak_consumption",
+        ]
+
+        for item in data:
+
+            # Find missing or null fields
+            missing_or_null = [
+                field for field in required_fields
+                if field not in item or item[field] is None
+            ]
+
+            if missing_or_null:
                 return Response(
-                    {"error": "Both 'requirement' and 'month' are required."},
+                    {
+                        "error": f"Fields {missing_or_null} are required and cannot be null."
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            requirement = item["requirement"]
+            month = item["month"]
 
             try:
                 consumer_requirement = ConsumerRequirements.objects.get(id=requirement)
@@ -672,10 +694,58 @@ class CSVFileAPI(APIView):
                     monthly_consumption.requirement=requirement
                     monthly_consumption.month=row['Month']
 
-                monthly_consumption.monthly_consumption=float(row['Monthly Consumption (MWh)'].replace(',', ''))
-                monthly_consumption.peak_consumption=float(row['Peak Consumption (MWh)'].replace(',', ''))
-                monthly_consumption.off_peak_consumption=float(row['Off Peak Consumption (MWh)'].replace(',', ''))
-                monthly_consumption.monthly_bill_amount=float(row['Monthly Bill Amount (INR cr)'].replace(',', ''))
+                required_fields = [
+                    'Monthly Consumption (MWh)',
+                    'Peak Consumption (MWh)',
+                    'Off Peak Consumption (MWh)'
+                ]
+
+                empty_fields = []
+                parsed_values = {}
+
+                for field in required_fields:
+                    raw_value = row.get(field, '').strip()
+                    if raw_value == '':
+                        empty_fields.append(field)
+                    else:
+                        try:
+                            parsed_values[field] = float(raw_value.replace(',', ''))
+                        except ValueError:
+                            return Response(
+                                {
+                                    "error": f"Invalid numeric value in field '{field}' for month '{month}': '{raw_value}'"
+                                },
+                                status=status.HTTP_400_BAD_REQUEST,
+                            )
+
+                if empty_fields:
+                    return Response(
+                        {
+                            "error": f"Missing or empty value(s) in month '{month}': {', '.join(empty_fields)}"
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # Handle optional Monthly Bill Amount
+                raw_bill_amount = row.get('Monthly Bill Amount (INR cr)', '').strip()
+                if raw_bill_amount == '':
+                    bill_amount = None
+                else:
+                    try:
+                        bill_amount = float(raw_bill_amount.replace(',', ''))
+                    except ValueError:
+                        return Response(
+                            {
+                                "error": f"Invalid numeric value in field 'Monthly Bill Amount (INR cr)' for month '{month}': '{raw_bill_amount}'"
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                # Save validated values
+                monthly_consumption.monthly_consumption = parsed_values['Monthly Consumption (MWh)']
+                monthly_consumption.peak_consumption = parsed_values['Peak Consumption (MWh)']
+                monthly_consumption.off_peak_consumption = parsed_values['Off Peak Consumption (MWh)']
+                monthly_consumption.monthly_bill_amount = bill_amount
                 monthly_consumption.save()
 
             # check if any required fields are null
