@@ -1786,10 +1786,7 @@ class OptimizeCapacityAPI(APIView):
                     logger.debug('After connectivity filtering:')
                     logger.debug(f'solar_data: {solar_data}')
                     logger.debug(f'wind_data: {wind_data}') 
-                    logger.debug(f'ess_data: {ess_data}')
-
-                    if not solar_data.exists() and not wind_data.exists() and not ess_data.exists():
-                        continue
+                    logger.debug(f'ess_data: {ess_data}')  
 
                     portfolios = list(chain(solar_data, wind_data, ess_data))
 
@@ -1905,7 +1902,8 @@ class OptimizeCapacityAPI(APIView):
                 #     if combination is not None:
                 #         # combination = dict(combination)
                 #         valid_combinations.append(combo)
-
+                if not input_data:
+                    continue
                 if new_list != generator_id:
 
                     HourlyDemand.objects.get_or_create(requirement=consumer_requirement)
