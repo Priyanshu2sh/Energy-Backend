@@ -1734,6 +1734,7 @@ class OptimizeCapacityAPI(APIView):
                 input_data = {}  # Initialize the final dictionary
                 new_list = []
             
+                logger.debug(f'for connectivity - {connectivity}')
                 for id in generator_id:
                     generator = User.objects.get(id=id)
                     last_10_combinations = Combination.objects.filter(requirement__sub_industry = consumer_requirement.sub_industry, generator=generator).order_by('-id')[:10]
