@@ -1788,6 +1788,9 @@ class OptimizeCapacityAPI(APIView):
                     logger.debug(f'wind_data: {wind_data}') 
                     logger.debug(f'ess_data: {ess_data}')
 
+                    if not solar_data.exists() and not wind_data.exists() and not ess_data.exists():
+                        continue
+
                     portfolios = list(chain(solar_data, wind_data, ess_data))
 
                     include_ISTS = False
