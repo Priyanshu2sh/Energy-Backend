@@ -126,7 +126,7 @@ class MonthAheadPredictionAPI(APIView):
         logger.debug(f'end date for month ahead prediction - {end_date}')
 
         # Fetch records in date range
-        predictions = MonthAheadPrediction.objects.filter(date__date__range=[start_date, end_date])
+        predictions = MonthAheadPrediction.objects.filter(date__range=[start_date, end_date])
 
         logger.debug(f'data fetched - {predictions}')
 
