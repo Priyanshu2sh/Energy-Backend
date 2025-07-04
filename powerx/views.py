@@ -154,13 +154,13 @@ class MonthAheadPredictionAPI(APIView):
             daily_data.append({
                 "date": record["date"],
                 "mcv_prediction": {
-                    "max": record["max_mcv"],
-                    "min": record["min_mcv"],
+                    "max": round(record["max_mcv"], 2),
+                    "min": round(record["min_mcv"], 2),
                     "avg": round(record["avg_mcv"], 2) if record["avg_mcv"] is not None else None,
                 },
                 "mcp_prediction": {
-                    "max": record["max_mcp"],
-                    "min": record["min_mcp"],
+                    "max": round(record["max_mcp"], 2),
+                    "min": round(record["min_mcp"], 2),
                     "avg": round(record["avg_mcp"], 2) if record["avg_mcp"] is not None else None,
                 }
             })
@@ -215,16 +215,16 @@ class MonthAheadPredictionAPI(APIView):
         # Prepare overall stats
         overall_stats = {
             "mcv_prediction": {
-                "highest": highest_mcv[1],
+                "highest": round(highest_mcv[1], 2),
                 "highest_date": highest_mcv[0],
-                "lowest": lowest_mcv[1],
+                "lowest": round(lowest_mcv[1], 2),
                 "lowest_date": lowest_mcv[0],
                 "average": overall_avg_mcv,
             },
             "mcp_prediction": {
-                "highest": highest_mcp[1],
+                "highest": round(highest_mcp[1], 2),
                 "highest_date": highest_mcp[0],
-                "lowest": lowest_mcp[1],
+                "lowest": round(lowest_mcp[1], 2),
                 "lowest_date": lowest_mcp[0],
                 "average": overall_avg_mcp,
             }
