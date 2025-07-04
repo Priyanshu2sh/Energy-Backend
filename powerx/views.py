@@ -122,8 +122,13 @@ class MonthAheadPredictionAPI(APIView):
         start_date = now().date() + timedelta(days=1)           # e.g. 2025-07-05
         end_date = start_date + timedelta(days=30)              # e.g. 2025-08-04
 
+        logger.debug(f'start date for month ahead prediction - {start_date}')
+        logger.debug(f'end date for month ahead prediction - {end_date}')
+
         # Fetch records in date range
         predictions = MonthAheadPrediction.objects.filter(date__date__range=[start_date, end_date])
+
+        logger.debug(f'data fetched - {predictions}')
 
         if not predictions.exists():
             # If no data found in target range, fall back to latest 30 days from latest record
