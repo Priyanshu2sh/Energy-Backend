@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import GeneratorHourlyDemand, GeneratorMonthlyConsumption, NationalHoliday, NegotiationInvitation, OfflinePayment, PeakHours, State, Industry, PaymentTransaction, SolarPortfolio, StateTimeSlot, SubIndustry, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs,GeneratorOffer, NegotiationWindow, MasterTable, GridTariff, ScadaFile, RETariffMasterTable, PerformaInvoice
+from .models import BankingOrder, District, GeneratorHourlyDemand, GeneratorMonthlyConsumption, NationalHoliday, NegotiationInvitation, OfflinePayment, PeakHours, State, Industry, PaymentTransaction, SolarPortfolio, StateTimeSlot, SubIndustry, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs,GeneratorOffer, NegotiationWindow, MasterTable, GridTariff, ScadaFile, RETariffMasterTable, PerformaInvoice
 from django.conf import settings
 import requests
 from datetime import datetime
@@ -32,6 +32,7 @@ admin.site.register(ScadaFile)
 admin.site.register(PaymentTransaction)
 admin.site.register(RETariffMasterTable)
 admin.site.register(State)
+admin.site.register(District)
 admin.site.register(Industry)
 admin.site.register(SubIndustry)
 admin.site.register(PerformaInvoice)
@@ -101,3 +102,7 @@ class OfflinePaymentAdmin(admin.ModelAdmin):
 
         # Save OfflinePayment
         super().save_model(request, obj, form, change)
+
+@admin.register(BankingOrder)
+class DemandOrderAdmin(admin.ModelAdmin):
+    list_display = ['name', 'order']

@@ -50,6 +50,14 @@ class State(models.Model):
     def __str__(self):
         return self.name
 
+class District(models.Model):
+    name = models.CharField(max_length=255)
+    state = models.ForeignKey('State', on_delete=models.CASCADE, related_name='districts')
+
+    def __str__(self):
+        return f"{self.name} ({self.state.name})"
+
+
 class Industry(models.Model):
     INDUSTRY_CHOICES = [
         ("Energy", "Energy"),
@@ -239,6 +247,12 @@ class ConsumerRequirements(models.Model):
     procurement_date = models.DateField()  # Select the date when the procurement of services or goods occurred (expected Date).
     consumption_unit = models.CharField(max_length=255, blank=True, null=True) #sit name
     annual_electricity_consumption = models.FloatField(blank=True, null=True)
+
+    roof_area = models.FloatField(blank=True, null=True)  # in square meters
+    solar_rooftop_capacity = models.FloatField(blank=True, null=True)  # in kWp
+    location = models.CharField(max_length=255, blank=True, null=True)  # Location in district
+    latitude = models.FloatField(blank=True, null=True)  # Latitude for geolocation
+    longitude = models.FloatField(blank=True, null=True)  # Longitude for geolocation
 
     def __str__(self):
         return f"Demand for {self.user} - {self.state} - {self.industry} - {self.sub_industry} - {self.consumption_unit} - {self.contracted_demand} kWh"
@@ -508,6 +522,8 @@ class MasterTable(models.Model):
     ISTS_charges = models.FloatField()
     state_charges = models.FloatField()
     banking_charges = models.FloatField(default=8, help_text="Banking charges in percentage (default = 8% now for all states)")
+    rooftop_price = models.FloatField(default=1, null=True, blank=True)
+    max_capacity = models.FloatField(default=1, null=True, blank=True, help_text="Maximum capacity in MW for the state, minimum is 1 MW")
 
 class RETariffMasterTable(models.Model):
     industry = models.CharField(max_length=255)
@@ -699,3 +715,10 @@ class OfflinePayment(models.Model):
     payment_mode = models.CharField(max_length=50)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Pending')
     created_at = models.DateTimeField(auto_now_add=True)
+
+class BankingOrder(models.Model):
+    name = models.CharField(max_length=100, default="Default", unique=True)
+    order = models.JSONField(default=list)  # Stores list like ['peak_1', 'peak_2', 'normal', 'off_peak']
+
+    def __str__(self):
+        return self.name

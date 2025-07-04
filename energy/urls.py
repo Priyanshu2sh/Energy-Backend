@@ -50,5 +50,7 @@ urlpatterns = [
     path('offline-payment', views.OfflinePaymentAPI.as_view(), name='offline_payment'),
     path('demand-summary/<int:user_id>', views.DemandSummaryAPI.as_view(), name='demand_summary'),
     path('banking-charges', views.BankingCharges.as_view(), name='banking_charges'),
+    path('pwatt-hourly', views.PWattHourly.as_view(), name='pwatt_hourly'),
+    path('districts/<str:state_name>/', views.DistrictsByState.as_view(), name='districts-by-state'),
 
 ]

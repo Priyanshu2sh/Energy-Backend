@@ -118,20 +118,22 @@ class MonthAheadPredictionAPI(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        start_date = now().date() + timedelta(days=1)  # Next day
-        end_date = start_date + timedelta(days=29)  # Next 30 days
+        # Calculate date range: next day to 30 days ahead (inclusive)
+        start_date = now().date() + timedelta(days=1)           # e.g. 2025-07-05
+        end_date = start_date + timedelta(days=30)              # e.g. 2025-08-04
 
-        # Get data for the next 30 days
+        # Fetch records in date range
         predictions = MonthAheadPrediction.objects.filter(date__date__range=[start_date, end_date])
 
-        if not predictions.exists():  # If no records found for the next 30 days
-            latest_prediction = MonthAheadPrediction.objects.latest('date')  # Get latest record
+        if not predictions.exists():
+            # If no data found in target range, fall back to latest 30 days from latest record
+            latest_prediction = MonthAheadPrediction.objects.latest('date')
             if latest_prediction:
                 last_date = latest_prediction.date
-                start_date = last_date - timedelta(days=30)  # Get 30 days before the latest date
+                start_date = last_date - timedelta(days=30)
                 predictions = MonthAheadPrediction.objects.filter(date__range=[start_date, last_date])
 
-        # Aggregate per day
+        # Aggregate daily statistics
         daily_stats = predictions.values('date').annotate(
             avg_mcv=Avg('mcv_prediction'),
             max_mcv=Max('mcv_prediction'),
@@ -141,7 +143,7 @@ class MonthAheadPredictionAPI(APIView):
             min_mcp=Min('mcp_prediction'),
         ).order_by('date')
 
-        # Prepare daily aggregated data
+        # Build daily_data list
         daily_data = []
         for record in daily_stats:
             daily_data.append({
@@ -149,42 +151,87 @@ class MonthAheadPredictionAPI(APIView):
                 "mcv_prediction": {
                     "max": record["max_mcv"],
                     "min": record["min_mcv"],
-                    "avg": round(record["avg_mcv"], 2) if record["avg_mcv"] else None,
+                    "avg": round(record["avg_mcv"], 2) if record["avg_mcv"] is not None else None,
                 },
                 "mcp_prediction": {
                     "max": record["max_mcp"],
                     "min": record["min_mcp"],
-                    "avg": round(record["avg_mcp"], 2) if record["avg_mcp"] else None,
+                    "avg": round(record["avg_mcp"], 2) if record["avg_mcp"] is not None else None,
                 }
             })
 
-        # Find overall highest, lowest, and average across 30 days, including dates
-        highest_mcv = max(daily_data, key=lambda d: d["mcv_prediction"]["avg"] if d["mcv_prediction"]["avg"] is not None else float('-inf'))
-        lowest_mcv = min(daily_data, key=lambda d: d["mcv_prediction"]["avg"] if d["mcv_prediction"]["avg"] is not None else float('inf'))
+        # Find highest and lowest values based on daily max/min
+        mcv_max_values = [
+            (d["date"], d["mcv_prediction"]["max"])
+            for d in daily_data
+            if d["mcv_prediction"]["max"] is not None
+        ]
 
-        highest_mcp = max(daily_data, key=lambda d: d["mcp_prediction"]["avg"] if d["mcp_prediction"]["avg"] is not None else float('-inf'))
-        lowest_mcp = min(daily_data, key=lambda d: d["mcp_prediction"]["avg"] if d["mcp_prediction"]["avg"] is not None else float('inf'))
+        mcv_min_values = [
+            (d["date"], d["mcv_prediction"]["min"])
+            for d in daily_data
+            if d["mcv_prediction"]["min"] is not None
+        ]
 
+        mcp_max_values = [
+            (d["date"], d["mcp_prediction"]["max"])
+            for d in daily_data
+            if d["mcp_prediction"]["max"] is not None
+        ]
 
-        # Find overall highest, lowest, and average across 30 days
+        mcp_min_values = [
+            (d["date"], d["mcp_prediction"]["min"])
+            for d in daily_data
+            if d["mcp_prediction"]["min"] is not None
+        ]
+
+        highest_mcv = max(mcv_max_values, key=lambda x: x[1]) if mcv_max_values else (None, None)
+        lowest_mcv = min(mcv_min_values, key=lambda x: x[1]) if mcv_min_values else (None, None)
+
+        highest_mcp = max(mcp_max_values, key=lambda x: x[1]) if mcp_max_values else (None, None)
+        lowest_mcp = min(mcp_min_values, key=lambda x: x[1]) if mcp_min_values else (None, None)
+
+        # Compute averages only over valid days
+        mcv_avg_values = [
+            d["mcv_prediction"]["avg"]
+            for d in daily_data
+            if d["mcv_prediction"]["avg"] is not None
+        ]
+
+        mcp_avg_values = [
+            d["mcp_prediction"]["avg"]
+            for d in daily_data
+            if d["mcp_prediction"]["avg"] is not None
+        ]
+
+        overall_avg_mcv = round(sum(mcv_avg_values) / len(mcv_avg_values), 2) if mcv_avg_values else None
+        overall_avg_mcp = round(sum(mcp_avg_values) / len(mcp_avg_values), 2) if mcp_avg_values else None
+
+        # Prepare overall stats
         overall_stats = {
             "mcv_prediction": {
-                "highest": highest_mcv["mcv_prediction"]["avg"],
-                "highest_date": highest_mcv["date"],
-                "lowest": lowest_mcv["mcv_prediction"]["avg"],
-                "lowest_date": lowest_mcv["date"],
-                "average": round(sum(d["mcv_prediction"]["avg"] for d in daily_data if d["mcv_prediction"]["avg"] is not None) / len(daily_data), 2),
+                "highest": highest_mcv[1],
+                "highest_date": highest_mcv[0],
+                "lowest": lowest_mcv[1],
+                "lowest_date": lowest_mcv[0],
+                "average": overall_avg_mcv,
             },
             "mcp_prediction": {
-                "highest": highest_mcp["mcp_prediction"]["avg"],
-                "highest_date": highest_mcp["date"],
-                "lowest": lowest_mcp["mcp_prediction"]["avg"],
-                "lowest_date": lowest_mcp["date"],
-                "average": round(sum(d["mcp_prediction"]["avg"] for d in daily_data if d["mcp_prediction"]["avg"] is not None) / len(daily_data), 2),
+                "highest": highest_mcp[1],
+                "highest_date": highest_mcp[0],
+                "lowest": lowest_mcp[1],
+                "lowest_date": lowest_mcp[0],
+                "average": overall_avg_mcp,
             }
         }
 
-        return Response({"daily_data": daily_data, "overall_stats": overall_stats}, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "daily_data": daily_data,
+                "overall_stats": overall_stats
+            },
+            status=status.HTTP_200_OK
+        )
 
 class ConsumerDayAheadDemandAPI(APIView):
     authentication_classes = [JWTAuthentication]
@@ -1053,6 +1100,7 @@ class TrackGenerationStatusAPI(APIView):
                 "status": entry.status.lower(),
                 "technology": technology,
                 "state": portfolio.state,
+                "site_name": portfolio.site_name,
                 "connectivity": portfolio.connectivity,
                 "available_capacity": portfolio.available_capacity
             })

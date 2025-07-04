@@ -104,7 +104,7 @@ class ConsumerRequirementsSerializer(serializers.ModelSerializer):
     )
     class Meta:
         model = ConsumerRequirements
-        fields = ['id', 'user', 'state', 'industry', 'sub_industry', 'contracted_demand', 'tariff_category', 'voltage_level', 'procurement_date', 'consumption_unit', 'annual_electricity_consumption']
+        fields = ['id', 'user', 'state', 'industry', 'sub_industry', 'contracted_demand', 'tariff_category', 'voltage_level', 'procurement_date', 'consumption_unit', 'annual_electricity_consumption', 'roof_area', 'solar_rooftop_capacity', 'location']
         extra_kwargs = {
             'sub_industry': {'required': False}
         }

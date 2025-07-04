@@ -14,7 +14,7 @@ import pytz
 import requests
 from accounts.models import GeneratorConsumerMapping, User
 from accounts.views import JWTAuthentication
-from .models import CapacitySizingCombination, GeneratorDemand, GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GridTariff, Industry, NationalHoliday, NegotiationInvitation, PeakHours, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
+from .models import BankingOrder, CapacitySizingCombination, GeneratorDemand, GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GridTariff, Industry, NationalHoliday, NegotiationInvitation, PeakHours, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -1297,7 +1297,14 @@ class BankingCharges(APIView):
             banked = 0
             not_met = 0
 
-            for key in ['peak_1', 'peak_2', 'normal', 'off_peak']:
+            # Fetch the latest or default order
+            try:
+                banking_order = BankingOrder.objects.first()
+                order_keys = banking_order.order if banking_order else ['peak_1', 'peak_2', 'normal', 'off_peak']
+            except:
+                order_keys = ['peak_1', 'peak_2', 'normal', 'off_peak']
+
+            for key in order_keys:
                 final_value = final_data.get(key, 0)
                 gen_value = solar_data.get(key, 0) * capacity
                 
@@ -1326,7 +1333,7 @@ class BankingCharges(APIView):
                     adjusted_value = 0
 
                 # If off_peak (last slot), add remaining banked or negative value to curtailment
-                if key == 'off_peak':
+                if key == order_keys[-1]:
                     curtailment = 0
                     if banked > 0:
                         curtailment += banked
@@ -4922,3 +4929,199 @@ class DemandSummaryAPI(APIView):
             return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class DistrictsByState(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, state_name):
+        try:
+            state = State.objects.get(name=state_name)
+            districts = state.districts.values_list('name', flat=True)  # returns a list of names
+            return Response(list(districts), status=status.HTTP_200_OK)
+        except State.DoesNotExist:
+            return Response({"error": "State not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+class PWattHourly(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data = request.data
+        requirement_id = data.get("requirement_id")
+        button_type = data.get("button_type")
+        
+        if not requirement_id:
+            return Response({"error": "Requirement ID is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            requirement = ConsumerRequirements.objects.get(id=requirement_id)
+            consumption = MonthlyConsumptionData.objects.filter(requirement=requirement)
+            master_data = MasterTable.objects.get(state=requirement.state)
+            grid_tariff = GridTariff.objects.get(state=requirement.state, tariff_category=requirement.tariff_category)
+        except ConsumerRequirements.DoesNotExist:
+            return Response({"error": "Consumer requirement not found."}, status=status.HTTP_404_NOT_FOUND)
+        except MonthlyConsumptionData.DoesNotExist:
+            return Response({"error": "no monthly consumption found for this requirement."}, status=status.HTTP_404_NOT_FOUND)
+        except MasterTable.DoesNotExist:
+            return Response({"error": "no master data found for this state."}, status=status.HTTP_404_NOT_FOUND)
+        except GridTariff.DoesNotExist:
+            return Response({"error": "no grid tariff found for this state."}, status=status.HTTP_404_NOT_FOUND)
+
+        monthly_data = list(consumption.order_by('month'))  # Make sure it's ordered Jan to Dec
+        if len(monthly_data) != 12:
+            return Response({"error": "Expected 12 monthly consumption records."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        try:
+            if requirement.latitude and requirement.longitude:
+                lat = requirement.latitude
+                lon = requirement.longitude
+            else:
+                geo_code_url = f"https://geocode.maps.co/search?q={requirement.location}&api_key={settings.GEO_CODING_API_KEY}"
+                geo_response = requests.get(geo_code_url)
+                # Parse the JSON response
+                if geo_response.status_code == 200:
+                    data = geo_response.json()
+                    if data:
+                        # Grab the first result
+                        lat = data[0].get("lat")
+                        lon = data[0].get("lon")
+                        logger.debug(f"Latitude: {lat}, Longitude: {lon}")
+                    else:
+                        logger.debug("No results found for the given place.")
+                else:
+                    logger.debug(f"Error: {geo_response}")
+
+            if button_type == 'grid_connected':
+                capacity_of_solar_rooftop = min(master_data.max_capacity, requirement.contracted_demand, (requirement.roof_area / 10000))
+            elif button_type == 'behind_the_meter':
+                capacity_of_solar_rooftop = min(requirement.contracted_demand, (requirement.roof_area / 10000))
+
+            url = f"https://developer.nrel.gov/api/pvwatts/v8.json?api_key={settings.PWATT_API_KEY}&azimuth=180&system_capacity={capacity_of_solar_rooftop}&losses=14&array_type=1&module_type=0&gcr=0.4&dc_ac_ratio=1.2&inv_eff=96.0&radius=0&dataset=nsrdb&tilt=10&lat={lat}&lon={lon}&soiling=12|4|45|23|9|99|67|12.54|54|9|0|7.6&albedo=0.3&bifaciality=0.7&timeframe=hourly"
+            
+            response = requests.get(url)
+            if response.status_code == 200:
+                data = response.json()
+                hourly_generation = data['outputs']['ac']
+            else:
+                return Response({"error": f"PWatt API request failed with status code {response.status_code}."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            if button_type == 'grid_connected':
+
+                # Step 1: Split 8760 values into 12 months
+                generation_by_month = defaultdict(float)
+                now = datetime.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+                for i, gen in enumerate(hourly_generation):
+                    hour_time = now + timedelta(hours=i)
+                    month = hour_time.month
+                    generation_by_month[month] += gen
+
+                monthly_results = []
+                total_consumption = 0
+                total_generation = 0
+                for i, record in enumerate(monthly_data):
+                    month_num = record.month
+                    monthly_consumption = record.monthly_consumption
+                    monthly_generation = generation_by_month.get(month_num, 0) * capacity_of_solar_rooftop
+
+                    # Step 3: Monthly savings
+                    savings = (monthly_consumption * grid_tariff.cost) - (monthly_generation * master_data.rooftop_price)
+
+                    monthly_results.append({
+                        "month": month_num,
+                        "generation": round(monthly_generation, 2),
+                        "savings": round(savings, 2)
+                    })
+                    total_consumption += monthly_consumption
+                    total_generation += monthly_generation
+
+                energy_replaced = total_generation / total_consumption if total_consumption else 0
+                return Response({
+                    "data": data, 
+                    "monthly_data": monthly_results,
+                    "energy_replaced": round(energy_replaced, 4),
+                    "capacity_of_solar_rooftop": capacity_of_solar_rooftop
+                }, status=status.HTTP_200_OK)
+
+            elif button_type == 'behind_the_meter':
+                month_name_to_number = {
+                    'January': 1,
+                    'February': 2,
+                    'March': 3,
+                    'April': 4,
+                    'May': 5,
+                    'June': 6,
+                    'July': 7,
+                    'August': 8,
+                    'September': 9,
+                    'October': 10,
+                    'November': 11,
+                    'December': 12
+                }
+        
+                # Step 1: Create a mapping of month -> consumption value
+                monthly_consumption_map = {
+                    month_name_to_number[record.month]: record.monthly_consumption
+                    for record in monthly_data
+                }
+
+                # Step 2: Generate hourly consumption from monthly
+                now = datetime.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+                hourly_consumption = []
+                month_hours = defaultdict(int)
+
+                # First, count how many hours are in each month
+                for i in range(8760):
+                    current_time = now + timedelta(hours=i)
+                    month_hours[current_time.month] += 1
+
+                # Now, for each hour, assign consumption = monthly / hours_in_month
+                for i in range(8760):
+                    current_time = now + timedelta(hours=i)
+                    month = current_time.month
+                    monthly_total = monthly_consumption_map[month]
+                    per_hour_consumption = monthly_total / month_hours[month]
+                    hourly_consumption.append(per_hour_consumption)
+
+                # Step 4: Compute hourly savings
+                hourly_results = []
+                total_savings = 0
+                total_consumption = 0
+                total_generation = 0
+
+                for hour, (gen, cons) in enumerate(zip(hourly_generation, hourly_consumption)):
+                    gen *= capacity_of_solar_rooftop  # Adjust generation to installed capacity
+                    used_solar = min(gen, cons)
+                    savings = used_solar * grid_tariff.cost
+                    curtailed_energy = max(0, gen - cons)
+
+                    hourly_results.append({
+                        "hour": hour,
+                        "generation": round(gen, 2),
+                        "consumption": round(cons, 2),
+                        "used_solar": round(used_solar, 2),
+                        "savings": round(savings, 2),
+                        "curtailment": round(curtailed_energy, 2)
+                    })
+
+                    total_savings += savings
+                    total_consumption += cons
+                    total_generation += gen
+
+                energy_replaced = total_generation / total_consumption if total_consumption else 0
+
+                return Response({
+                    "data": data,
+                    "hourly_data": hourly_results,  # You can choose to summarize this
+                    "total_savings": round(total_savings, 2),
+                    "energy_replaced": round(energy_replaced, 4),
+                    "capacity_of_solar_rooftop": capacity_of_solar_rooftop
+                }, status=status.HTTP_200_OK)
+
+            
+        except Exception as e:
+            tb = traceback.format_exc()  # Get the full traceback
+            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
+            return Response({"error": str(e), "Traceback": tb}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
