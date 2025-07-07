@@ -1417,6 +1417,7 @@ class BankingCharges(APIView):
         if re_replacement is None:
             re_replacement = 65
 
+        logger.debug(f're_replacement for banking: {re_replacement}')
         try:
             requirement = ConsumerRequirements.objects.get(id=requirement)
             master_data = MasterTable.objects.get(state=requirement.state)
