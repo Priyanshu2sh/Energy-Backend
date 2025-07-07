@@ -1104,6 +1104,7 @@ class TrackGenerationStatusAPI(APIView):
                 "price": entry.price,
                 "status": entry.status.lower(),
                 "technology": technology,
+                "portfolio_id": portfolio.id,
                 "state": portfolio.state,
                 "site_name": portfolio.site_name,
                 "connectivity": portfolio.connectivity,
@@ -1125,6 +1126,8 @@ class TrackGenerationStatusAPI(APIView):
                 "portfolio_details": {
                     "technology": first['technology'],
                     "state": first['state'],
+                    "portfolio_id": first['portfolio_id'],
+                    "site_name": first['site_name'],
                     "connectivity": first['connectivity'],
                     "available_capacity": first['available_capacity']
                 }
@@ -1150,6 +1153,8 @@ class TrackGenerationStatusAPI(APIView):
                 "portfolio_details": {
                     "technology": technology,
                     "state": portfolio.state,
+                    "portfolio": portfolio.id,
+                    "site_name": portfolio.site_name,
                     "connectivity": portfolio.connectivity,
                     "available_capacity": portfolio.available_capacity
                 }

@@ -59,8 +59,21 @@ traceback_logger = logging.getLogger('django')
 logger = logging.getLogger('debug_logger')  # Use the new debug logger
 
 # Create your views here.
-
 client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+
+def check_active_subscription(view_func):
+    def _wrapped_view(self, request, *args, **kwargs):
+        user_id = kwargs.get('user_id') or request.data.get('user_id') # Or from request.data if it's a POST
+        
+        if not user_id:
+            return Response({"error": "User ID not provided."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not SubscriptionEnrolled.objects.filter(user=user_id, status='active').exists():
+            return Response({"error": "You don't have any active subscription. Please subscribe first!"}, status=status.HTTP_403_FORBIDDEN)
+
+        return view_func(self, request, *args, **kwargs)
+
+    return _wrapped_view
 
 # Get the logged-in user
 def get_admin_user(user_id):
@@ -1352,40 +1365,6 @@ class BankingCharges(APIView):
                 logger.debug(f'Final Adjusted Value: {adjusted_value}')
                 logger.debug('--------------------------------')
 
-
-            # adjusted_dict[month] = {}
-            # banked = 0
-            # not_met = 0
-            # for key in ['peak_1', 'peak_2', 'normal', 'off_peak']:
-            #     final_value = final_data.get(key, 0)
-            #     solar_value = solar_data.get(key, 0)
-            #     # Subtract solar from actual and multiply
-            #     adjusted_value = round(final_value - (solar_value * capacity) - banked, 2)
-
-            #     logger.debug(f'======={key}=======')
-            #     logger.debug(f'banked: {banked}')
-            #     logger.debug(f'not_met: {not_met}')
-            #     logger.debug(f'adjusted_value: {adjusted_value}')
-            #     logger.debug('--------------------------------')
-            #     if 
-            #         banked = 0
-            #     while True:
-            #         # if the demand is not met
-            #         if adjusted_value > 0:
-            #             if banked == 0:
-            #                 not_met += adjusted_value
-            #                 break
-            #             else:
-            #                 adjusted_value -= banked
-            #         # extra generation
-            #         else:
-            #             banked = abs(adjusted_value) * (1 - (master_data.banking_charges/100))
-            #             adjusted_dict[month]['curtailment'] = abs(adjusted_value)
-            #             break
-
-            #     adjusted_dict[month][key] = round(adjusted_value, 2)
-            #     adjusted_dict[month]['not_met'] = round(not_met, 2)
-
         # ✅ Result:
         logger.debug(f'adjusted values: {adjusted_dict}')
         total_unmet = sum(month_data.get("not_met", 0) for month_data in adjusted_dict.values())
@@ -1695,6 +1674,7 @@ class OptimizeCapacityAPI(APIView):
         # Return the data in the desired flat format
         return pd.Series(all_hourly_data)
 
+    @check_active_subscription
     def post(self, request):
         data = request.data
         optimize_capacity_user = data.get("optimize_capacity_user") #consumer or generator
@@ -2355,6 +2335,7 @@ class ConsumptionPatternAPI(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
+    @check_active_subscription
     def get(self, request, pk, user_id):
         try:
             
