@@ -61,19 +61,19 @@ logger = logging.getLogger('debug_logger')  # Use the new debug logger
 # Create your views here.
 client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
-def check_active_subscription(view_func):
-    def _wrapped_view(self, request, *args, **kwargs):
-        user_id = kwargs.get('user_id') or request.data.get('user_id') # Or from request.data if it's a POST
+# def check_active_subscription(view_func):
+#     def _wrapped_view(self, request, *args, **kwargs):
+#         user_id = kwargs.get('user_id') or request.data.get('user_id') # Or from request.data if it's a POST
         
-        if not user_id:
-            return Response({"error": "User ID not provided."}, status=status.HTTP_400_BAD_REQUEST)
+#         if not user_id:
+#             return Response({"error": "User ID not provided."}, status=status.HTTP_400_BAD_REQUEST)
 
-        if not SubscriptionEnrolled.objects.filter(user=user_id, status='active').exists():
-            return Response({"error": "You don't have any active subscription. Please subscribe first!"}, status=status.HTTP_403_FORBIDDEN)
+#         if not SubscriptionEnrolled.objects.filter(user=user_id, status='active').exists():
+#             return Response({"error": "You don't have any active subscription. Please subscribe first!"}, status=status.HTTP_403_FORBIDDEN)
 
-        return view_func(self, request, *args, **kwargs)
+#         return view_func(self, request, *args, **kwargs)
 
-    return _wrapped_view
+#     return _wrapped_view
 
 # Get the logged-in user
 def get_admin_user(user_id):
@@ -1008,7 +1008,7 @@ class MatchingIPPAPI(APIView):
                     # Fetch portfolio details per user
                     solar_portfolios = SolarPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity", "banking_available")
                     wind_portfolios = WindPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity", "banking_available")
-                    ess_portfolios = ESSPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity", "banking_available")
+                    ess_portfolios = ESSPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity")
 
                     # Update the user's available capacity
                     entry["available_capacity"] = available_capacity
@@ -1674,7 +1674,7 @@ class OptimizeCapacityAPI(APIView):
         # Return the data in the desired flat format
         return pd.Series(all_hourly_data)
 
-    @check_active_subscription
+    # @check_active_subscription
     def post(self, request):
         data = request.data
         optimize_capacity_user = data.get("optimize_capacity_user") #consumer or generator
@@ -2335,7 +2335,7 @@ class ConsumptionPatternAPI(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
-    @check_active_subscription
+    # @check_active_subscription
     def get(self, request, pk, user_id):
         try:
             
