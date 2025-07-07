@@ -1006,9 +1006,9 @@ class MatchingIPPAPI(APIView):
                     )
 
                     # Fetch portfolio details per user
-                    solar_portfolios = SolarPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity")
-                    wind_portfolios = WindPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity")
-                    ess_portfolios = ESSPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity")
+                    solar_portfolios = SolarPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity", "banking_available")
+                    wind_portfolios = WindPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity", "banking_available")
+                    ess_portfolios = ESSPortfolio.objects.filter(user=user_id).values("state", "connectivity", "total_install_capacity", "available_capacity", "banking_available")
 
                     # Update the user's available capacity
                     entry["available_capacity"] = available_capacity
