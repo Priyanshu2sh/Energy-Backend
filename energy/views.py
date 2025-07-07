@@ -1724,6 +1724,7 @@ class OptimizeCapacityAPI(APIView):
                 logger.debug(f'for connectivity - {connectivity}')
                 for id in generator_id:
                     generator = User.objects.get(id=id)
+                    logger.debug(f'generator - {generator.username}')
                     last_10_combinations = Combination.objects.filter(requirement__sub_industry = consumer_requirement.sub_industry, generator=generator).order_by('-id')[:10]
                     # Check if there are 10 or more records
                     if last_10_combinations.count() >= 10:
