@@ -63,6 +63,10 @@ class WindPortfolioSerializer(serializers.ModelSerializer):
         }
     
     def update(self, instance, validated_data):
+        # Remove hourly_data if it's None
+        if 'hourly_data' in validated_data and validated_data['hourly_data'] is None:
+            validated_data.pop('hourly_data')
+            
         # Set 'updated' to True on PUT method
         validated_data['updated'] = True
         return super().update(instance, validated_data)
