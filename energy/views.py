@@ -2088,6 +2088,7 @@ class OptimizeCapacityAPI(APIView):
                                                     'Optimal Wind Capacity (MW)': data['w_capacity'],
                                                     'Optimal Battery Capacity (MW)': data['b_capacity'],
                                                     'Annual Demand Offset': data['re_replacement'],
+                                                    'Annual Demand Met': round(data['demand_met'] / 1000, 2),
                                                     'capacity': capacity,
                                                     'Per Unit Cost': combo.per_unit_cost,
                                                     'Final Cost': combo.final_cost,
@@ -2309,12 +2310,12 @@ class OptimizeCapacityAPI(APIView):
                 return Response({"error": "The demand cannot be met by your projects."}, status=status.HTTP_200_OK)
             
 
-            # Extract top 3 records with the smallest "Per Unit Cost"
-            top_three_records = sorted(aggregated_response.items(), key=lambda x: x[1]['Per Unit Cost'])[:3]
+            # Extract top 5 records with the smallest "Per Unit Cost"
+            top_three_records = sorted(aggregated_response.items(), key=lambda x: x[1]['Per Unit Cost'])[:5]
             # Function to round values to 2 decimal places
             def round_values(record):
                 return {key: round(value, 2) if isinstance(value, (int, float)) else value for key, value in record.items()}
-            # Round the values for the top 3 records
+            # Round the values for the top 5 records
             top_three_records_rounded = {
                 key: round_values(value) for key, value in top_three_records
             }   
