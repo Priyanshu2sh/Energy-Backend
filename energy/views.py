@@ -1412,7 +1412,6 @@ class BankingCharges(APIView):
         requirement = data.get("requirement")
         solar_id = data.get("solar_id")
         wind_id = data.get("wind_id")
-        numeric_hourly_demand = data.get("numeric_hourly_demand")
         re_replacement = data.get("re_replacement")
         if re_replacement is None:
             re_replacement = 65
@@ -1985,7 +1984,6 @@ class OptimizeCapacityAPI(APIView):
                             # Prepare query parameters for the GET request
                             banking_data = {
                                 "requirement": consumer_requirement.id,
-                                "numeric_hourly_demand": list(numeric_hourly_demand),
                                 "solar_id": solar.id if solar and solar.connectivity == 'STU' and solar.banking_available else None,
                                 "wind_id": wind.id if wind and wind.connectivity == 'STU' and wind.banking_available else None,
                                 "re_replacement": re_replacement
@@ -4581,8 +4579,8 @@ class SensitivityAPI(APIView):
                             # Prepare query parameters for the GET request
                             banking_data = {
                                 "requirement": consumer_requirement.id,
-                                "numeric_hourly_demand": list(hourly_demand),
-                                "solar_id": solar.id if solar and solar.connectivity == 'STU' and solar.banking_available else None
+                                "solar_id": solar.id if solar and solar.connectivity == 'STU' and solar.banking_available else None,
+                                "re_replacement": re_replacement
                             }
                                     
                             # Forward token received from frontend
@@ -4638,8 +4636,8 @@ class SensitivityAPI(APIView):
                             # Prepare query parameters for the GET request
                             banking_data = {
                                 "requirement": consumer_requirement.id,
-                                "numeric_hourly_demand": list(hourly_demand),
-                                "wind_id": wind.id if wind and wind.connectivity == 'STU' and wind.banking_available else None
+                                "wind_id": wind.id if wind and wind.connectivity == 'STU' and wind.banking_available else None,
+                                "re_replacement": re_replacement
                             }
                                     
                             # Forward token received from frontend
