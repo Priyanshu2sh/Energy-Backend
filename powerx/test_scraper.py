@@ -3,6 +3,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 import os
 import time
 import logging
@@ -38,6 +40,30 @@ def scrape_data():
         # Navigate to IEX
         driver.get("https://www.iexindia.com/market-data/green-day-ahead-market/market-snapshot")
         time.sleep(5)
+        wait = WebDriverWait(driver, 20)
+
+        # Step 2: Select "Tomorrow" in the delivery period dropdown
+        dropdown = wait.until(EC.element_to_be_clickable((
+            By.XPATH, "//div[contains(@aria-controls, 'R15alaackql')]"  # use partial match
+        )))
+        dropdown.click()
+
+        print("✅ dropdown clicked!")
+        time.sleep(2)
+
+        tomorrow_option = wait.until(EC.element_to_be_clickable((By.XPATH, "//li[@data-value='TOMORROW']")))
+        tomorrow_option.click()
+        print("✅ 'Tomorrow' selected!")
+        time.sleep(2)  # Give time for selection to process
+
+        update_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Update Report']")))
+        update_button.click()
+        print("✅ 'Update Report' button clicked!")
+        time.sleep(2)
+
+        # Step 3: Click "Update Report"
+        driver.find_element(By.XPATH, "//button[text()='Update Report']").click()
+        time.sleep(3)
 
         # Click Export > Export Excel
         logging.info("Clicking export options...")
