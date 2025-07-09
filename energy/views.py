@@ -1229,8 +1229,8 @@ class PortfolioUpdateStatusView(APIView):
 
 
 class BankingCharges(APIView):
-    # authentication_classes = [JWTAuthentication]
-    # permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
     @staticmethod
     def calculate_monthly_slot_generation(profile, state):
@@ -1409,50 +1409,23 @@ class BankingCharges(APIView):
     def post(self, request):
         data = request.data  # JSON body
 
-        requirement = data.get("requirement")
-        solar_id = data.get("solar_id")
-        wind_id = data.get("wind_id")
+        requirement_id = data.get("requirement")
+        solar_ids = data.get("solar_ids") or []
+        wind_ids = data.get("wind_ids") or []
         re_replacement = data.get("re_replacement")
         if re_replacement is None:
             re_replacement = 65
 
-        logger.debug(f're_replacement for banking: {re_replacement}')
+        logger.debug(f"re_replacement for banking: {re_replacement}")
+
         try:
-            requirement = ConsumerRequirements.objects.get(id=requirement)
+            requirement = ConsumerRequirements.objects.get(id=requirement_id)
             master_data = MasterTable.objects.get(state=requirement.state)
             monthly_consumption = MonthlyConsumptionData.objects.filter(requirement=requirement)
             peak_config = PeakHours.objects.get(state__name=requirement.state)
-            solar = SolarPortfolio.objects.get(id=solar_id) if solar_id else None
-            wind = WindPortfolio.objects.get(id=wind_id) if wind_id else None
-
-            solar_monthly = {}
-            wind_monthly = {}
-
-            if solar:
-                available_capacity_solar = solar.available_capacity
-                profile = OptimizeCapacityAPI.extract_profile_data(solar.hourly_data.path)
-                profile = profile / solar.available_capacity
-                state = solar.state
-                s_expected_tariff = solar.expected_tariff
-                s_project = solar.project
-                solar_ipp = solar.user.username
-                solar_monthly = self.calculate_monthly_slot_generation(profile, state)
-                logger.debug(f'Solar monthly data: {solar_monthly}')
-                
-            if wind:
-                available_capacity_wind = wind.available_capacity
-                profile = OptimizeCapacityAPI.extract_profile_data(wind.hourly_data.path)
-                profile = profile / wind.available_capacity
-                state = wind.state
-                w_expected_tariff = wind.expected_tariff
-                w_project = wind.project
-                wind_ipp = wind.user.username
-                wind_monthly = self.calculate_monthly_slot_generation(profile, state)
-                logger.debug(f'Wind monthly data: {wind_monthly}')
 
             final_monthly_dict = {}
             if peak_config.peak_start_1 and peak_config.peak_end_1 and peak_config.peak_start_2 and peak_config.peak_end_2:
-                
                 peak_1_hours = peak_config.peak_end_1.hour - peak_config.peak_start_1.hour
                 peak_2_hours = peak_config.peak_end_2.hour - peak_config.peak_start_2.hour
                 total_peak_hours = peak_1_hours + peak_2_hours
@@ -1467,90 +1440,149 @@ class BankingCharges(APIView):
                     total_peak_consumption = month_data.peak_consumption
 
                     # Split peak consumption
-                    peak_1_consumption = round((peak_1_hours / total_peak_hours) * total_peak_consumption, 2)
-                    peak_2_consumption = round((peak_2_hours / total_peak_hours) * total_peak_consumption, 2)
-
-                    off_peak_value = month_data.off_peak_consumption
-
-                    normal_value = round(
-                        month_data.monthly_consumption - (total_peak_consumption + off_peak_value), 2
+                    peak_1_consumption = round(
+                        (peak_1_hours / total_peak_hours) * total_peak_consumption, 2
+                    )
+                    peak_2_consumption = round(
+                        (peak_2_hours / total_peak_hours) * total_peak_consumption, 2
                     )
 
-                    # Save to dictionary
+                    off_peak_value = month_data.off_peak_consumption
+                    normal_value = round(
+                        month_data.monthly_consumption
+                        - (total_peak_consumption + off_peak_value),
+                        2,
+                    )
+
                     final_monthly_dict[month_number] = {
-                        'peak_1': peak_1_consumption,
-                        'peak_2': peak_2_consumption,
-                        'off_peak': off_peak_value,
-                        'normal': normal_value
+                        "peak_1": peak_1_consumption,
+                        "peak_2": peak_2_consumption,
+                        "off_peak": off_peak_value,
+                        "normal": normal_value,
                     }
-            
 
-            # final_monthly_dict = {1: {'peak_1': 135.718, 'peak_2': 0, 'off_peak': 135.718, 'normal': 157.561}, 2: {'peak_1': 142.975, 'peak_2': 0, 'off_peak': 142.975, 'normal': 162.059}, 3: {'peak_1': 135.531, 'peak_2': 0, 'off_peak': 135.531, 'normal': 150.038}, 4: {'peak_1': 142.832, 'peak_2': 0, 'off_peak': 142.832, 'normal': 165.669}, 5: {'peak_1': 154.122, 'peak_2': 0, 'off_peak': 154.122, 'normal': 181.509}, 6: {'peak_1': 147.186, 'peak_2': 0, 'off_peak': 147.186, 'normal': 172.573}, 7: {'peak_1': 159.819, 'peak_2': 0, 'off_peak': 159.819, 'normal': 195.103}, 8: {'peak_1': 154.073, 'peak_2': 0, 'off_peak': 154.073, 'normal': 185.739}, 9: {'peak_1': 152.705, 'peak_2': 0, 'off_peak': 152.705, 'normal': 181.539}, 10: {'peak_1': 113.608, 'peak_2': 0, 'off_peak': 113.608, 'normal': 108.177}, 11: {'peak_1': 110.183, 'peak_2': 0, 'off_peak': 110.183, 'normal': 97.058}, 12: {'peak_1': 112.441, 'peak_2': 0, 'off_peak': 112.441, 'normal': 108.886}}
+            # -----------------------
+            # Process SOLAR portfolios
+            # -----------------------
 
-            # solar_monthly = {1: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 2: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 3: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 4: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 5: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 6: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 7: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 8: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 9: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 10: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 11: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}, 12: {'peak_1': 3, 'peak_2': 0, 'off_peak': 0, 'normal': 10}}
+            solar_results = []
+            if solar_ids:
+                solar_objs = SolarPortfolio.objects.filter(id__in=solar_ids)
 
-            results_solar = None
-            if solar:
-                logger.debug(f'final_monthly_dict: {final_monthly_dict}')
-                logger.debug(f'solar_monthly: {solar_monthly}')
-                low = 1
-                high = available_capacity_solar
-                precision = 0.01
-                max_iterations = 100
-                for _ in range(max_iterations):
-                    mid = (low + high) / 2
-                    logger.debug(f'solar capacity---- {mid}')
-                    results_solar = self.banking_price_calculations(final_monthly_dict, solar_monthly, mid, master_data, s_expected_tariff)
-                    current_re = results_solar["re_replacement"]
+                for solar in solar_objs:
+                    logger.debug(f"Processing solar ID: {solar.id}")
+                    available_capacity_solar = solar.available_capacity
+                    profile = OptimizeCapacityAPI.extract_profile_data(solar.hourly_data.path)
+                    profile = profile / solar.available_capacity
+                    state = solar.state
+                    s_expected_tariff = solar.expected_tariff
+                    s_project = solar.project
+                    solar_ipp = solar.user.username
 
-                    if abs(current_re - re_replacement) < precision:
-                        break
-                    elif current_re < re_replacement:
-                        low = mid
-                    else:
-                        high = mid
-                results_solar['combination'] = f'{solar_ipp}-{s_project}'
-                results_solar['s_capacity'] = mid
-                results_solar['w_capacity'] = 0
-                results_solar['b_capacity'] = 0
+                    solar_monthly = self.calculate_monthly_slot_generation(profile, state)
+                    logger.debug(f"Solar monthly data (ID {solar.id}): {solar_monthly}")
 
+                    low = 1
+                    high = available_capacity_solar
+                    precision = 0.01
+                    max_iterations = 100
+                    mid = None
+                    results_solar = None
 
-            results_wind = None
-            if wind:
-                logger.debug(f'final_monthly_dict: {final_monthly_dict}')
-                logger.debug(f'wind_monthly: {wind_monthly}')
-                low = 1
-                high = available_capacity_wind
-                precision = 0.01
-                max_iterations = 100
-                for _ in range(max_iterations):
-                    mid = (low + high) / 2
-                    logger.debug(f'wind capacity---- {mid}')
-                    results_wind = self.banking_price_calculations(final_monthly_dict, wind_monthly, mid, master_data, w_expected_tariff)
-                    current_re = results_wind["re_replacement"]
+                    for _ in range(max_iterations):
+                        mid = (low + high) / 2
+                        logger.debug(f"solar capacity for ID {solar.id} ---- {mid}")
+                        results_solar = self.banking_price_calculations(
+                            final_monthly_dict,
+                            solar_monthly,
+                            mid,
+                            master_data,
+                            s_expected_tariff,
+                        )
+                        current_re = results_solar["re_replacement"]
 
-                    if abs(current_re - re_replacement) < precision:
-                        break
-                    elif current_re < re_replacement:
-                        low = mid
-                    else:
-                        high = mid
-                results_wind['combination'] = f'{wind_ipp}-{w_project}'
-                results_wind['s_capacity'] = 0
-                results_wind['w_capacity'] = mid
-                results_wind['b_capacity'] = 0
+                        if abs(current_re - re_replacement) < precision:
+                            break
+                        elif current_re < re_replacement:
+                            low = mid
+                        else:
+                            high = mid
 
+                    results_solar["combination"] = f"{solar_ipp}-{s_project}"
+                    results_solar["s_capacity"] = mid
+                    results_solar["w_capacity"] = 0
+                    results_solar["b_capacity"] = 0
+                    results_solar["solar_id"] = solar.id
+
+                    solar_results.append(results_solar)
+
+            # -----------------------
+            # Process WIND portfolios
+            # -----------------------
+
+            wind_results = []
+            if wind_ids:
+                wind_objs = WindPortfolio.objects.filter(id__in=wind_ids)
+
+                for wind in wind_objs:
+                    logger.debug(f"Processing wind ID: {wind.id}")
+                    available_capacity_wind = wind.available_capacity
+                    profile = OptimizeCapacityAPI.extract_profile_data(wind.hourly_data.path)
+                    profile = profile / wind.available_capacity
+                    state = wind.state
+                    w_expected_tariff = wind.expected_tariff
+                    w_project = wind.project
+                    wind_ipp = wind.user.username
+
+                    wind_monthly = self.calculate_monthly_slot_generation(profile, state)
+                    logger.debug(f"Wind monthly data (ID {wind.id}): {wind_monthly}")
+
+                    low = 1
+                    high = available_capacity_wind
+                    precision = 0.01
+                    max_iterations = 100
+                    mid = None
+                    results_wind = None
+
+                    for _ in range(max_iterations):
+                        mid = (low + high) / 2
+                        logger.debug(f"wind capacity for ID {wind.id} ---- {mid}")
+                        results_wind = self.banking_price_calculations(
+                            final_monthly_dict,
+                            wind_monthly,
+                            mid,
+                            master_data,
+                            w_expected_tariff,
+                        )
+                        current_re = results_wind["re_replacement"]
+
+                        if abs(current_re - re_replacement) < precision:
+                            break
+                        elif current_re < re_replacement:
+                            low = mid
+                        else:
+                            high = mid
+
+                    results_wind["combination"] = f"{wind_ipp}-{w_project}"
+                    results_wind["s_capacity"] = 0
+                    results_wind["w_capacity"] = mid
+                    results_wind["b_capacity"] = 0
+                    results_wind["wind_id"] = wind.id
+
+                    wind_results.append(results_wind)
 
             final_response = {
-                "solar": results_solar,
-                "wind": results_wind
+                "solar": solar_results,
+                "wind": wind_results,
             }
+
+            logger.debug(f'final response from banking: {final_response}')
 
             return Response(final_response, status=status.HTTP_200_OK)
 
         except Exception as e:
-            tb = traceback.format_exc()  # Get the full traceback
-            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
+            tb = traceback.format_exc()
+            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -1926,6 +1958,262 @@ class OptimizeCapacityAPI(APIView):
                     response_data = optimization_model(input_data, hourly_demand=numeric_hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, OA_cost=(ISTS_charges + master_record.state_charges)*1000)
                     logger.debug(response_data)
 
+                    # Further filter for STU & banking
+                    solar_ids = list(solar_data.filter(connectivity='STU', banking_available=True).values_list('id', flat=True))
+                    wind_ids = list(wind_data.filter(connectivity='STU', banking_available=True).values_list('id', flat=True))
+
+                    banking_data = {
+                        "requirement": consumer_requirement.id,
+                        "solar_ids": solar_ids,
+                        "wind_ids": wind_ids,
+                        "re_replacement": re_replacement
+                    }
+                            
+                    # Forward token received from frontend
+                    auth_header = request.META.get('HTTP_AUTHORIZATION')  # 'Bearer <token>'
+                    headers = {
+                        "Authorization": auth_header,
+                        "Content-Type": "application/json"
+                    }
+                    if settings.ENVIRONMENT == 'local':
+                        logger.debug('Local environment detected')
+                        url="http://127.0.0.1:8000/api/energy/banking-charges"
+                    else:
+                        url="https://ext.exgglobal.com/api/api/energy/banking-charges"
+
+                    logger.debug(f'Banking Data: {banking_data}')
+                    logger.debug('not entered in condition..............')
+                    if any([banking_data["solar_ids"], banking_data["wind_ids"]]):
+                        logger.debug('entered in condition..............')
+                        try:
+                            banking_response = requests.post(
+                                url=url,
+                                json=banking_data,
+                                headers=headers
+                            )
+
+                            if banking_response.status_code == 200:
+                                banking_result = banking_response.json()
+                                logger.debug(f"Banking Charges result")
+
+                                # Pre-fetch all required solar/wind objects
+                                solar_objs = {
+                                    s.id: s for s in SolarPortfolio.objects.filter(id__in=banking_data["solar_ids"])
+                                }
+                                wind_objs = {
+                                    w.id: w for w in WindPortfolio.objects.filter(id__in=banking_data["wind_ids"])
+                                }
+
+                                logger.debug(f'sobj {solar_objs}')
+                                logger.debug(f'wobj {wind_objs}')
+
+                                # -------- Solar Results Loop --------
+                                for solar_data in banking_result.get("solar", []):
+                                    solar = solar_objs.get(solar_data.get("solar_id"))
+                                    logger.debug(f'sssssss - {solar_data["combination"]}')
+                                    if not solar:
+                                        continue
+
+                                    state = solar.state
+                                    site_name = solar.site_name
+                                    cod = solar.cod
+                                    capital_cost_solar = solar.capital_cost
+                                    capital_cost_wind = 0
+                                    capital_cost_ess = 0
+                                    capacity = solar_data['s_capacity']
+
+                                    combo = Combination.objects.filter(
+                                        combination=solar_data['combination'],
+                                        requirement=consumer_requirement,
+                                        annual_demand_offset=round(solar_data["re_replacement"], 0)
+                                    ).first()
+
+                                    terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
+                                    terms_sheet_sent = combo.terms_sheet_sent if combo else False
+
+                                    if not combo:
+                                        banking_price = solar_data["banking_price"]
+                                        combo, created = Combination.objects.get_or_create(
+                                            requirement=consumer_requirement,
+                                            generator=generator,
+                                            re_replacement=round(solar_data["re_replacement"], 0),
+                                            combination=solar_data['combination'],
+                                            state=state,
+                                            optimal_solar_capacity=round(solar_data["s_capacity"], 2),
+                                            optimal_wind_capacity=0,
+                                            optimal_battery_capacity=0,
+                                            per_unit_cost=banking_price,
+                                            final_cost=banking_price + master_record.state_charges,
+                                            annual_demand_offset=round(solar_data["re_replacement"], 0),
+                                            annual_demand_met=solar_data['demand_met'],
+                                            annual_curtailment=solar_data['curtailment'],
+                                            banking_available=True
+                                        )
+
+                                    sent_from_you = False
+                                    if terms_sheet:
+                                        if terms_sheet.from_whom == optimize_capacity_user:
+                                            sent_from_you = True
+                                        else:
+                                            sent_from_you = False
+                                    re_index = generator.re_index or 0
+
+                                    mapped_username = (
+                                        consumer_requirement.user.username
+                                        if optimize_capacity_user == "Consumer"
+                                        else get_mapped_username(generator, consumer_requirement.user)
+                                    )
+
+                                    if solar_data['combination'] not in aggregated_response:
+                                        logger.debug(f'qqqqqqqqq - {solar_data["combination"]}')
+                                        aggregated_response[solar_data['combination']] = {
+                                            **solar_data,
+                                            'Optimal Solar Capacity (MW)': solar_data['s_capacity'],
+                                            'Optimal Wind Capacity (MW)': 0,
+                                            'Optimal Battery Capacity (MW)': 0,
+                                            'Annual Demand Offset': solar_data['re_replacement'],
+                                            'Annual Demand Met': round(solar_data['demand_met'] / 1000, 2),
+                                            'capacity': capacity,
+                                            'Per Unit Cost': combo.per_unit_cost,
+                                            'Final Cost': combo.final_cost,
+                                            'OA_cost': ISTS_charges + master_record.state_charges,
+                                            'ISTS_charges': ISTS_charges,
+                                            'state_charges': master_record.state_charges,
+                                            "state": state,
+                                            "site_names": site_name,
+                                            "greatest_cod": cod,
+                                            "terms_sheet_sent": terms_sheet_sent,
+                                            "sent_from_you": sent_from_you,
+                                            "connectivity": "STU",
+                                            "re_index": re_index,
+                                            "elite_generator": generator.elite_generator,
+                                            "per_unit_savings": grid_tariff.cost - combo.per_unit_cost - ISTS_charges - master_record.state_charges,
+                                            "capital_cost_solar": capital_cost_solar,
+                                            "capital_cost_wind": capital_cost_wind,
+                                            "capital_cost_ess": capital_cost_ess,
+                                            "banking_available": True,
+                                            "downloadable": {
+                                                "consumer": mapped_username,
+                                                "generator": generator.username,
+                                                "consumer_state": consumer_requirement.state,
+                                                "generator_state": combo.state,
+                                                "cod": combo.state,
+                                                "minimum_generation_obligation": round(combo.annual_demand_met * 0.8, 2),
+                                                "voltage_level_of_generation": combo.requirement.voltage_level,
+                                                "solar": combo.optimal_solar_capacity,
+                                                "wind": combo.optimal_wind_capacity,
+                                                "ess": combo.optimal_battery_capacity,
+                                            }
+                                        }
+
+                                # -------- Wind Results Loop --------
+                                for wind_data in banking_result.get("wind", []):
+                                    wind = wind_objs.get(wind_data.get("wind_id"))
+                                    logger.debug(f'wwwwwww - {wind_data["combination"]}')
+                                    if not wind:
+                                        continue
+
+                                    state = wind.state
+                                    site_name = wind.site_name
+                                    cod = wind.cod
+                                    capital_cost_solar = 0
+                                    capital_cost_wind = wind.capital_cost
+                                    capital_cost_ess = 0
+                                    capacity = wind_data['w_capacity']
+
+                                    combo = Combination.objects.filter(
+                                        combination=wind_data['combination'],
+                                        requirement=consumer_requirement,
+                                        annual_demand_offset=round(wind_data["re_replacement"], 0)
+                                    ).first()
+
+                                    terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
+                                    terms_sheet_sent = combo.terms_sheet_sent if combo else False
+
+                                    if not combo:
+                                        banking_price = wind_data["banking_price"]
+                                        combo, created = Combination.objects.get_or_create(
+                                            requirement=consumer_requirement,
+                                            generator=generator,
+                                            re_replacement=round(wind_data["re_replacement"], 0),
+                                            combination=wind_data['combination'],
+                                            state=state,
+                                            optimal_solar_capacity=0,
+                                            optimal_wind_capacity=round(wind_data["w_capacity"], 2),
+                                            optimal_battery_capacity=0,
+                                            per_unit_cost=banking_price,
+                                            final_cost=banking_price + master_record.state_charges,
+                                            annual_demand_offset=round(wind_data["re_replacement"], 0),
+                                            annual_demand_met=wind_data['demand_met'],
+                                            annual_curtailment=wind_data['curtailment'],
+                                            banking_available=True
+                                        )
+
+                                    sent_from_you = False
+                                    if terms_sheet:
+                                        if terms_sheet.from_whom == optimize_capacity_user:
+                                            sent_from_you = True
+                                        else:
+                                            sent_from_you = False
+                                    re_index = generator.re_index or 0
+
+                                    mapped_username = (
+                                        consumer_requirement.user.username
+                                        if optimize_capacity_user == "Consumer"
+                                        else get_mapped_username(generator, consumer_requirement.user)
+                                    )
+
+                                    if wind_data['combination'] not in aggregated_response:
+                                        logger.debug(f'rrrrrrrrr - {wind_data["combination"]}')
+                                        aggregated_response[wind_data['combination']] = {
+                                            **wind_data,
+                                            'Optimal Solar Capacity (MW)': 0,
+                                            'Optimal Wind Capacity (MW)': wind_data['w_capacity'],
+                                            'Optimal Battery Capacity (MW)': 0,
+                                            'Annual Demand Offset': wind_data['re_replacement'],
+                                            'Annual Demand Met': round(wind_data['demand_met'] / 1000, 2),
+                                            'capacity': capacity,
+                                            'Per Unit Cost': combo.per_unit_cost,
+                                            'Final Cost': combo.final_cost,
+                                            'OA_cost': ISTS_charges + master_record.state_charges,
+                                            'ISTS_charges': ISTS_charges,
+                                            'state_charges': master_record.state_charges,
+                                            "state": state,
+                                            "site_names": site_name,
+                                            "greatest_cod": cod,
+                                            "terms_sheet_sent": terms_sheet_sent,
+                                            "sent_from_you": sent_from_you,
+                                            "connectivity": "STU",
+                                            "re_index": re_index,
+                                            "elite_generator": generator.elite_generator,
+                                            "per_unit_savings": grid_tariff.cost - combo.per_unit_cost - ISTS_charges - master_record.state_charges,
+                                            "capital_cost_solar": capital_cost_solar,
+                                            "capital_cost_wind": capital_cost_wind,
+                                            "capital_cost_ess": capital_cost_ess,
+                                            "banking_available": True,
+                                            "downloadable": {
+                                                "consumer": mapped_username,
+                                                "generator": generator.username,
+                                                "consumer_state": consumer_requirement.state,
+                                                "generator_state": combo.state,
+                                                "cod": combo.state,
+                                                "minimum_generation_obligation": round(combo.annual_demand_met * 0.8, 2),
+                                                "voltage_level_of_generation": combo.requirement.voltage_level,
+                                                "solar": combo.optimal_solar_capacity,
+                                                "wind": combo.optimal_wind_capacity,
+                                                "ess": combo.optimal_battery_capacity,
+                                            }
+                                        }
+
+                            else:
+                                logger.error(f"BankingCharges API failed: {banking_response.content}")
+
+                        except Exception as e:
+                            tb = traceback.format_exc()
+                            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")
+                            logger.error(f"Error calling BankingCharges API: {e}")
+
+
                     # if response_data != 'The demand cannot be met by the IPPs':
                     if not response_data.get('error'):
                         for combination_key, details in response_data.items():
@@ -1979,158 +2267,6 @@ class OptimizeCapacityAPI(APIView):
                             cod_dates = [solar_cod if solar else None, wind_cod if wind else None, ess_cod if ess else None]
                             cod_dates = [date for date in cod_dates if date is not None]
                             greatest_cod = max(cod_dates) if cod_dates else None
-
-
-                            # Prepare query parameters for the GET request
-                            banking_data = {
-                                "requirement": consumer_requirement.id,
-                                "solar_id": solar.id if solar and solar.connectivity == 'STU' and solar.banking_available else None,
-                                "wind_id": wind.id if wind and wind.connectivity == 'STU' and wind.banking_available else None,
-                                "re_replacement": re_replacement
-                            }
-                            
-                            # Forward token received from frontend
-                            auth_header = request.META.get('HTTP_AUTHORIZATION')  # 'Bearer <token>'
-                            headers = {
-                                "Authorization": auth_header,
-                                "Content-Type": "application/json"
-                            }
-                            if settings.ENVIRONMENT == 'local':
-                                logger.debug('Local environment detected')
-                                url="http://127.0.0.1:8000/api/energy/banking-charges"
-                            else:
-                                url="https://ext.exgglobal.com/api/api/energy/banking-charges"
-
-                            logger.debug(f'Banking Data: {banking_data}')
-                            logger.debug('not entered in condition..............')
-                            if any([banking_data["solar_id"], banking_data["wind_id"]]):
-                                logger.debug('entered in condition..............')
-                                try:
-                                    banking_response = requests.post(
-                                        url=url,
-                                        json=banking_data,
-                                        # headers=headers
-                                    )
-                                    if banking_response.status_code == 200:
-                                        banking_result = banking_response.json()
-                                        logger.debug(f"BankingCharges result for {combination_key}: {banking_result}")
-                                        solar_data = banking_result['solar'] if banking_result['solar'] else None
-                                        wind_data = banking_result['wind'] if banking_result['wind'] else None
-                                        for i in range(2):
-                                            if i == 0 and solar_data:
-                                                data = solar_data
-                                                state = solar.state
-                                                site_name = solar.site_name
-                                                cod = solar.cod
-                                                capital_cost_solar = solar.capital_cost
-                                                capital_cost_wind = 0
-                                                capital_cost_ess = 0
-                                                capacity = data['s_capacity']
-                                            elif i == 1 and wind_data:
-                                                data = wind_data
-                                                state = wind.state
-                                                site_name = wind.site_name
-                                                cod = wind.cod
-                                                capital_cost_solar = 0
-                                                capital_cost_wind = wind.capital_cost
-                                                capital_cost_ess = 0
-                                                capacity = data['w_capacity']
-
-                                            combo = Combination.objects.filter(combination=data['combination'], requirement=consumer_requirement, annual_demand_offset=round(data["re_replacement"], 0)).first()
-                                            terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
-
-                                            terms_sheet_sent = False
-                                            if combo:
-                                                terms_sheet_sent = combo.terms_sheet_sent
-                                            else:
-                                                banking_price = data["banking_price"]
-                                                # Save to Combination table
-                                                combo, created = Combination.objects.get_or_create(
-                                                    requirement=consumer_requirement,
-                                                    generator=generator,
-                                                    re_replacement=round(data["re_replacement"], 0),
-                                                    combination=data['combination'],
-                                                    state=state,
-                                                    optimal_solar_capacity=round(data["s_capacity"], 2),
-                                                    optimal_wind_capacity=round(data["w_capacity"], 2),
-                                                    optimal_battery_capacity=round(data["b_capacity"], 2),
-                                                    per_unit_cost=banking_price,
-                                                    final_cost=banking_price + master_record.state_charges,
-                                                    annual_demand_offset=round(data["re_replacement"], 0),
-                                                    annual_demand_met=data['demand_met'],
-                                                    annual_curtailment=data['curtailment'],
-                                                    banking_available=True
-                                                )
-
-                                            sent_from_you = False
-                                            if terms_sheet:
-                                                if terms_sheet.from_whom == optimize_capacity_user:
-                                                    sent_from_you = True
-                                                else:
-                                                    sent_from_you = False
-
-                                            re_index = generator.re_index
-                                            if re_index is None:
-                                                re_index = 0
-
-                                            if optimize_capacity_user == "Consumer":
-                                                mapped_username = consumer_requirement.user.username
-                                            else:
-                                                # Map the consumer username specific to the generator
-                                                mapped_username = get_mapped_username(generator, consumer_requirement.user)
-
-                                            if data['combination'] not in aggregated_response:
-                                                aggregated_response[data['combination']] = {
-                                                    **data,
-                                                    'Optimal Solar Capacity (MW)': data['s_capacity'],
-                                                    'Optimal Wind Capacity (MW)': data['w_capacity'],
-                                                    'Optimal Battery Capacity (MW)': data['b_capacity'],
-                                                    'Annual Demand Offset': data['re_replacement'],
-                                                    'Annual Demand Met': round(data['demand_met'] / 1000, 2),
-                                                    'capacity': capacity,
-                                                    'Per Unit Cost': combo.per_unit_cost,
-                                                    'Final Cost': combo.final_cost,
-                                                    'OA_cost': ISTS_charges + master_record.state_charges,
-                                                    'ISTS_charges': ISTS_charges,
-                                                    'state_charges': master_record.state_charges,
-                                                    "state": state,
-                                                    "site_names": site_name,
-                                                    "greatest_cod": cod,
-                                                    "terms_sheet_sent": terms_sheet_sent,
-                                                    "sent_from_you": sent_from_you,
-                                                    "connectivity": "STU",
-                                                    "re_index": re_index,
-                                                    "elite_generator": generator.elite_generator,
-                                                    "per_unit_savings": grid_tariff.cost - combo.per_unit_cost - ISTS_charges - master_record.state_charges,
-                                                    "capital_cost_solar": capital_cost_solar,
-                                                    "capital_cost_wind": capital_cost_wind,
-                                                    "capital_cost_ess": capital_cost_ess,
-                                                    "banking_available": True,
-                                                    "downloadable": {
-                                                        "consumer": mapped_username,
-                                                        "generator": generator.username,
-                                                        "consumer_state": consumer_requirement.state,
-                                                        "generator_state": combo.state,
-                                                        "cod": combo.state,
-                                                        # "term_of_ppa": record.term_of_ppa,
-                                                        # "lock_in_period": record.lock_in_period,
-                                                        "minimum_generation_obligation": round(combo.annual_demand_met * 0.8, 2),
-                                                        "voltage_level_of_generation": combo.requirement.voltage_level,
-                                                        # "tariff_finalized": offer_tariff.offer_tariff,
-                                                        # "payment_security_day": record.payment_security_day,
-                                                        "solar": combo.optimal_solar_capacity,
-                                                        "wind": combo.optimal_wind_capacity,
-                                                        "ess": combo.optimal_battery_capacity,
-                                                    }
-                                                }
-                                    else:
-                                        logger.error(f"BankingCharges API failed: {banking_response.content}")
-                                except Exception as e:
-                                    tb = traceback.format_exc()  # Get the full traceback
-                                    traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
-                                    logger.error(f"Error calling BankingCharges API: {e}")
-
-
 
                             # Map each portfolio to its state
                             state = {}
@@ -5001,6 +5137,7 @@ class PWattHourly(APIView):
                     generation_by_month[month] += gen
 
                 monthly_results = []
+                total_savings = 0
                 total_consumption = 0
                 total_generation = 0
                 for i, record in enumerate(monthly_data):
@@ -5016,6 +5153,7 @@ class PWattHourly(APIView):
                         "generation": round(monthly_generation, 2),
                         "savings": round(savings, 2)
                     })
+                    total_savings += savings
                     total_consumption += monthly_consumption
                     total_generation += monthly_generation
 
@@ -5024,7 +5162,9 @@ class PWattHourly(APIView):
                     "data": data, 
                     "monthly_data": monthly_results,
                     "energy_replaced": round(energy_replaced, 4),
-                    "capacity_of_solar_rooftop": capacity_of_solar_rooftop
+                    "total_savings": round(total_savings, 2),
+                    "capacity_of_solar_rooftop": capacity_of_solar_rooftop,
+                    "id": f"{requirement.user.username}_{requirement.user.id}"
                 }, status=status.HTTP_200_OK)
 
             elif button_type == 'behind_the_meter':
@@ -5099,7 +5239,8 @@ class PWattHourly(APIView):
                     "hourly_data": hourly_results,  # You can choose to summarize this
                     "total_savings": round(total_savings, 2),
                     "energy_replaced": round(energy_replaced, 4),
-                    "capacity_of_solar_rooftop": capacity_of_solar_rooftop
+                    "capacity_of_solar_rooftop": capacity_of_solar_rooftop,
+                    "id": f"{requirement.user.username}_{requirement.user.id}"
                 }, status=status.HTTP_200_OK)
 
             
