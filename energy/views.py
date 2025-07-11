@@ -5136,14 +5136,16 @@ class PWattHourly(APIView):
                     month = hour_time.month
                     generation_by_month[month] += gen
 
+                logger.debug(f"Generation by month: {generation_by_month}")
                 monthly_results = []
                 total_savings = 0
                 total_consumption = 0
                 total_generation = 0
                 for i, record in enumerate(monthly_data):
                     month_num = record.month
+                    logger.debug(f"Month: {month_num}")
                     monthly_consumption = record.monthly_consumption
-                    monthly_generation = generation_by_month.get(month_num) * capacity_of_solar_rooftop
+                    monthly_generation = generation_by_month.get(month_num, 0) * capacity_of_solar_rooftop
 
                     # Step 3: Monthly savings
                     savings = (monthly_consumption * grid_tariff.cost) - (monthly_generation * master_data.rooftop_price)
