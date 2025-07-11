@@ -51,6 +51,7 @@ import logging
 import traceback
 import chardet
 from decimal import Decimal
+from calendar import month_name
 
 # Get the logger that is configured in the settings
 import logging
@@ -5136,13 +5137,15 @@ class PWattHourly(APIView):
                     month = hour_time.month
                     generation_by_month[month] += gen
 
-                logger.debug(f"Generation by month: {generation_by_month}")
                 monthly_results = []
                 total_savings = 0
                 total_consumption = 0
                 total_generation = 0
+
+                month_name_to_number = {name: i for i, name in enumerate(month_name) if name}
+
                 for i, record in enumerate(monthly_data):
-                    month_num = record.month
+                    month_num = month_name_to_number.get(record.month)
                     logger.debug(f"Month: {month_num}")
                     monthly_consumption = record.monthly_consumption
                     monthly_generation = generation_by_month.get(month_num, 0) * capacity_of_solar_rooftop
