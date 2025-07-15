@@ -2,7 +2,7 @@ import os
 from accounts.models import User
 from celery import shared_task
 from powerx.AI_Model.model_scheduling import run_models_sequentially
-# from powerx.iex_scraper import scrape_data
+from powerx.current_day_scraper import scrape_current_data
 from powerx.test_scraper import scrape_data
 from django.core.mail import send_mail
 from energy_transition import settings
@@ -173,6 +173,52 @@ def scrape_iex_data():
     try:
         # Run the scraping script
         scrape_data()
+        # Locate the latest Excel file
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Define the path to the models folder
+        download_folder = os.path.join(current_dir, "IEX_Data")
+
+        # Find the latest file
+        excel_files = [f for f in os.listdir(download_folder) if f.endswith('.xlsx') and '_cleaned' not in f]
+        
+        if not excel_files:
+            logging.error("No Excel file found.")
+            return "No Excel file found."
+
+        # latest_file = max(excel_files, key=lambda f: os.path.getmtime(os.path.join(download_folder, f)))
+        latest_file = f"IEX_Green_DAM_{timezone.now().strftime('%Y-%m-%d')}.xlsx"
+        file_path = os.path.join(download_folder, latest_file)
+
+        # Step 2: Clean the file
+        cleaned_file, df = clean_excel_file(file_path)
+
+
+        if cleaned_file and df is not None:
+            # Step 3: Save cleaned data to the model
+            save_to_model(df)
+        else:
+            logging.info("Cleaning failed.")
+        
+        end_time = timezone.now()
+        duration = (end_time - start_time).total_seconds()
+
+        # Log success message
+        logging.info(f"Scrapping Task ran successfully in {duration:.2f} seconds.")
+        return "Scraped IEX data successfully"
+
+    except Exception as e:
+        # Log any errors
+        logging.error(f"Scrapping Task failed with error: {str(e)}")
+        return f"Scrapping Task failed: {str(e)}"
+    
+@shared_task
+def scrape_current_iex_data():
+    logging.debug("Scheduled task ran at %s", timezone.now())
+    logger.debug("Scheduled task ran at %s", timezone.now())
+    start_time = timezone.now()
+    try:
+        # Run the scraping script
+        scrape_current_data()
         # Locate the latest Excel file
         current_dir = os.path.dirname(os.path.abspath(__file__))
         # Define the path to the models folder
