@@ -5093,6 +5093,14 @@ class PWattHourly(APIView):
             return Response({"error": "Expected 12 monthly consumption records."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         try:
+            hourly_demand = HourlyDemand.objects.get(requirement=requirement)
+        except HourlyDemand.DoesNotExist:
+            OptimizeCapacityAPI.calculate_hourly_demand(requirement, requirement.state)
+            hourly_demand = HourlyDemand.objects.get(requirement=requirement)
+
+
+
+        try:
             if requirement.latitude and requirement.longitude:
                 lat = requirement.latitude
                 lon = requirement.longitude
@@ -5112,13 +5120,8 @@ class PWattHourly(APIView):
                 else:
                     logger.debug(f"Error: {geo_response}")
 
-            if button_type == 'grid_connected':
-                capacity_of_solar_rooftop = min(master_data.max_capacity, requirement.contracted_demand, (requirement.roof_area / 10000))
-            elif button_type == 'behind_the_meter':
-                capacity_of_solar_rooftop = min(requirement.contracted_demand, (requirement.roof_area / 10000))
+            url = f"https://developer.nrel.gov/api/pvwatts/v8.json?api_key={settings.PWATT_API_KEY}&azimuth=180&system_capacity={requirement.solar_rooftop_capacity}&losses=14&array_type=1&module_type=0&gcr=0.4&dc_ac_ratio=1.2&inv_eff=96.0&radius=0&dataset=nsrdb&tilt=10&lat={lat}&lon={lon}&soiling=12|4|45|23|9|99|67|12.54|54|9|0|7.6&albedo=0.3&bifaciality=0.7&timeframe=hourly"
 
-            url = f"https://developer.nrel.gov/api/pvwatts/v8.json?api_key={settings.PWATT_API_KEY}&azimuth=180&system_capacity={capacity_of_solar_rooftop}&losses=14&array_type=1&module_type=0&gcr=0.4&dc_ac_ratio=1.2&inv_eff=96.0&radius=0&dataset=nsrdb&tilt=10&lat={lat}&lon={lon}&soiling=12|4|45|23|9|99|67|12.54|54|9|0|7.6&albedo=0.3&bifaciality=0.7&timeframe=hourly"
-            
             response = requests.get(url)
             if response.status_code == 200:
                 data = response.json()
@@ -5143,6 +5146,7 @@ class PWattHourly(APIView):
                 total_generation = 0
 
                 month_name_to_number = {name: i for i, name in enumerate(month_name) if name}
+                capacity_of_solar_rooftop = min(master_data.max_capacity, requirement.contracted_demand, (requirement.roof_area / 10000))
 
                 for i, record in enumerate(monthly_data):
                     month_num = month_name_to_number.get(record.month)
@@ -5187,30 +5191,15 @@ class PWattHourly(APIView):
                     'November': 11,
                     'December': 12
                 }
-        
-                # Step 1: Create a mapping of month -> consumption value
-                monthly_consumption_map = {
-                    month_name_to_number[record.month]: record.monthly_consumption
-                    for record in monthly_data
-                }
 
-                # Step 2: Generate hourly consumption from monthly
-                now = datetime.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-                hourly_consumption = []
-                month_hours = defaultdict(int)
+                hourly_demand = [float(x) for x in hourly_demand.hourly_demand.rstrip(',').split(',')]
 
-                # First, count how many hours are in each month
-                for i in range(8760):
-                    current_time = now + timedelta(hours=i)
-                    month_hours[current_time.month] += 1
+                # Find the max generation value
+                max_generation = max(hourly_generation)
+                max_index = hourly_generation.index(max_generation)
+                corresponding_demand = hourly_demand[max_index]
 
-                # Now, for each hour, assign consumption = monthly / hours_in_month
-                for i in range(8760):
-                    current_time = now + timedelta(hours=i)
-                    month = current_time.month
-                    monthly_total = monthly_consumption_map[month]
-                    per_hour_consumption = monthly_total / month_hours[month]
-                    hourly_consumption.append(per_hour_consumption)
+                capacity_of_solar_rooftop = min(requirement.contracted_demand, (requirement.roof_area / 10000), corresponding_demand / max_generation)
 
                 # Step 4: Compute hourly savings
                 hourly_results = []
@@ -5218,7 +5207,7 @@ class PWattHourly(APIView):
                 total_consumption = 0
                 total_generation = 0
 
-                for hour, (gen, cons) in enumerate(zip(hourly_generation, hourly_consumption)):
+                for hour, (gen, cons) in enumerate(zip(hourly_generation, hourly_demand)):
                     gen *= capacity_of_solar_rooftop  # Adjust generation to installed capacity
                     used_solar = min(gen, cons)
                     savings = used_solar * grid_tariff.cost
