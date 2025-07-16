@@ -5299,17 +5299,19 @@ class PWattHourly(APIView):
 
                 energy_replaced = total_generation / total_consumption if total_consumption else 0
 
-                # Round monthly results
-                monthly_results_rounded = {
-                    k: {
+                monthly_results_rounded = []
+
+                for month_num in sorted(monthly_results.keys()):
+                    v = monthly_results[month_num]
+                    monthly_results_rounded.append({
+                        "month": month_num,
                         "generation": round(v["generation"], 2),
                         "consumption": round(v["consumption"], 2),
                         "savings": round(v["savings"], 2),
                         "curtailment": round(v["curtailment"], 2),
                         "energy_replaced": round(v["generation"]/v["consumption"], 4) if v["consumption"] else 0
-                    }
-                    for k, v in monthly_results.items()
-                }
+                    })
+
 
                 return Response({
                     "data": data,
