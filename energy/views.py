@@ -5178,6 +5178,20 @@ class PWattHourly(APIView):
             else:
                 return Response({"error": f"PWatt API request failed with status code {response.status_code}."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+            month_name_to_number = {
+                'January': 1,
+                'February': 2,
+                'March': 3,
+                'April': 4,
+                'May': 5,
+                'June': 6,
+                'July': 7,
+                'August': 8,
+                'September': 9,
+                'October': 10,
+                'November': 11,
+                'December': 12
+            }
             if button_type == 'grid_connected':
 
                 # Step 1: Split 8760 values into 12 months
@@ -5194,7 +5208,6 @@ class PWattHourly(APIView):
                 total_consumption = 0
                 total_generation = 0
 
-                month_name_to_number = {name: i for i, name in enumerate(month_name) if name}
                 capacity_of_solar_rooftop = min(master_data.max_capacity, requirement.contracted_demand, (requirement.roof_area / 10000))
 
                 for i, record in enumerate(monthly_data):
@@ -5226,20 +5239,6 @@ class PWattHourly(APIView):
                 }, status=status.HTTP_200_OK)
 
             elif button_type == 'behind_the_meter':
-                month_name_to_number = {
-                    'January': 1,
-                    'February': 2,
-                    'March': 3,
-                    'April': 4,
-                    'May': 5,
-                    'June': 6,
-                    'July': 7,
-                    'August': 8,
-                    'September': 9,
-                    'October': 10,
-                    'November': 11,
-                    'December': 12
-                }
 
                 hourly_demand = [float(x) for x in hourly_demand.hourly_demand.rstrip(',').split(',')]
 
