@@ -1303,6 +1303,18 @@ class BankingCharges(APIView):
     def banking_price_calculations(final_monthly_dict, generation_monthly, capacity, master_data, expected_tariff):
 
         adjusted_dict = {}
+
+        annual_demand = 0
+        for month_data in final_monthly_dict.values():
+            for val in month_data.values():
+                annual_demand += val
+        banking_limit = 0.3 * annual_demand
+        total_banked_by_slot = {
+            'peak_1': 0,
+            'peak_2': 0,
+            'normal': 0,
+            'off_peak': 0
+        }
         for month in final_monthly_dict:
             # Get corresponding data
             final_data = final_monthly_dict.get(month, {})
@@ -1318,7 +1330,7 @@ class BankingCharges(APIView):
             except:
                 order_keys = ['peak_1', 'peak_2', 'normal', 'off_peak']
 
-            for key in order_keys:
+            for idx, key in enumerate(order_keys):
                 final_value = final_data.get(key, 0)
                 gen_value = solar_data.get(key, 0) * capacity
                 
@@ -1343,7 +1355,19 @@ class BankingCharges(APIView):
                 else:
                     # Excess generation → bank it
                     excess = abs(adjusted_value)
-                    banked = excess * (1 - (master_data.banking_charges / 100))
+                    # Compute actual banked energy after banking charges
+                    banked_energy = excess * (1 - (master_data.banking_charges / 100))
+                    
+                    if idx < 3:
+                        # Only first 3 slots contribute to cumulative banked limit
+                        total_banked_by_slot[key] += banked_energy
+                        banked = banked_energy
+                        logger.debug(f'Banked in {key}: {banked_energy}')
+                    else:
+                        # Off-peak → becomes curtailment, not banked
+                        # banked = 0
+                        banked = excess * (1 - (master_data.banking_charges / 100))
+
                     adjusted_value = 0
 
                 # If off_peak (last slot), add remaining banked or negative value to curtailment
@@ -1365,6 +1389,19 @@ class BankingCharges(APIView):
                 adjusted_dict[month]['not_met'] = round(not_met, 2)
                 logger.debug(f'Final Adjusted Value: {adjusted_value}')
                 logger.debug('--------------------------------')
+
+        total_banked_energy = sum(total_banked_by_slot.values())
+
+        logger.debug(f"Total annual banked energy: {total_banked_energy}")
+        logger.debug(f"Allowed banked energy limit (30% of annual demand): {banking_limit}")
+
+        if total_banked_energy > banking_limit:
+            # Raise error or handle accordingly
+            logger.error("Annual banked energy exceeds 30% of annual demand.")
+            # Example:
+            return "Annual banked energy exceeds 30% of annual demand."
+        else:
+            logger.debug("Banked energy is within the allowed limit.")
 
         # ✅ Result:
         logger.debug(f'adjusted values: {adjusted_dict}')
@@ -1500,6 +1537,10 @@ class BankingCharges(APIView):
                             master_data,
                             s_expected_tariff,
                         )
+
+                        if results_solar == "Annual banked energy exceeds 30% of annual demand.":
+                            continue
+
                         current_re = results_solar["re_replacement"]
 
                         if abs(current_re - re_replacement) < precision:
@@ -1509,13 +1550,15 @@ class BankingCharges(APIView):
                         else:
                             high = mid
 
-                    results_solar["combination"] = f"{solar_ipp}-{s_project}"
-                    results_solar["s_capacity"] = mid
-                    results_solar["w_capacity"] = 0
-                    results_solar["b_capacity"] = 0
-                    results_solar["solar_id"] = solar.id
+                    if type(results_solar) != str:
 
-                    solar_results.append(results_solar)
+                        results_solar["combination"] = f"{solar_ipp}-{s_project}"
+                        results_solar["s_capacity"] = mid
+                        results_solar["w_capacity"] = 0
+                        results_solar["b_capacity"] = 0
+                        results_solar["solar_id"] = solar.id
+
+                        solar_results.append(results_solar)
 
             # -----------------------
             # Process WIND portfolios
@@ -1555,6 +1598,10 @@ class BankingCharges(APIView):
                             master_data,
                             w_expected_tariff,
                         )
+
+                        if results_wind == "Annual banked energy exceeds 30% of annual demand.":
+                            continue
+
                         current_re = results_wind["re_replacement"]
 
                         if abs(current_re - re_replacement) < precision:
@@ -1564,13 +1611,15 @@ class BankingCharges(APIView):
                         else:
                             high = mid
 
-                    results_wind["combination"] = f"{wind_ipp}-{w_project}"
-                    results_wind["s_capacity"] = 0
-                    results_wind["w_capacity"] = mid
-                    results_wind["b_capacity"] = 0
-                    results_wind["wind_id"] = wind.id
+                    if type(results_wind) != str:
 
-                    wind_results.append(results_wind)
+                        results_wind["combination"] = f"{wind_ipp}-{w_project}"
+                        results_wind["s_capacity"] = 0
+                        results_wind["w_capacity"] = mid
+                        results_wind["b_capacity"] = 0
+                        results_wind["wind_id"] = wind.id
+
+                        wind_results.append(results_wind)
 
             final_response = {
                 "solar": solar_results,
@@ -5201,17 +5250,39 @@ class PWattHourly(APIView):
 
                 capacity_of_solar_rooftop = min(requirement.contracted_demand, (requirement.roof_area / 10000), corresponding_demand / max_generation)
 
-                # Step 4: Compute hourly savings
                 hourly_results = []
                 total_savings = 0
                 total_consumption = 0
                 total_generation = 0
 
+                # Prepare monthly aggregation dictionary
+                monthly_results = {}  # {month_number: {...aggregates...}}
+
                 for hour, (gen, cons) in enumerate(zip(hourly_generation, hourly_demand)):
-                    gen *= capacity_of_solar_rooftop  # Adjust generation to installed capacity
+                    gen *= capacity_of_solar_rooftop
                     used_solar = min(gen, cons)
                     savings = used_solar * grid_tariff.cost
                     curtailed_energy = max(0, gen - cons)
+
+                    # Determine month
+                    date = datetime(2024, 1, 1) + timedelta(hours=hour)
+                    month = date.month
+                    month_name = date.strftime("%B")
+
+                    # Initialize if first occurrence
+                    if month_name not in monthly_results:
+                        monthly_results[month_name] = {
+                            "generation": 0,
+                            "consumption": 0,
+                            "savings": 0,
+                            "curtailment": 0
+                        }
+
+                    # Accumulate
+                    monthly_results[month_name]["generation"] += gen
+                    monthly_results[month_name]["consumption"] += cons
+                    monthly_results[month_name]["savings"] += savings
+                    monthly_results[month_name]["curtailment"] += curtailed_energy
 
                     hourly_results.append({
                         "hour": hour,
@@ -5228,14 +5299,28 @@ class PWattHourly(APIView):
 
                 energy_replaced = total_generation / total_consumption if total_consumption else 0
 
+                # Round monthly results
+                monthly_results_rounded = {
+                    k: {
+                        "generation": round(v["generation"], 2),
+                        "consumption": round(v["consumption"], 2),
+                        "savings": round(v["savings"], 2),
+                        "curtailment": round(v["curtailment"], 2),
+                        "energy_replaced": round(v["generation"]/v["consumption"], 4) if v["consumption"] else 0
+                    }
+                    for k, v in monthly_results.items()
+                }
+
                 return Response({
                     "data": data,
-                    "hourly_data": hourly_results,  # You can choose to summarize this
+                    "hourly_data": hourly_results,
+                    "monthly_data": monthly_results_rounded,
                     "total_savings": round(total_savings, 2),
                     "energy_replaced": round(energy_replaced, 4),
                     "capacity_of_solar_rooftop": capacity_of_solar_rooftop,
                     "id": f"{requirement.user.username}_{requirement.user.id}"
                 }, status=status.HTTP_200_OK)
+
 
             
         except Exception as e:
