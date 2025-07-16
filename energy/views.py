@@ -5267,10 +5267,11 @@ class PWattHourly(APIView):
                     date = datetime(2024, 1, 1) + timedelta(hours=hour)
                     month = date.month
                     month_name = date.strftime("%B")
+                    month_num = month_name_to_number.get(month_name)
 
                     # Initialize if first occurrence
-                    if month_name not in monthly_results:
-                        monthly_results[month_name] = {
+                    if month_num not in monthly_results:
+                        monthly_results[month_num] = {
                             "generation": 0,
                             "consumption": 0,
                             "savings": 0,
@@ -5278,10 +5279,10 @@ class PWattHourly(APIView):
                         }
 
                     # Accumulate
-                    monthly_results[month_name]["generation"] += gen
-                    monthly_results[month_name]["consumption"] += cons
-                    monthly_results[month_name]["savings"] += savings
-                    monthly_results[month_name]["curtailment"] += curtailed_energy
+                    monthly_results[month_num]["generation"] += gen
+                    monthly_results[month_num]["consumption"] += cons
+                    monthly_results[month_num]["savings"] += savings
+                    monthly_results[month_num]["curtailment"] += curtailed_energy
 
                     hourly_results.append({
                         "hour": hour,
