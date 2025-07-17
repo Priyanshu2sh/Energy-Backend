@@ -1392,17 +1392,6 @@ class BankingCharges(APIView):
 
         total_banked_energy = sum(total_banked_by_slot.values())
 
-        logger.debug(f"Total annual banked energy: {total_banked_energy}")
-        logger.debug(f"Allowed banked energy limit (30% of annual demand): {banking_limit}")
-
-        if total_banked_energy > banking_limit:
-            # Raise error or handle accordingly
-            logger.error("Annual banked energy exceeds 30% of annual demand.")
-            # Example:
-            return "Annual banked energy exceeds 30% of annual demand."
-        else:
-            logger.debug("Banked energy is within the allowed limit.")
-
         # ✅ Result:
         logger.debug(f'adjusted values: {adjusted_dict}')
         total_unmet = sum(month_data.get("not_met", 0) for month_data in adjusted_dict.values())
@@ -1432,6 +1421,17 @@ class BankingCharges(APIView):
 
         banking_price = round(generation_price / demand_met, 2) # INR/MWh
         logger.debug(f"Banking Price: {banking_price}")
+
+        logger.debug(f"Total annual banked energy: {total_banked_energy}")
+        logger.debug(f"Allowed banked energy limit (30% of annual demand): {banking_limit}")
+
+        if total_banked_energy > banking_limit:
+            # Raise error or handle accordingly
+            logger.error("Annual banked energy exceeds 30% of annual demand.")
+            # Example:
+            return "Annual banked energy exceeds 30% of annual demand."
+        else:
+            logger.debug("Banked energy is within the allowed limit.")
 
         return {
             "total_unmet": total_unmet,
