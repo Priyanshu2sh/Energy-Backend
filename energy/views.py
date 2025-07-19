@@ -5217,6 +5217,8 @@ class PWattHourly(APIView):
                 total_consumption = 0
                 total_generation = 0
 
+                logger.debug(f"generation_by_month: {generation_by_month}")
+
                 capacity_of_solar_rooftop = min(master_data.max_capacity, requirement.contracted_demand, (requirement.roof_area / 10000))
                 logger.debug(f"capacity_of_solar_rooftop = min(master_data.max_capacity, requirement.contracted_demand, (requirement.roof_area / 10000))")
                 logger.debug(f"capacity_of_solar_rooftop = min({master_data.max_capacity}, {requirement.contracted_demand}, ({requirement.roof_area} / 10000))")
