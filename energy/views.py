@@ -5209,12 +5209,16 @@ class PWattHourly(APIView):
                 total_generation = 0
 
                 capacity_of_solar_rooftop = min(master_data.max_capacity, requirement.contracted_demand, (requirement.roof_area / 10000))
+                logger.debug(f"capacity_of_solar_rooftop = min(master_data.max_capacity, requirement.contracted_demand, (requirement.roof_area / 10000))")
+                logger.debug(f"capacity_of_solar_rooftop = min({master_data.max_capacity}, {requirement.contracted_demand}, ({requirement.roof_area} / 10000))")
 
                 for i, record in enumerate(monthly_data):
                     month_num = month_name_to_number.get(record.month)
                     logger.debug(f"Month: {month_num}")
                     monthly_consumption = record.monthly_consumption
                     monthly_generation = generation_by_month.get(month_num, 0) * capacity_of_solar_rooftop
+                    logger.debug(f"monthly_generation = generation_by_month.get(month_num, 0) * capacity_of_solar_rooftop")
+                    logger.debug(f"monthly_generation = {generation_by_month.get(month_num, 0)} * {capacity_of_solar_rooftop}")
 
                     # Step 3: Monthly savings
                     savings = (monthly_consumption * grid_tariff.cost) - (monthly_generation * master_data.rooftop_price)
