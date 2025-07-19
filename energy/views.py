@@ -641,7 +641,7 @@ class CSVFileAPI(APIView):
             "Monthly Consumption (MWh)",
             "Peak Consumption (MWh)",
             "Off Peak Consumption (MWh)",
-            "Monthly Bill Amount (INR cr)",
+            "Monthly Bill Amount (INR lakhs)",
         }
 
         EXPECTED_MONTHS = {
@@ -741,7 +741,7 @@ class CSVFileAPI(APIView):
                     )
 
                 # Handle optional Monthly Bill Amount
-                raw_bill_amount = row.get('Monthly Bill Amount (INR cr)', '').strip()
+                raw_bill_amount = row.get('Monthly Bill Amount (INR lakhs)', '').strip()
                 if raw_bill_amount == '':
                     bill_amount = None
                 else:
@@ -750,7 +750,7 @@ class CSVFileAPI(APIView):
                     except ValueError:
                         return Response(
                             {
-                                "error": f"Invalid numeric value in field 'Monthly Bill Amount (INR cr)' for month '{month}': '{raw_bill_amount}'"
+                                "error": f"Invalid numeric value in field 'Monthly Bill Amount (INR lakhs)' for month '{month}': '{raw_bill_amount}'"
                             },
                             status=status.HTTP_400_BAD_REQUEST,
                         )
@@ -5218,6 +5218,8 @@ class PWattHourly(APIView):
 
                     # Step 3: Monthly savings
                     savings = (monthly_consumption * grid_tariff.cost) - (monthly_generation * master_data.rooftop_price)
+                    logger.debug(f"savings = (monthly_consumption * grid_tariff.cost) - (monthly_generation * master_data.rooftop_price)")
+                    logger.debug(f"savings = ({monthly_consumption} * {grid_tariff.cost}) - ({monthly_generation} * {master_data.rooftop_price})")
 
                     monthly_results.append({
                         "month": month_num,
