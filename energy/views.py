@@ -5174,6 +5174,7 @@ class PWattHourly(APIView):
             response = requests.get(url)
             if response.status_code == 200:
                 data = response.json()
+                monthly_generation = data['outputs']['ac_monthly']
                 hourly_generation = data['outputs']['ac']
             else:
                 return Response({"error": f"PWatt API request failed with status code {response.status_code}."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -5198,10 +5199,18 @@ class PWattHourly(APIView):
                 generation_by_month = defaultdict(float)
                 now = datetime.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
-                for i, gen in enumerate(hourly_generation):
-                    hour_time = now + timedelta(hours=i)
-                    month = hour_time.month
-                    generation_by_month[month] += gen
+                # for i, gen in enumerate(hourly_generation):
+                #     hour_time = now + timedelta(hours=i)
+                #     month = hour_time.month
+                #     generation_by_month[month] += gen
+
+                months = [
+                    "January", "February", "March", "April", "May", "June",
+                    "July", "August", "September", "October", "November", "December"
+                ]
+
+                for i in range(12):
+                    generation_by_month[months[i]] = monthly_generation[i]
 
                 monthly_results = []
                 total_savings = 0
