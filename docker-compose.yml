@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:alpine
+    container_name: redis_container
+    ports:
+      - "6379:6379"
+
+  django:
+    image: ext-powerx-app  # Use prebuilt image OR skip entirely if not needed
+    container_name: django_container
+    command: >
+      sh -c "
+        python manage.py collectstatic --noinput &&
+        daphne -b 0.0.0.0 -p 8000 energy_transition.asgi:application
+      "
+    volumes:
+      - .:/app  # Mount local code for live changes
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - redis
