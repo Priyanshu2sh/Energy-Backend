@@ -50,3 +50,6 @@ nohup.out
 
 # Ignore Excel files
 *.xlsx
+
+Dockerfile
+docker-compose.yml
