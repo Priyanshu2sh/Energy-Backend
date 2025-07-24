@@ -2527,7 +2527,7 @@ class ConsumptionPatternAPI(APIView):
         try:
             
             # Fetch MonthlyConsumptionData for the consumer
-            consumption_data = MonthlyConsumptionData.objects.filter(requirement=pk).values('month', 'monthly_consumption', 'peak_consumption', 'off_peak_consumption', 'monthly_bill_amount')
+            consumption_data = MonthlyConsumptionData.objects.filter(requirement=pk).values('year', 'month', 'monthly_consumption', 'peak_consumption', 'off_peak_consumption', 'monthly_bill_amount')
 
             user = User.objects.get(id=user_id)
 
@@ -2556,7 +2556,8 @@ class ConsumptionPatternAPI(APIView):
                 "tariff_category": consumption.requirement.tariff_category,
                 "voltage_level": consumption.requirement.voltage_level,
                 "contracted_demand": consumption.requirement.contracted_demand,
-                "industry": consumption.requirement.industry
+                "industry": consumption.requirement.industry,
+                "annual_consumption": consumption.requirement.annual_electricity_consumption
             }
 
             # Prepare response with the sorted monthly consumption data
@@ -2564,7 +2565,7 @@ class ConsumptionPatternAPI(APIView):
                 "consumer_details": consumer_details,
                 "monthly_consumption": [
                     {
-                        "month": datetime.strptime(entry["month"], '%B').strftime('%b'),  # Convert to short month name (e.g., Jan, Feb)
+                        "month": f"{datetime.strptime(entry['month'], '%B').strftime('%b')} {''+entry['year'] if entry['year'] else ''}",  # Convert to short month name (e.g., Jan, Feb)
                         "consumption": entry["monthly_consumption"],
                         "peak_consumption": entry["peak_consumption"],
                         "off_peak_consumption": entry["off_peak_consumption"],

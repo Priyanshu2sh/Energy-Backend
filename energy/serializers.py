@@ -145,7 +145,11 @@ class MonthlyConsumptionDataSerializer(serializers.ModelSerializer):
     )
     class Meta:
         model = MonthlyConsumptionData
-        fields = ['id', 'requirement', 'month', 'monthly_consumption', 'peak_consumption', 'off_peak_consumption', 'monthly_bill_amount']
+        fields = ['id', 'requirement', 'year', 'month', 'monthly_consumption', 'peak_consumption', 'off_peak_consumption', 'monthly_bill_amount']
+
+        extra_kwargs = {
+            'year': {'required': False}
+        }
 
     def validate_user(self, requirement):
         if requirement.user.user_category != 'Consumer':
