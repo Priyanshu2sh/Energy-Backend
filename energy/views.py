@@ -5231,7 +5231,7 @@ class PWattHourly(APIView):
                     month_num = month_name_to_number.get(record.month)
                     logger.debug(f"Month: {month_num}")
                     monthly_consumption = record.monthly_consumption
-                    monthly_generation = generation_by_month.get(month_num, 0) * capacity_of_solar_rooftop
+                    monthly_generation = generation_by_month.get(record.month, 0) * capacity_of_solar_rooftop
                     logger.debug(f"monthly_generation = generation_by_month.get(month_num, 0) * capacity_of_solar_rooftop")
                     logger.debug(f"monthly_generation = {generation_by_month.get(month_num, 0)} * {capacity_of_solar_rooftop}")
 
