@@ -638,6 +638,7 @@ class CSVFileAPI(APIView):
             )
         REQUIRED_HEADERS = {
             "Month",
+            "Year",
             "Monthly Consumption (MWh)",
             "Peak Consumption (MWh)",
             "Off Peak Consumption (MWh)",
@@ -709,6 +710,7 @@ class CSVFileAPI(APIView):
                     monthly_consumption.month=row['Month']
 
                 required_fields = [
+                    "Year",
                     'Monthly Consumption (MWh)',
                     'Peak Consumption (MWh)',
                     'Off Peak Consumption (MWh)'
@@ -756,6 +758,7 @@ class CSVFileAPI(APIView):
                         )
 
                 # Save validated values
+                monthly_consumption.year = int(parsed_values['Year'])
                 monthly_consumption.monthly_consumption = parsed_values['Monthly Consumption (MWh)']
                 monthly_consumption.peak_consumption = parsed_values['Peak Consumption (MWh)']
                 monthly_consumption.off_peak_consumption = parsed_values['Off Peak Consumption (MWh)']
