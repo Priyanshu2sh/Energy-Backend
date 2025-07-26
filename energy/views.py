@@ -1375,7 +1375,7 @@ class BankingCharges(APIView):
                         if state != 'Gujarat':
                             banked = excess * (1 - (master_data.banking_charges / 100))
                         else:
-                            banked_energy = excess
+                            banked = excess
 
                     adjusted_value = 0
 
