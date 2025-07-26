@@ -1691,7 +1691,7 @@ class OptimizeCapacityAPI(APIView):
             MonthlyConsumptionData.objects.filter(requirement=consumer_requirement),
             key=lambda x: month_order.get(x.month, 13)  # 13 ensures invalid months go last
         )
-        print(f'sorted monthly consumptions= {monthly_consumptions}')
+        logger.debug(f'sorted monthly consumptions= {monthly_consumptions}')
 
         # Get state-specific hours
         # Get state-specific peak and off-peak hours
