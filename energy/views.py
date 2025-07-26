@@ -1303,7 +1303,7 @@ class BankingCharges(APIView):
         return result
 
     @staticmethod
-    def banking_price_calculations(final_monthly_dict, generation_monthly, capacity, master_data, expected_tariff):
+    def banking_price_calculations(final_monthly_dict, generation_monthly, capacity, master_data, expected_tariff, state):
 
         adjusted_dict = {}
 
@@ -1359,7 +1359,10 @@ class BankingCharges(APIView):
                     # Excess generation → bank it
                     excess = abs(adjusted_value)
                     # Compute actual banked energy after banking charges
-                    banked_energy = excess * (1 - (master_data.banking_charges / 100))
+                    if state != 'Gujarat':
+                        banked_energy = excess * (1 - (master_data.banking_charges / 100))
+                    else:
+                        banked_energy = excess
                     
                     if idx < 3:
                         # Only first 3 slots contribute to cumulative banked limit
@@ -1369,7 +1372,10 @@ class BankingCharges(APIView):
                     else:
                         # Off-peak → becomes curtailment, not banked
                         # banked = 0
-                        banked = excess * (1 - (master_data.banking_charges / 100))
+                        if state != 'Gujarat':
+                            banked = excess * (1 - (master_data.banking_charges / 100))
+                        else:
+                            banked_energy = excess
 
                     adjusted_value = 0
 
@@ -1421,6 +1427,9 @@ class BankingCharges(APIView):
 
         generation_price = capacity * total_generation * expected_tariff
         logger.debug(f"Generation Price: {generation_price}")
+
+        if state == 'Gujarat':
+            generation_price = generation_price + total_banked_energy * 1.5
 
         banking_price = round(generation_price / demand_met, 2) # INR/MWh
         logger.debug(f"Banking Price: {banking_price}")
@@ -1539,6 +1548,7 @@ class BankingCharges(APIView):
                             mid,
                             master_data,
                             s_expected_tariff,
+                            master_data.state
                         )
 
                         if results_solar == "Annual banked energy exceeds 30% of annual demand.":
@@ -1600,6 +1610,7 @@ class BankingCharges(APIView):
                             mid,
                             master_data,
                             w_expected_tariff,
+                            master_data.state
                         )
 
                         if results_wind == "Annual banked energy exceeds 30% of annual demand.":
