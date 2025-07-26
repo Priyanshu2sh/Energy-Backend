@@ -1680,7 +1680,18 @@ class OptimizeCapacityAPI(APIView):
         if not hours:
             return Response({"error": f"No peak hours data found for state {state}."}, status=status.HTTP_404_NOT_FOUND)
 
-        monthly_consumptions = MonthlyConsumptionData.objects.filter(requirement=consumer_requirement)
+        # monthly_consumptions = MonthlyConsumptionData.objects.filter(requirement=consumer_requirement)
+
+        month_order = {month: index for index, month in enumerate(calendar.month_name) if month}
+        logger.debug(f'month order= {month_order}')
+
+
+        # Fetch and sort monthly data manually
+        monthly_consumptions = sorted(
+            MonthlyConsumptionData.objects.filter(requirement=consumer_requirement),
+            key=lambda x: month_order.get(x.month, 13)  # 13 ensures invalid months go last
+        )
+        print(f'sorted monthly consumptions= {monthly_consumptions}')
 
         # Get state-specific hours
         # Get state-specific peak and off-peak hours
