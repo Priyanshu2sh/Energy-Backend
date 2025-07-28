@@ -638,6 +638,7 @@ class CSVFileAPI(APIView):
             )
         REQUIRED_HEADERS = {
             "Month",
+            "Year",
             "Monthly Consumption (MWh)",
             "Peak Consumption (MWh)",
             "Off Peak Consumption (MWh)",
@@ -709,6 +710,7 @@ class CSVFileAPI(APIView):
                     monthly_consumption.month=row['Month']
 
                 required_fields = [
+                    "Year",
                     'Monthly Consumption (MWh)',
                     'Peak Consumption (MWh)',
                     'Off Peak Consumption (MWh)'
@@ -756,6 +758,7 @@ class CSVFileAPI(APIView):
                         )
 
                 # Save validated values
+                monthly_consumption.year = int(parsed_values['Year'])
                 monthly_consumption.monthly_consumption = parsed_values['Monthly Consumption (MWh)']
                 monthly_consumption.peak_consumption = parsed_values['Peak Consumption (MWh)']
                 monthly_consumption.off_peak_consumption = parsed_values['Off Peak Consumption (MWh)']
@@ -1300,7 +1303,7 @@ class BankingCharges(APIView):
         return result
 
     @staticmethod
-    def banking_price_calculations(final_monthly_dict, generation_monthly, capacity, master_data, expected_tariff):
+    def banking_price_calculations(final_monthly_dict, generation_monthly, capacity, master_data, expected_tariff, state):
 
         adjusted_dict = {}
 
@@ -1356,7 +1359,10 @@ class BankingCharges(APIView):
                     # Excess generation → bank it
                     excess = abs(adjusted_value)
                     # Compute actual banked energy after banking charges
-                    banked_energy = excess * (1 - (master_data.banking_charges / 100))
+                    if state != 'Gujarat':
+                        banked_energy = excess * (1 - (master_data.banking_charges / 100))
+                    else:
+                        banked_energy = excess
                     
                     if idx < 3:
                         # Only first 3 slots contribute to cumulative banked limit
@@ -1366,7 +1372,10 @@ class BankingCharges(APIView):
                     else:
                         # Off-peak → becomes curtailment, not banked
                         # banked = 0
-                        banked = excess * (1 - (master_data.banking_charges / 100))
+                        if state != 'Gujarat':
+                            banked = excess * (1 - (master_data.banking_charges / 100))
+                        else:
+                            banked = excess
 
                     adjusted_value = 0
 
@@ -1418,6 +1427,9 @@ class BankingCharges(APIView):
 
         generation_price = capacity * total_generation * expected_tariff
         logger.debug(f"Generation Price: {generation_price}")
+
+        if state == 'Gujarat':
+            generation_price = generation_price + total_banked_energy * master_data.banking_charges
 
         banking_price = round(generation_price / demand_met, 2) # INR/MWh
         logger.debug(f"Banking Price: {banking_price}")
@@ -1536,6 +1548,7 @@ class BankingCharges(APIView):
                             mid,
                             master_data,
                             s_expected_tariff,
+                            master_data.state
                         )
 
                         if results_solar == "Annual banked energy exceeds 30% of annual demand.":
@@ -1597,6 +1610,7 @@ class BankingCharges(APIView):
                             mid,
                             master_data,
                             w_expected_tariff,
+                            master_data.state
                         )
 
                         if results_wind == "Annual banked energy exceeds 30% of annual demand.":
@@ -1677,7 +1691,18 @@ class OptimizeCapacityAPI(APIView):
         if not hours:
             return Response({"error": f"No peak hours data found for state {state}."}, status=status.HTTP_404_NOT_FOUND)
 
-        monthly_consumptions = MonthlyConsumptionData.objects.filter(requirement=consumer_requirement)
+        # monthly_consumptions = MonthlyConsumptionData.objects.filter(requirement=consumer_requirement)
+
+        month_order = {month: index for index, month in enumerate(calendar.month_name) if month}
+        logger.debug(f'month order= {month_order}')
+
+
+        # Fetch and sort monthly data manually
+        monthly_consumptions = sorted(
+            MonthlyConsumptionData.objects.filter(requirement=consumer_requirement),
+            key=lambda x: month_order.get(x.month, 13)  # 13 ensures invalid months go last
+        )
+        logger.debug(f'sorted monthly consumptions= {monthly_consumptions}')
 
         # Get state-specific hours
         # Get state-specific peak and off-peak hours
@@ -2001,11 +2026,29 @@ class OptimizeCapacityAPI(APIView):
                     elif len(numeric_hourly_demand) < 8760:
                         padding_length = 8760 - len(numeric_hourly_demand)
                         numeric_hourly_demand = pd.concat([numeric_hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
+
+                    
+                    transmission_charges = master_record.transmission_charge * 12 / (8760000 * (master_record.combined_average_replacement_PLF/100))
+                    transmission_losses = (master_record.transmission_loss/100) * re
+                    wheeling_charges = master_record.wheeling_charges
+                    wheeling_losses = re * (master_record.wheeling_losses/100)
+                    if master_record.state != 'Gujarat':
+                        banking_charges = (master_record.banking_charges / 100) * re
+                    else:
+                        banking_charges = 0
+                    standby_charges = 0
+                    electricity_tax = 0.2 * 0
+                    additional_surcharge = 0
+                    cross_subsidy_surcharge = 0
+
+                    OA_cost = transmission_charges + transmission_losses + wheeling_charges + wheeling_losses + banking_charges + standby_charges + electricity_tax + additional_surcharge + cross_subsidy_surcharge
+
+                    # OA_cost = (ISTS_charges + master_record.state_charges)*1000     # old OA_cost logic
                     
                     logger.debug(f'length: {len(numeric_hourly_demand)}')
                     logger.debug(re_replacement)
                     logger.debug(input_data)
-                    response_data = optimization_model(input_data, hourly_demand=numeric_hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, OA_cost=(ISTS_charges + master_record.state_charges)*1000)
+                    response_data = optimization_model(input_data, hourly_demand=numeric_hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, OA_cost=OA_cost)
                     logger.debug(response_data)
 
                     # Further filter for STU & banking
@@ -2394,11 +2437,30 @@ class OptimizeCapacityAPI(APIView):
                             else:
                                 # Map the consumer username specific to the generator
                                 mapped_username = get_mapped_username(generator, consumer_requirement.user)
+
+                            transmission_losses = (master_record.transmission_loss/100) * details['Per Unit Cost']
+                            wheeling_losses = details['Per Unit Cost'] * (master_record.wheeling_losses/100)
+                            if master_record.state != 'Gujarat':
+                                banking_charges = (master_record.banking_charges / 100) * details['Per Unit Cost']
+                            else:
+                                banking_charges = 0
+                                
+                            OA_cost = transmission_charges + transmission_losses + wheeling_charges + wheeling_losses + banking_charges + standby_charges + electricity_tax + additional_surcharge + cross_subsidy_surcharge
+
                             # Update the aggregated response dictionary
                             if combination_key not in aggregated_response:
                                 aggregated_response[combination_key] = {
                                     **details,
-                                    'OA_cost': ISTS_charges + master_record.state_charges,
+                                    "transmission_charges": transmission_charges,
+                                    "transmission_losses": transmission_losses,
+                                    "wheeling_charges": wheeling_charges,
+                                    "wheeling_losses": wheeling_losses,
+                                    "banking_charges": banking_charges,
+                                    "standby_charges": standby_charges,
+                                    "electricity_tax": electricity_tax,
+                                    "additional_surcharge": additional_surcharge,
+                                    "cross_subsidy_surcharge": cross_subsidy_surcharge,
+                                    'OA_cost': OA_cost,
                                     'ISTS_charges': ISTS_charges,
                                     'state_charges': master_record.state_charges,
                                     "state": state,
@@ -2527,7 +2589,7 @@ class ConsumptionPatternAPI(APIView):
         try:
             
             # Fetch MonthlyConsumptionData for the consumer
-            consumption_data = MonthlyConsumptionData.objects.filter(requirement=pk).values('month', 'monthly_consumption', 'peak_consumption', 'off_peak_consumption', 'monthly_bill_amount')
+            consumption_data = MonthlyConsumptionData.objects.filter(requirement=pk).values('year', 'month', 'monthly_consumption', 'peak_consumption', 'off_peak_consumption', 'monthly_bill_amount')
 
             user = User.objects.get(id=user_id)
 
@@ -2556,7 +2618,8 @@ class ConsumptionPatternAPI(APIView):
                 "tariff_category": consumption.requirement.tariff_category,
                 "voltage_level": consumption.requirement.voltage_level,
                 "contracted_demand": consumption.requirement.contracted_demand,
-                "industry": consumption.requirement.industry
+                "industry": consumption.requirement.industry,
+                "annual_consumption": consumption.requirement.annual_electricity_consumption
             }
 
             # Prepare response with the sorted monthly consumption data
@@ -2564,7 +2627,7 @@ class ConsumptionPatternAPI(APIView):
                 "consumer_details": consumer_details,
                 "monthly_consumption": [
                     {
-                        "month": datetime.strptime(entry["month"], '%B').strftime('%b'),  # Convert to short month name (e.g., Jan, Feb)
+                        "month": f"{datetime.strptime(entry['month'], '%B').strftime('%b')} {''+entry['year'] if entry['year'] else ''}",  # Convert to short month name (e.g., Jan, Feb)
                         "consumption": entry["monthly_consumption"],
                         "peak_consumption": entry["peak_consumption"],
                         "off_peak_consumption": entry["off_peak_consumption"],
@@ -5227,7 +5290,7 @@ class PWattHourly(APIView):
                     month_num = month_name_to_number.get(record.month)
                     logger.debug(f"Month: {month_num}")
                     monthly_consumption = record.monthly_consumption
-                    monthly_generation = generation_by_month.get(month_num, 0) * capacity_of_solar_rooftop
+                    monthly_generation = generation_by_month.get(record.month, 0) * capacity_of_solar_rooftop
                     logger.debug(f"monthly_generation = generation_by_month.get(month_num, 0) * capacity_of_solar_rooftop")
                     logger.debug(f"monthly_generation = {generation_by_month.get(month_num, 0)} * {capacity_of_solar_rooftop}")
 

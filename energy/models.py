@@ -524,6 +524,12 @@ class MasterTable(models.Model):
     banking_charges = models.FloatField(default=8, help_text="Banking charges in percentage (default = 8% now for all states)")
     rooftop_price = models.FloatField(default=1, null=True, blank=True)
     max_capacity = models.FloatField(default=1, null=True, blank=True, help_text="Maximum capacity in MW for the state, minimum is 1 MW")
+    transmission_charge = models.FloatField(default=126819, help_text="Rs / MW/Month")
+    transmission_loss = models.FloatField(default=3.84, help_text="in percentage (%)")
+    wheeling_charges = models.FloatField(default=0.2053, help_text="Rs / unit")
+    wheeling_losses = models.FloatField(default=7.25, help_text="in percentage (%)")
+    combined_average_replacement_PLF = models.FloatField(default=43, help_text="in percentage (%)")
+
 
 class RETariffMasterTable(models.Model):
     industry = models.CharField(max_length=255)
