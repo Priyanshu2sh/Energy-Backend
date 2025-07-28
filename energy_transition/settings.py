@@ -80,6 +80,14 @@ MIDDLEWARE = [
 
 ]
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://test-api.ext.exgglobal.com",
+    "https://test.ext.exgglobal.com",  # include if frontend is hosted here
+    # "https://api.ext.exgglobal.com",
+    "https://ext.exgglobal.com",
+]
+
+
 
 CORS_ALLOW_HEADERS = [
     'content-type',
