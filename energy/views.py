@@ -1429,7 +1429,7 @@ class BankingCharges(APIView):
         logger.debug(f"Generation Price: {generation_price}")
 
         if state == 'Gujarat':
-            generation_price = generation_price + total_banked_energy * 1.5
+            generation_price = generation_price + total_banked_energy * master_data.banking_charges
 
         banking_price = round(generation_price / demand_met, 2) # INR/MWh
         logger.debug(f"Banking Price: {banking_price}")
@@ -2026,11 +2026,29 @@ class OptimizeCapacityAPI(APIView):
                     elif len(numeric_hourly_demand) < 8760:
                         padding_length = 8760 - len(numeric_hourly_demand)
                         numeric_hourly_demand = pd.concat([numeric_hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
+
+                    
+                    transmission_charges = master_record.transmission_charge * 12 / (8760000 * (master_record.combined_average_replacement_PLF/100))
+                    transmission_losses = (master_record.transmission_loss/100) * re
+                    wheeling_charges = master_record.wheeling_charges
+                    wheeling_losses = re * (master_record.wheeling_losses/100)
+                    if master_record.state != 'Gujarat':
+                        banking_charges = (master_record.banking_charges / 100) * re
+                    else:
+                        banking_charges = 0
+                    standby_charges = 0
+                    electricity_tax = 0.2 * 0
+                    additional_surcharge = 0
+                    cross_subsidy_surcharge = 0
+
+                    OA_cost = transmission_charges + transmission_losses + wheeling_charges + wheeling_losses + banking_charges + standby_charges + electricity_tax + additional_surcharge + cross_subsidy_surcharge
+
+                    # OA_cost = (ISTS_charges + master_record.state_charges)*1000     # old OA_cost logic
                     
                     logger.debug(f'length: {len(numeric_hourly_demand)}')
                     logger.debug(re_replacement)
                     logger.debug(input_data)
-                    response_data = optimization_model(input_data, hourly_demand=numeric_hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, OA_cost=(ISTS_charges + master_record.state_charges)*1000)
+                    response_data = optimization_model(input_data, hourly_demand=numeric_hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, OA_cost=OA_cost)
                     logger.debug(response_data)
 
                     # Further filter for STU & banking
@@ -2419,11 +2437,30 @@ class OptimizeCapacityAPI(APIView):
                             else:
                                 # Map the consumer username specific to the generator
                                 mapped_username = get_mapped_username(generator, consumer_requirement.user)
+
+                            transmission_losses = (master_record.transmission_loss/100) * details['Per Unit Cost']
+                            wheeling_losses = details['Per Unit Cost'] * (master_record.wheeling_losses/100)
+                            if master_record.state != 'Gujarat':
+                                banking_charges = (master_record.banking_charges / 100) * details['Per Unit Cost']
+                            else:
+                                banking_charges = 0
+                                
+                            OA_cost = transmission_charges + transmission_losses + wheeling_charges + wheeling_losses + banking_charges + standby_charges + electricity_tax + additional_surcharge + cross_subsidy_surcharge
+
                             # Update the aggregated response dictionary
                             if combination_key not in aggregated_response:
                                 aggregated_response[combination_key] = {
                                     **details,
-                                    'OA_cost': ISTS_charges + master_record.state_charges,
+                                    "transmission_charges": transmission_charges,
+                                    "transmission_losses": transmission_losses,
+                                    "wheeling_charges": wheeling_charges,
+                                    "wheeling_losses": wheeling_losses,
+                                    "banking_charges": banking_charges,
+                                    "standby_charges": standby_charges,
+                                    "electricity_tax": electricity_tax,
+                                    "additional_surcharge": additional_surcharge,
+                                    "cross_subsidy_surcharge": cross_subsidy_surcharge,
+                                    'OA_cost': OA_cost,
                                     'ISTS_charges': ISTS_charges,
                                     'state_charges': master_record.state_charges,
                                     "state": state,
