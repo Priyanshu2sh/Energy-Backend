@@ -27,14 +27,16 @@ RUN mkdir -p /usr/share/man/man1 && \
 # Set Chrome binary path
 ENV CHROME_BIN=/usr/bin/google-chrome
 
-# Install ChromeDriver (using direct download from known working version)
-# You can update this version number from https://chromedriver.chromium.org/downloads
-RUN CHROMEDRIVER_VERSION=$(curl -sS https://chromedriver.storage.googleapis.com/LATEST_RELEASE) && \
+# Get Chrome version and install matching ChromeDriver
+RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) && \
+    echo "Detected Chrome major version: $CHROME_VERSION" && \
+    CHROMEDRIVER_VERSION=$(curl -sS "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_$CHROME_VERSION") && \
     echo "Installing ChromeDriver version: $CHROMEDRIVER_VERSION" && \
-    wget -O /tmp/chromedriver.zip "https://chromedriver.storage.googleapis.com/$CHROMEDRIVER_VERSION/chromedriver_linux64.zip" && \
-    unzip /tmp/chromedriver.zip -d /usr/local/bin && \
+    wget -O /tmp/chromedriver.zip "https://edgedl.me.gvt1.com/edgedl/chrome/chrome-for-testing/$CHROMEDRIVER_VERSION/linux64/chromedriver-linux64.zip" && \
+    unzip /tmp/chromedriver.zip -d /tmp && \
+    mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/ && \
     chmod +x /usr/local/bin/chromedriver && \
-    rm /tmp/chromedriver.zip
+    rm -rf /tmp/chromedriver*
 
 # Set working directory
 WORKDIR /app
@@ -45,7 +47,7 @@ COPY . .
 # Install Python packages
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt \
-    && playwright install --with-deps  # Remove if not using Playwright
+    && playwright install --with-deps
 
 # Expose Daphne port
 EXPOSE 8000
