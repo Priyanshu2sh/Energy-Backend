@@ -2451,6 +2451,7 @@ class OptimizeCapacityAPI(APIView):
                             if combination_key not in aggregated_response:
                                 aggregated_response[combination_key] = {
                                     **details,
+                                    "equity_contribution_required_from_consumer": (capital_cost_solar * details["Optimal Solar Capacity (MW)"] + capital_cost_wind * details["Optimal Wind Capacity (MW)"] + capital_cost_ess * details["Optimal Battery Capacity (MW)"]) * 0.3 * 0.26,
                                     "OA_transmission_charges": transmission_charges,
                                     "OA_transmission_losses": transmission_losses,
                                     "OA_wheeling_charges": wheeling_charges,
@@ -2555,9 +2556,12 @@ class OptimizeCapacityAPI(APIView):
             elif not aggregated_response and optimize_capacity_user=='Generator':
                 return Response({"error": "The demand cannot be met by your projects."}, status=status.HTTP_200_OK)
             
-
+            logger.debug('----aggregated response----')
+            logger.debug(aggregated_response)
             # Extract top 5 records with the smallest "Per Unit Cost"
             top_three_records = sorted(aggregated_response.items(), key=lambda x: x[1]['Per Unit Cost'])[:5]
+            logger.debug('----aggregated top 5 records----')
+            logger.debug(top_three_records)
             # Function to round values to 2 decimal places
             def round_values(record):
                 return {key: round(value, 2) if isinstance(value, (int, float)) else value for key, value in record.items()}
@@ -2565,6 +2569,8 @@ class OptimizeCapacityAPI(APIView):
             top_three_records_rounded = {
                 key: round_values(value) for key, value in top_three_records
             }   
+            logger.debug('----rounded records----')
+            logger.debug(top_three_records_rounded)
 
             return Response(top_three_records_rounded, status=status.HTTP_200_OK)
 
