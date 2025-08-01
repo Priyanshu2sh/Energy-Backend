@@ -58,19 +58,19 @@ def scrape_data():
         dropdown = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(@aria-controls, 'R15alaackql')]")))
         driver.execute_script("arguments[0].click();", dropdown)
         print("✅ Dropdown clicked!")
-        time.sleep(2)
+        time.sleep(5)
 
         # Select 'Tomorrow'
         tomorrow_option = wait.until(EC.element_to_be_clickable((By.XPATH, "//li[@data-value='TOMORROW']")))
         driver.execute_script("arguments[0].click();", tomorrow_option)
         print("✅ 'Tomorrow' selected!")
-        time.sleep(2)
+        time.sleep(5)
 
         # Click 'Update Report'
         update_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Update Report']")))
         driver.execute_script("arguments[0].click();", update_button)
         print("✅ 'Update Report' button clicked!")
-        time.sleep(2)
+        time.sleep(5)
 
         # Click Export → Export Excel
         export_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Export')]")))
@@ -97,7 +97,7 @@ def scrape_data():
                     logging.info(f"✅ File downloaded and renamed to {new_name}")
                     file_downloaded = True
                     break
-            time.sleep(2)
+            time.sleep(5)
 
         if not file_downloaded:
             logging.error("❌ File download failed or timed out.")
