@@ -83,7 +83,7 @@ MIDDLEWARE = [
 CSRF_TRUSTED_ORIGINS = [
     "https://test-api.ext.exgglobal.com",
     "https://test.ext.exgglobal.com",  # include if frontend is hosted here
-    # "https://api.ext.exgglobal.com",
+    "https://ext-api.ext.exgglobal.com",
     "https://ext.exgglobal.com",
 ]
 
@@ -121,8 +121,8 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            # 'hosts': [('127.0.0.1', 6379)],
-            'hosts': [('redis', 6379)],
+            'hosts': [('127.0.0.1', 6379)],
+            # 'hosts': [('redis', 6379)],
         },
     },
 }

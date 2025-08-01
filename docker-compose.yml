@@ -10,6 +10,7 @@ services:
 
   django:
     image: ${IMAGE}
+    # build: .
     container_name: django_container
     restart: always
     command: >
@@ -30,6 +31,7 @@ services:
 
   celery_worker:
     image: ${IMAGE}
+    # build: .
     container_name: celery_worker
     restart: always
     command: >
@@ -45,10 +47,11 @@ services:
 
   celery_beat:
     image: ${IMAGE}
+    # build: .
     container_name: celery_beat
     restart: always
     command: >
-      sh -c "celery -A energy_transition beat --loglevel=info --logfile=logs/celery_beat_stdout.log"
+      sh -c "celery -A energy_transition beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler --logfile=logs/celery_beat_stdout.log"
     volumes:
       - ./logs:/app/logs
     env_file:
