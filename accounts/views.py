@@ -134,6 +134,8 @@ class RegisterUser(APIView):
         try:
             # Check if a user with this email already exists
             existing_user = User.objects.get(email=email)
+            if existing_user.is_active == False and existing_user.deleted == True:
+                return Response({'error': 'Account creation with this email is not permitted. Please contact the appropriate authority for assistance.'}, status=status.HTTP_400_BAD_REQUEST)
             if existing_user.verified_at is None:
                 # If the user exists but is not verified, update details and resend OTP
                 # email_otp = random.randint(100000, 999999)
@@ -241,6 +243,10 @@ class LoginUser(APIView):
 
         try:
             user = User.objects.get(email=email)
+            if user.is_active == False:
+                return Response({'error': f'Your account has been deactivated.'}, status=status.HTTP_400_BAD_REQUEST)
+            if user.is_active == False and user.deleted == True:
+                return Response({'error': f'Your account has been deleted.'}, status=status.HTTP_400_BAD_REQUEST)
             if user.user_category != user_type:
                 return Response({'error': f'You have not registered as {user_type}.'}, status=status.HTTP_400_BAD_REQUEST)
         except User.DoesNotExist:

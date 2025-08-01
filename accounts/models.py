@@ -45,6 +45,7 @@ class User(AbstractUser, PermissionsMixin):
         ("View", "View"),
     ]
     
+    deleted = models.BooleanField(default=False)
     # Adding additional columns
     email = models.EmailField(max_length=254, unique=True)
     user_category = models.CharField(max_length=255, choices= user_category_choices, blank=True, null=True)
