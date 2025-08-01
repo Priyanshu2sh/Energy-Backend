@@ -1,0 +1,53 @@
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django stuff:
+*.log
+*.pot
+*.pyc
+*.pyo
+*.db
+*.sqlite3
+
+# Environment files
+.env
+.env.*
+
+# Virtual environment
+.venv/
+venv/
+
+# Media / static (optional - if mounted via volume or handled by NGINX)
+media/
+staticfiles/
+static/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS / system files
+.DS_Store
+Thumbs.db
+
+# Docker-related
+docker-compose.override.yml
+
+# Git
+.git
+.gitignore
+
+# Tests (optional, if not needed in production image)
+tests/
+__snapshots__/
+coverage/
+
+# Node / frontend (if using React/Vite etc. separately)
+node_modules/
+build/
+dist/
+*.tgz
