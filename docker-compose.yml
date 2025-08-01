@@ -4,22 +4,58 @@ services:
   redis:
     image: redis:alpine
     container_name: redis_container
+    restart: always
     ports:
       - "6379:6379"
 
   django:
-    image: ext-powerx-app  # Use prebuilt image OR skip entirely if not needed
+    image: ${IMAGE}
+    # build: .
     container_name: django_container
+    restart: always
     command: >
       sh -c "
         python manage.py collectstatic --noinput &&
         daphne -b 0.0.0.0 -p 8000 energy_transition.asgi:application
       "
     volumes:
-      - .:/app  # Mount local code for live changes
+      - ./logs:/app/logs
+      - ./staticfiles:/app/staticfiles
+      - ./media:/app/media
     ports:
-      - "8000:8000"
+      - "8005:8000"
     env_file:
       - .env
     depends_on:
       - redis
+
+  celery_worker:
+    image: ${IMAGE}
+    # build: .
+    container_name: celery_worker
+    restart: always
+    command: >
+      sh -c "celery -A energy_transition worker --loglevel=info --logfile=logs/celery_worker_stdout.log"
+    volumes:
+      - ./logs:/app/logs
+      - ./media:/app/media
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - django
+
+  celery_beat:
+    image: ${IMAGE}
+    # build: .
+    container_name: celery_beat
+    restart: always
+    command: >
+      sh -c "celery -A energy_transition beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler --logfile=logs/celery_beat_stdout.log"
+    volumes:
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - django

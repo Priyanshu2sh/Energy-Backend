@@ -9,27 +9,40 @@ import os
 import time
 import logging
 import pandas as pd
-from django.utils import timezone
+from datetime import datetime
+
+def process_excel_file(download_folder):
+    """Load and preview the downloaded Excel file."""
+    file_name = f"IEX_Green_DAM_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+    file_path = os.path.join(download_folder, file_name)
+
+    if os.path.exists(file_path):
+        df = pd.read_excel(file_path)
+        print("✅ File loaded successfully:")
+        print(df.head())
+    else:
+        print("❌ File not found!")
 
 def scrape_data():
-    """Scrape Excel from IEX using Google Chrome."""
+    """Scrape Excel from IEX using headless Google Chrome."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
     # Setup paths
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    download_folder = os.path.join(current_dir, "IEX_Data") 
+    download_folder = os.path.join(current_dir, "IEX_Data")
     if not os.path.exists(download_folder):
         os.makedirs(download_folder)
 
     # Chrome browser config
     options = Options()
-    options.add_argument("--headless")  # Enable for background run
+    options.add_argument("--headless=new")  # Use `--headless=new` for Chrome v109+
     options.add_argument("--disable-gpu")
-    # options.add_argument("--no-sandbox")
-    options.add_argument("--start-maximized")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--window-size=1920,1080")
     options.add_experimental_option("prefs", {
         "download.default_directory": download_folder,
         "download.prompt_for_download": False,
+        "download.directory_upgrade": True,
         "safebrowsing.enabled": True
     })
 
@@ -37,48 +50,50 @@ def scrape_data():
     driver = webdriver.Chrome(service=service, options=options)
 
     try:
-        # Navigate to IEX
         driver.get("https://www.iexindia.com/market-data/green-day-ahead-market/market-snapshot")
-        time.sleep(5)
-        wait = WebDriverWait(driver, 20)
+        print("✅ Page found!")
+        wait = WebDriverWait(driver, 15)
 
-        # Step 2: Select "Tomorrow" in the delivery period dropdown
-        dropdown = wait.until(EC.element_to_be_clickable((
-            By.XPATH, "//div[contains(@aria-controls, 'R15alaackql')]"  # use partial match
-        )))
-        dropdown.click()
-
-        print("✅ dropdown clicked!")
+        # Click the dropdown
+        dropdown = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[contains(@aria-controls, 'R15alaackql')]")))
+        driver.execute_script("arguments[0].click();", dropdown)
+        print("✅ Dropdown clicked!")
         time.sleep(2)
 
+        # Select 'Tomorrow'
         tomorrow_option = wait.until(EC.element_to_be_clickable((By.XPATH, "//li[@data-value='TOMORROW']")))
-        tomorrow_option.click()
+        driver.execute_script("arguments[0].click();", tomorrow_option)
         print("✅ 'Tomorrow' selected!")
-        time.sleep(2)  # Give time for selection to process
+        time.sleep(2)
 
+        # Click 'Update Report'
         update_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[normalize-space()='Update Report']")))
-        update_button.click()
+        driver.execute_script("arguments[0].click();", update_button)
         print("✅ 'Update Report' button clicked!")
         time.sleep(2)
 
-        # Step 3: Click "Update Report"
-        driver.find_element(By.XPATH, "//button[text()='Update Report']").click()
-        time.sleep(3)
-
-        # Click Export > Export Excel
-        logging.info("Clicking export options...")
-        driver.find_element(By.XPATH, "//button[contains(text(), 'Export')]").click()
+        # Click Export → Export Excel
+        export_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Export')]")))
+        driver.execute_script("arguments[0].click();", export_button)
         time.sleep(1)
-        driver.find_element(By.XPATH, "//button[contains(text(), 'Export Excel')]").click()
+        export_excel = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Export Excel')]")))
+        driver.execute_script("arguments[0].click();", export_excel)
 
         # Wait for file download
+        logging.info("⏳ Waiting for Excel download...")
         file_downloaded = False
         timeout = time.time() + 60
+
         while not file_downloaded and time.time() < timeout:
             for file in os.listdir(download_folder):
-                if file.endswith(".xlsx"):
-                    new_name = f"IEX_Green_DAM_{timezone.now().strftime('%Y-%m-%d')}.xlsx"
-                    os.rename(os.path.join(download_folder, file), os.path.join(download_folder, new_name))
+                if file.endswith(".xlsx") and not file.endswith(".crdownload"):
+                    new_name = f"IEX_Green_DAM_{datetime.now().strftime('%Y-%m-%d')}.xlsx"
+                    old_path = os.path.join(download_folder, file)
+                    new_path = os.path.join(download_folder, new_name)
+
+                    if os.path.exists(new_path):
+                        os.remove(new_path)
+                    os.rename(old_path, new_path)
                     logging.info(f"✅ File downloaded and renamed to {new_name}")
                     file_downloaded = True
                     break
@@ -86,9 +101,15 @@ def scrape_data():
 
         if not file_downloaded:
             logging.error("❌ File download failed or timed out.")
+        else:
+            process_excel_file(download_folder)
 
     except Exception as e:
-        logging.error(f"⚠ Error occurred: {e}")
+        logging.error(f"⚠️ Error occurred: {e}")
     finally:
         driver.quit()
         logging.info("🧹 Browser closed.")
+
+# Run the script
+# if __name__ == "__main__":
+#     scrape_data()

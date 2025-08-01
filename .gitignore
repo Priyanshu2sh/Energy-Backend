@@ -19,12 +19,14 @@ db.sqlite3  # Ignore SQLite database file (if used locally)
 !**/migrations/__init__.py
 
 # Ignore environment-specific files
+.venv
 .env
 *.env
 config/settings/local.py  # Ignore local settings if you have different settings for production
 
 # Ignore dependency and virtual environment files
 venv/
+.venv/
 env/
 *.pip
 Pipfile
