@@ -728,3 +728,18 @@ class BankingOrder(models.Model):
 
     def __str__(self):
         return self.name
+    
+class HelpDeskQuery(models.Model):
+    STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('In Progress', 'In Progress'),
+        ('Resolved', 'Resolved'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='help_queries')
+    query = models.TextField()
+    date = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+
+    def __str__(self):
+        return f"Query by {self.user} on {self.date.strftime('%Y-%m-%d %H:%M')} - {self.status}"

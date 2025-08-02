@@ -503,25 +503,46 @@ class MonthlyConsumptionDataAPI(APIView):
    
 
     def get(self, request, pk):
-        # Fetch energy profiles
+        try:
+            requirement = ConsumerRequirements.objects.get(id=pk)
+        except ConsumerRequirements.DoesNotExist:
+            return Response({"error": "Consumer requirement not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Fetch peak hours based on the state
+        peak_hours = PeakHours.objects.filter(state__name=requirement.state).first()
+
+        # Fetch and serialize monthly data
         data = MonthlyConsumptionData.objects.filter(requirement=pk)
         serializer = MonthlyConsumptionDataSerializer(data, many=True)
-
-        # Extract the serialized data
         serialized_data = serializer.data
 
-        # Sort the data by the month field (assuming full month names)
+        # Sort by month name
         try:
             sorted_data = sorted(
-                serialized_data, 
+                serialized_data,
                 key=lambda x: datetime.strptime(x['month'], '%B')
             )
         except KeyError:
             return Response({"error": "Missing 'month' key in data"}, status=status.HTTP_400_BAD_REQUEST)
         except ValueError:
             return Response({"error": "Invalid month format in data"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        return Response(sorted_data, status=status.HTTP_200_OK)
+
+        # Prepare peak hours dictionary
+        peak_hours_data = 'Not Available'
+        if peak_hours:  
+            peak_hours_data = {
+                "peak_start_1": peak_hours.peak_start_1.strftime('%H:%M'),
+                "peak_end_1": peak_hours.peak_end_1.strftime('%H:%M'),
+                "peak_start_2": peak_hours.peak_start_2.strftime('%H:%M') if peak_hours.peak_start_2 else None,
+                "peak_end_2": peak_hours.peak_end_2.strftime('%H:%M') if peak_hours.peak_end_2 else None,
+                "off_peak_start": peak_hours.off_peak_start.strftime('%H:%M') if peak_hours.off_peak_start else None,
+                "off_peak_end": peak_hours.off_peak_end.strftime('%H:%M') if peak_hours.off_peak_end else None,
+            }
+
+        return Response({
+            "monthly_consumption": sorted_data,
+            "peak_hours": peak_hours_data
+        }, status=status.HTTP_200_OK)
 
     def post(self, request):
         data = request.data
@@ -2451,6 +2472,7 @@ class OptimizeCapacityAPI(APIView):
                             if combination_key not in aggregated_response:
                                 aggregated_response[combination_key] = {
                                     **details,
+                                    "equity_contribution_required_from_consumer": (capital_cost_solar * details["Optimal Solar Capacity (MW)"] + capital_cost_wind * details["Optimal Wind Capacity (MW)"] + capital_cost_ess * details["Optimal Battery Capacity (MW)"]) * 0.3 * 0.26,
                                     "OA_transmission_charges": transmission_charges,
                                     "OA_transmission_losses": transmission_losses,
                                     "OA_wheeling_charges": wheeling_charges,
@@ -2555,9 +2577,12 @@ class OptimizeCapacityAPI(APIView):
             elif not aggregated_response and optimize_capacity_user=='Generator':
                 return Response({"error": "The demand cannot be met by your projects."}, status=status.HTTP_200_OK)
             
-
+            logger.debug('----aggregated response----')
+            logger.debug(aggregated_response)
             # Extract top 5 records with the smallest "Per Unit Cost"
             top_three_records = sorted(aggregated_response.items(), key=lambda x: x[1]['Per Unit Cost'])[:5]
+            logger.debug('----aggregated top 5 records----')
+            logger.debug(top_three_records)
             # Function to round values to 2 decimal places
             def round_values(record):
                 return {key: round(value, 2) if isinstance(value, (int, float)) else value for key, value in record.items()}
@@ -2565,6 +2590,8 @@ class OptimizeCapacityAPI(APIView):
             top_three_records_rounded = {
                 key: round_values(value) for key, value in top_three_records
             }   
+            logger.debug('----rounded records----')
+            logger.debug(top_three_records_rounded)
 
             return Response(top_three_records_rounded, status=status.HTTP_200_OK)
 

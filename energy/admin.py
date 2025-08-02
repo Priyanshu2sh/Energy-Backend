@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import BankingOrder, District, GeneratorHourlyDemand, GeneratorMonthlyConsumption, NationalHoliday, NegotiationInvitation, OfflinePayment, PeakHours, State, Industry, PaymentTransaction, SolarPortfolio, StateTimeSlot, SubIndustry, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs,GeneratorOffer, NegotiationWindow, MasterTable, GridTariff, ScadaFile, RETariffMasterTable, PerformaInvoice
+from .models import BankingOrder, District, GeneratorHourlyDemand, GeneratorMonthlyConsumption, HelpDeskQuery, NationalHoliday, NegotiationInvitation, OfflinePayment, PeakHours, State, Industry, PaymentTransaction, SolarPortfolio, StateTimeSlot, SubIndustry, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs,GeneratorOffer, NegotiationWindow, MasterTable, GridTariff, ScadaFile, RETariffMasterTable, PerformaInvoice
 from django.conf import settings
 import requests
 from datetime import datetime
@@ -106,3 +106,5 @@ class OfflinePaymentAdmin(admin.ModelAdmin):
 @admin.register(BankingOrder)
 class DemandOrderAdmin(admin.ModelAdmin):
     list_display = ['name', 'order']
+
+admin.site.register(HelpDeskQuery)

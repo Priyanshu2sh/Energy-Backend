@@ -26,6 +26,7 @@ config/settings/local.py  # Ignore local settings if you have different settings
 
 # Ignore dependency and virtual environment files
 venv/
+.venv/
 env/
 *.pip
 Pipfile

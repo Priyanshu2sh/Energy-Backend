@@ -24,4 +24,5 @@ urlpatterns = [
     path('api/accounts/', include('accounts.urls')),
     path('api/energy/', include('energy.urls')),
     path('api/powerx/', include('powerx.urls')),
+    path('api/admin/', include('admin.urls')),
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -1,0 +1,31 @@
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('dashboard', views.Dashboard.as_view(), name='dashboard'),
+    path('consumer', views.Consumer.as_view(), name='consumer'),
+    path('consumer/<int:pk>', views.Consumer.as_view()),
+    path('generator', views.Generator.as_view(), name='generator'),
+    path('generator/<int:pk>', views.Generator.as_view()),
+    path('online-subscriptions', views.OnlineSubscriptions.as_view()),
+    path('offline-subscriptions', views.OfflineSubscriptions.as_view()),
+    path('offline-subscription/<int:pk>', views.OfflineSubscriptions.as_view()),
+    path('subscription-plans', views.SubscriptionPlans.as_view()),
+    path('subscription-plan/<int:pk>', views.SubscriptionPlans.as_view()),
+    path('demand-data', views.DemandData.as_view()),
+    path('demand-data/<int:pk>', views.DemandData.as_view()),
+    path('generation-data', views.GenerationData.as_view()),
+    path('queries', views.HelpDeskQueryAPI.as_view()),
+    path('queries/<int:pk>', views.HelpDeskQueryAPI.as_view()),
+    path('send-notification', views.SendNotificationAPI.as_view(), name='send-message'),
+    path('master-table', views.MasterTableAPI.as_view()),
+    path('master-table/<int:pk>', views.MasterTableAPI.as_view()),
+    path('re-tariff', views.RETariffAPI.as_view()),
+    path('re-tariff/<int:pk>', views.RETariffAPI.as_view()),
+    path('grid-tariff', views.GridTariffAPI.as_view()),
+    path('grid-tariff/<int:pk>', views.GridTariffAPI.as_view()),
+    path('peak-hours', views.PeakHoursAPI.as_view()),
+    path('peak-hours/<int:pk>', views.PeakHoursAPI.as_view()),
+    path('national-holidays', views.NationalHolidayAPI.as_view()),
+    path('national-holidays/<int:pk>', views.NationalHolidayAPI.as_view()),
+]
