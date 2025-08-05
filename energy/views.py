@@ -2108,7 +2108,7 @@ class OptimizeCapacityAPI(APIView):
 
                             if banking_response.status_code == 200:
                                 banking_result = banking_response.json()
-                                logger.debug(f"Banking Charges result")
+                                logger.debug(f"Banking Charges result: {banking_result}")
 
                                 # Pre-fetch all required solar/wind objects
                                 solar_objs = {
@@ -2220,6 +2220,7 @@ class OptimizeCapacityAPI(APIView):
                                             }
                                         }
 
+                                logger.debug(f'keys ---- {aggregated_response.keys()}')
                                 # -------- Wind Results Loop --------
                                 for wind_data in banking_result.get("wind", []):
                                     wind = wind_objs.get(wind_data.get("wind_id"))
@@ -2318,7 +2319,7 @@ class OptimizeCapacityAPI(APIView):
                                                 "ess": combo.optimal_battery_capacity,
                                             }
                                         }
-
+                                logger.debug(f'wwwwkeys ---- {aggregated_response.keys()}')
                             else:
                                 logger.error(f"BankingCharges API failed: {banking_response.content}")
 
@@ -2327,7 +2328,7 @@ class OptimizeCapacityAPI(APIView):
                             traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")
                             logger.error(f"Error calling BankingCharges API: {e}")
 
-
+                    logger.debug(f'semi final ---- {aggregated_response.keys()}')
                     # if response_data != 'The demand cannot be met by the IPPs':
                     if not response_data.get('error'):
                         for combination_key, details in response_data.items():
