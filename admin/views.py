@@ -76,6 +76,16 @@ class Consumer(APIView):
         if not consumer:
             return Response({"error": "Consumer not found."}, status=status.HTTP_404_NOT_FOUND)
 
+        status = request.data.get('status')
+        if status and status == 'deactivate':
+            consumer.is_active = False
+            consumer.save()
+            return Response({"message": "Consumer deactivated."}, status=status.HTTP_200_OK)
+        elif status and status == 'activate':
+            consumer.is_active = True
+            consumer.save()
+            return Response({"message": "Consumer activated."}, status=status.HTTP_200_OK)
+
         serializer = ConsumerSerializer(consumer, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
@@ -105,6 +115,16 @@ class Generator(APIView):
         generator = User.objects.filter(pk=pk).first()
         if not generator:
             return Response({"error": "Generator not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        status = request.data.get('status')
+        if status and status == 'deactivate':
+            generator.is_active = False
+            generator.save()
+            return Response({"message": "Generator deactivated."}, status=status.HTTP_200_OK)
+        elif status and status == 'activate':
+            generator.is_active = True
+            generator.save()
+            return Response({"message": "Generator activated."}, status=status.HTTP_200_OK)
 
         serializer = GeneratorSerializer(generator, data=request.data, partial=True)
         if serializer.is_valid():
