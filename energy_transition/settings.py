@@ -82,8 +82,8 @@ MIDDLEWARE = [
 
 CSRF_TRUSTED_ORIGINS = [
     "https://test-api.ext.exgglobal.com",
-    "https://test.ext.exgglobal.com",  # include if frontend is hosted here
-    "https://ext-api.ext.exgglobal.com",
+    "https://test.ext.exgglobal.com",
+    "https://ext-api.exgglobal.com",
     "https://ext.exgglobal.com",
 ]
 
