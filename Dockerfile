@@ -16,7 +16,6 @@ RUN apt-get update && apt-get install -y \
     curl git pkg-config wget gnupg ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Chrome (latest stable version)
 RUN mkdir -p /usr/share/man/man1 && \
     wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg && \
     echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
@@ -24,10 +23,8 @@ RUN mkdir -p /usr/share/man/man1 && \
     apt-get install -y google-chrome-stable && \
     rm -rf /var/lib/apt/lists/*
 
-# Set Chrome binary path
 ENV CHROME_BIN=/usr/bin/google-chrome
 
-# Get Chrome version and install matching ChromeDriver
 RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1) && \
     echo "Detected Chrome major version: $CHROME_VERSION" && \
     CHROMEDRIVER_VERSION=$(curl -sS "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_$CHROME_VERSION") && \
@@ -38,19 +35,17 @@ RUN CHROME_VERSION=$(google-chrome --version | awk '{print $3}' | cut -d'.' -f1)
     chmod +x /usr/local/bin/chromedriver && \
     rm -rf /tmp/chromedriver*
 
-# Set working directory
+
 WORKDIR /app
 
-# Copy project files
-COPY . .
+COPY requirements.txt .
 
-# Install Python packages
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt \
     && playwright install --with-deps
 
-# Expose Daphne port
+COPY . .
+
 EXPOSE 8000
 
-# Default command
 CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "energy_transition.asgi:application"]
