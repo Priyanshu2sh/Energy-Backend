@@ -6,7 +6,7 @@ __pycache__/
 *.egg-info/
 *.eggs/
 *.log
-deploy.sh
+# deploy.sh
 server.sh
 
 # Django-specific files
