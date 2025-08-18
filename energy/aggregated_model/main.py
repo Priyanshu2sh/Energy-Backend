@@ -92,7 +92,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                         ess_name = ess_system
 
                         # Process combination of Solar, Wind, and Battery
-                        logger.debug(f"IPP : {ipp} Combination of Solar: {solar_project}, Wind: {wind_project}, Battery: {ess_name}")
+                        # logger.debug(f"IPP : {ipp} Combination of Solar: {solar_project}, Wind: {wind_project}, Battery: {ess_name}")
                         ipp_name = ipp
                         solar = solar_project
                         wind = wind_project
@@ -134,7 +134,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
 
 
                         # Process combination of Solar, Wind, and Battery
-                    logger.debug(f"IPP : {ipp} Combination of Solar: {solar_project}, Wind: {wind_project}")
+                    # logger.debug(f"IPP : {ipp} Combination of Solar: {solar_project}, Wind: {wind_project}")
                     ipp_name = ipp
                     solar = solar_project
                     wind = wind_project
@@ -185,7 +185,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                         ess_name = ess_system
 
                         # Process combination of Solar, Wind, and Battery
-                        logger.debug(f"IPP : {ipp} Combination of Solar: {solar_project}, Battery: {ess_name}")
+                        # logger.debug(f"IPP : {ipp} Combination of Solar: {solar_project}, Battery: {ess_name}")
                         ipp_name = ipp
                         solar = solar_project
                         ess = ess_name
@@ -235,7 +235,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                         ess_name = ess_system
 
                         # Process combination of Solar, Wind, and Battery
-                        logger.debug(f"IPP : {ipp} Combination of Wind: {wind_project}, Battery: {ess_name}")
+                        # logger.debug(f"IPP : {ipp} Combination of Wind: {wind_project}, Battery: {ess_name}")
                         ipp_name = ipp
                         wind = wind_project
                         ess = ess_name
@@ -271,7 +271,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                 Wind_maxCapacity = wind_projects[wind_project]['max_capacity']
                 wind_name=wind_project
 
-                logger.debug(f"IPP : {ipp} Combination of wind: {wind_project}")
+                # logger.debug(f"IPP : {ipp} Combination of wind: {wind_project}")
                 ipp_name = ipp
                 wind = wind_project
 
@@ -302,7 +302,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
                 Solar_maxCapacity = solar_projects[solar_project]['max_capacity']
                 solar_name=solar_project
 
-                logger.debug(f"IPP : {ipp} Combination of Solar: {solar_project}")
+                # logger.debug(f"IPP : {ipp} Combination of Solar: {solar_project}")
                 ipp_name = ipp
                 solar = solar_project
 
@@ -341,7 +341,7 @@ def optimization_model(input_data, consumer_demand_path=None, hourly_demand=None
       sorted_dict = sorted_results.to_dict(orient="index")
       return sorted_dict
     else:
-      logger.debug("The demand cannot be met by the IPPs")
+    #   logger.debug("The demand cannot be met by the IPPs")
       return {"error": "The demand cannot be met by the IPPs",
               "ipp": ipp_name,
               "solar": solar,
