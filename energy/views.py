@@ -6,6 +6,7 @@ from collections import defaultdict
 import csv
 import io
 from itertools import chain
+import math
 import re
 import statistics
 import fitz
@@ -52,6 +53,7 @@ import traceback
 import chardet
 from decimal import Decimal
 from calendar import month_name
+from django.db.models import Min
 
 # Get the logger that is configured in the settings
 import logging
@@ -1364,7 +1366,7 @@ class BankingCharges(APIView):
                 logger.debug(f'Original Demand: {final_value}')
                 logger.debug(f'Generation ({capacity} MW): {gen_value}')
                 logger.debug(f'Banked Available: {banked}')
-                logger.debug(f'Initial Adjusted Value: {adjusted_value}')
+                logger.debug(f'Initial Adjusted Value (con-gen): {adjusted_value}')
 
                 if adjusted_value > 0:
                     # Try to meet the demand using banked energy
@@ -1373,9 +1375,12 @@ class BankingCharges(APIView):
                         adjusted_value = adjusted_value - used_banked
                         banked = banked - used_banked
                         logger.debug(f'Used banked: {used_banked}')
+                        logger.debug(f'Banked in {key}: {banked}')
                     if adjusted_value > 0:
                         not_met += adjusted_value
                         logger.debug(f'Unmet after banking: {adjusted_value}')
+                    else:
+                        banked += adjusted_value
                 else:
                     # Excess generation → bank it
                     excess = abs(adjusted_value)
@@ -1388,7 +1393,7 @@ class BankingCharges(APIView):
                     if idx < 3:
                         # Only first 3 slots contribute to cumulative banked limit
                         total_banked_by_slot[key] += banked_energy
-                        banked = banked_energy
+                        banked += banked_energy
                         logger.debug(f'Banked in {key}: {banked_energy}')
                     else:
                         # Off-peak → becomes curtailment, not banked
@@ -1417,11 +1422,10 @@ class BankingCharges(APIView):
 
                 adjusted_dict[month][key] = round(adjusted_value, 2)
                 adjusted_dict[month]['not_met'] = round(not_met, 2)
-                logger.debug(f'Final Adjusted Value: {adjusted_value}')
                 logger.debug('--------------------------------')
 
         total_banked_energy = sum(total_banked_by_slot.values())
-
+        logger.debug(f'Total slot: {total_banked_by_slot}')
         # ✅ Result:
         logger.debug(f'adjusted values: {adjusted_dict}')
         total_unmet = sum(month_data.get("not_met", 0) for month_data in adjusted_dict.values())
@@ -1460,11 +1464,10 @@ class BankingCharges(APIView):
 
         if total_banked_energy > banking_limit:
             # Raise error or handle accordingly
-            logger.error("Annual banked energy exceeds 30% of annual demand.")
+            exceeds = True
             # Example:
-            return "Annual banked energy exceeds 30% of annual demand."
         else:
-            logger.debug("Banked energy is within the allowed limit.")
+            exceeds = False
 
         return {
             "total_unmet": total_unmet,
@@ -1474,7 +1477,8 @@ class BankingCharges(APIView):
             "total_generation": total_generation,
             "re_replacement": re_replacement,
             "generation_price": generation_price,
-            "banking_price": banking_price
+            "banking_price": banking_price,
+            "exceeds": exceeds
         }
 
     def post(self, request):
@@ -1535,7 +1539,7 @@ class BankingCharges(APIView):
             # -----------------------
             # Process SOLAR portfolios
             # -----------------------
-
+            logger.debug(f'ffffinal cons: {final_monthly_dict}')
             solar_results = []
             if solar_ids:
                 solar_objs = SolarPortfolio.objects.filter(id__in=solar_ids)
@@ -1572,17 +1576,23 @@ class BankingCharges(APIView):
                             master_data.state
                         )
 
-                        if results_solar == "Annual banked energy exceeds 30% of annual demand.":
-                            continue
 
+                        logger.debug('!!!!!!!!!!!!!')
                         current_re = results_solar["re_replacement"]
-
+                        logger.debug(f'current re: {current_re}')
+                        logger.debug(f're replacement: {re_replacement}')
                         if abs(current_re - re_replacement) < precision:
                             break
                         elif current_re < re_replacement:
                             low = mid
                         else:
                             high = mid
+
+                        logger.debug(f"Ffffffffffff {results_solar}")
+
+                        if results_solar["exceeds"] == True:
+                            logger.debug('exceedssssss')
+                            results_solar = "Annual banked energy exceeds 30% of annual demand."
 
                     if type(results_solar) != str:
 
@@ -1591,8 +1601,8 @@ class BankingCharges(APIView):
                         results_solar["w_capacity"] = 0
                         results_solar["b_capacity"] = 0
                         results_solar["solar_id"] = solar.id
-
                         solar_results.append(results_solar)
+                        logger.debug(f"Solarasasas ( {solar.id}): {solar_results}")
 
             # -----------------------
             # Process WIND portfolios
@@ -1634,9 +1644,6 @@ class BankingCharges(APIView):
                             master_data.state
                         )
 
-                        if results_wind == "Annual banked energy exceeds 30% of annual demand.":
-                            continue
-
                         current_re = results_wind["re_replacement"]
 
                         if abs(current_re - re_replacement) < precision:
@@ -1645,6 +1652,12 @@ class BankingCharges(APIView):
                             low = mid
                         else:
                             high = mid
+
+                        logger.debug(f"Ffffffffffff {results_wind}")
+
+                        if results_wind["exceeds"] == True:
+                            logger.debug('exceedssssss')
+                            results_wind = "Annual banked energy exceeds 30% of annual demand."
 
                     if type(results_wind) != str:
 
@@ -1698,7 +1711,7 @@ class OptimizeCapacityAPI(APIView):
 
     @staticmethod
     def calculate_hourly_demand(consumer_requirement, state="Maharashtra"):
-        consumer_demand = HourlyDemand.objects.get(requirement=consumer_requirement)
+        consumer_demand, created = HourlyDemand.objects.get_or_create(requirement=consumer_requirement)
 
         # # Define the state-specific hours
         # state_hours = {
@@ -1805,7 +1818,7 @@ class OptimizeCapacityAPI(APIView):
     # @check_active_subscription
     def post(self, request):
         data = request.data
-        optimize_capacity_user = data.get("optimize_capacity_user") #consumer or generator
+        optimize_capacity_user = data.get("optimize_capacity_user") # Consumer or Generator
         user_id = data.get("user_id")
         id = data.get("requirement_id")
         if data.get("re_replacement"):
@@ -1948,6 +1961,7 @@ class OptimizeCapacityAPI(APIView):
                             profile_data = profile_data / solar.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity
 
                             input_data[generator.username]["Solar"][solar.project] = {
+                                "id": solar.id,
                                 "profile": profile_data,
                                 "max_capacity": solar.available_capacity,
                                 "marginal_cost": solar.expected_tariff * 1000,
@@ -1971,6 +1985,7 @@ class OptimizeCapacityAPI(APIView):
                             profile_data = profile_data / wind.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity
                             
                             input_data[generator.username]["Wind"][wind.project] = {
+                                "id": wind.id,
                                 "profile": profile_data,
                                 "max_capacity": wind.available_capacity,
                                 "marginal_cost": wind.expected_tariff * 1000,
@@ -1986,6 +2001,7 @@ class OptimizeCapacityAPI(APIView):
                             ess_project.append(ess.project)
 
                             input_data[generator.username]["ESS"][ess.project] = {
+                                "id": ess.id,
                                 "DoD": ess.efficiency_of_dispatch,
                                 "efficiency": ess.efficiency_of_dispatch,
                                 "marginal_cost": ess.expected_tariff * 1000,
@@ -2019,8 +2035,13 @@ class OptimizeCapacityAPI(APIView):
                 #     if combination is not None:
                 #         # combination = dict(combination)
                 #         valid_combinations.append(combo)
+                logger.debug(f'cccccc: {connectivity}')
+                logger.debug(f'iiiiiiiii: {input_data}')
                 if not input_data:
                     continue
+                logger.debug(f'new_list: {new_list}')
+                logger.debug(f'generator_id: {generator_id}')
+                logger.debug(f'generator_id: {generator_id}')
                 if new_list != generator_id:
 
                     HourlyDemand.objects.get_or_create(requirement=consumer_requirement)
@@ -2071,10 +2092,29 @@ class OptimizeCapacityAPI(APIView):
                     logger.debug(input_data)
                     response_data = optimization_model(input_data, hourly_demand=numeric_hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, OA_cost=OA_cost)
                     logger.debug(response_data)
+                    solar_ids = []
+                    wind_ids = []
 
+                    for ipp, sources in input_data.items():
+                        if "Solar" in sources:
+                            for _, plant_data in sources["Solar"].items():
+                                profile = SolarPortfolio.objects.get(id=plant_data["id"])
+                                if profile.connectivity == 'STU' and profile.banking_available == True:
+                                    solar_ids.append(plant_data["id"])
+                        if "Wind" in sources:
+                            for _, plant_data in sources["Wind"].items():
+                                profile = WindPortfolio.objects.get(id=plant_data["id"])
+                                if profile.connectivity == 'STU' and profile.banking_available == True:
+                                    wind_ids.append(plant_data["id"])
+
+                    logger.debug(f"Solar IDs: {solar_ids}")
+                    logger.debug(f"Wind IDs: {wind_ids}")
+
+                    logger.debug(f'sdata: {solar_data}')
+                    logger.debug(f'wdata: {wind_data}')
                     # Further filter for STU & banking
-                    solar_ids = list(solar_data.filter(connectivity='STU', banking_available=True).values_list('id', flat=True))
-                    wind_ids = list(wind_data.filter(connectivity='STU', banking_available=True).values_list('id', flat=True))
+                    # solar_ids = list(solar_data.filter(connectivity='STU', banking_available=True).values_list('id', flat=True))
+                    # wind_ids = list(wind_data.filter(connectivity='STU', banking_available=True).values_list('id', flat=True))
 
                     banking_data = {
                         "requirement": consumer_requirement.id,
@@ -5207,6 +5247,9 @@ class PWattHourly(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        MW_to_kW = kW_to_MW = Wac_to_kW = Wac_to_MW = 1000
+        in_percent = 100
+
         data = request.data
         requirement_id = data.get("requirement_id")
         button_type = data.get("button_type")
@@ -5238,8 +5281,7 @@ class PWattHourly(APIView):
             OptimizeCapacityAPI.calculate_hourly_demand(requirement, requirement.state)
             hourly_demand = HourlyDemand.objects.get(requirement=requirement)
 
-
-
+        
         try:
             if requirement.latitude and requirement.longitude:
                 lat = requirement.latitude
@@ -5254,19 +5296,20 @@ class PWattHourly(APIView):
                         # Grab the first result
                         lat = data[0].get("lat")
                         lon = data[0].get("lon")
-                        logger.debug(f"Latitude: {lat}, Longitude: {lon}")
                     else:
                         logger.debug("No results found for the given place.")
                 else:
                     logger.debug(f"Error: {geo_response}")
 
-            url = f"https://developer.nrel.gov/api/pvwatts/v8.json?api_key={settings.PWATT_API_KEY}&azimuth=180&system_capacity={requirement.solar_rooftop_capacity}&losses=14&array_type=1&module_type=0&gcr=0.4&dc_ac_ratio=1.2&inv_eff=96.0&radius=0&dataset=nsrdb&tilt=10&lat={lat}&lon={lon}&soiling=12|4|45|23|9|99|67|12.54|54|9|0|7.6&albedo=0.3&bifaciality=0.7&timeframe=hourly"
+            url = f"https://developer.nrel.gov/api/pvwatts/v8.json?api_key={settings.PWATT_API_KEY}&azimuth=180&system_capacity={1}&losses=14&array_type=1&module_type=0&gcr=0.4&dc_ac_ratio=1.2&inv_eff=96.0&radius=0&dataset=nsrdb&tilt=10&lat={lat}&lon={lon}&soiling=12|4|45|23|9|99|67|12.54|54|9|0|7.6&albedo=0.3&bifaciality=0.7&timeframe=hourly"
 
             response = requests.get(url)
             if response.status_code == 200:
                 data = response.json()
                 monthly_generation = data['outputs']['ac_monthly']
                 hourly_generation = data['outputs']['ac']
+
+                logger.debug(f"lennnnnnnnnrationaaaaaaa: {hourly_generation}")
             else:
                 return Response({"error": f"PWatt API request failed with status code {response.status_code}."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -5284,78 +5327,126 @@ class PWattHourly(APIView):
                 'November': 11,
                 'December': 12
             }
+
+            min_consumption = MonthlyConsumptionData.objects.filter(requirement=requirement).aggregate(Min('monthly_consumption'))['monthly_consumption__min']
+            logger.debug(f"Minimum monthly consumption: {min_consumption}")
+            min_consumption_record = MonthlyConsumptionData.objects.filter(requirement=requirement,monthly_consumption=min_consumption).first()
+
+            month_number = month_name_to_number[min_consumption_record.month]  # e.g., November → 11
+            generation_for_min_month = monthly_generation[month_number - 1]
+            logger.debug(f"Generation for {min_consumption_record.month}: {generation_for_min_month}")
+            capacity_calculated = (min_consumption_record.monthly_consumption * MW_to_kW) / generation_for_min_month
+            capacity_calculated = math.floor(capacity_calculated)
+            logger.debug(f"capacity calculated = ({min_consumption_record.monthly_consumption} * {MW_to_kW}) / {generation_for_min_month}")
+            logger.debug(f"capacity calculated: {capacity_calculated}") # in kW
+            
+            max_capacity = master_data.max_capacity
+            contracted_demand = requirement.contracted_demand
+            roof_area = requirement.roof_area
+
+
             if button_type == 'grid_connected':
 
-                # Step 1: Split 8760 values into 12 months
                 generation_by_month = defaultdict(float)
                 now = datetime.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-
-                # for i, gen in enumerate(hourly_generation):
-                #     hour_time = now + timedelta(hours=i)
-                #     month = hour_time.month
-                #     generation_by_month[month] += gen
 
                 months = [
                     "January", "February", "March", "April", "May", "June",
                     "July", "August", "September", "October", "November", "December"
                 ]
 
-                for i in range(12):
-                    generation_by_month[months[i]] = monthly_generation[i]
-
                 monthly_results = []
                 total_savings = 0
                 total_consumption = 0
                 total_generation = 0
 
-                logger.debug(f"generation_by_month: {generation_by_month}")
+                capacity_of_solar_rooftop = min(max_capacity, contracted_demand, (roof_area / 10000), (capacity_calculated / kW_to_MW))
+                logger.debug(f"capacity_of_solar_rooftop (MW) = min(max_capacity, contracted_demand, (roof_area / 10000), (capacity_calculated / kW_to_MW))")
+                logger.debug(f"capacity_of_solar_rooftop (MW) = min({max_capacity}, {contracted_demand}, ({roof_area} / 10000), {capacity_calculated} / kW_to_MW)")
+                logger.debug(f"capacity_of_solar_rooftop (kW) = {capacity_of_solar_rooftop * MW_to_kW}")
+                logger.debug(f"capacity_of_solar_rooftop (needed) (kW) = {capacity_of_solar_rooftop * MW_to_kW} - {requirement.solar_rooftop_capacity}")
+                capacity_of_solar_rooftop = (capacity_of_solar_rooftop * MW_to_kW) - requirement.solar_rooftop_capacity
+                logger.debug(f"capacity_of_solar_rooftop (needed) (kW) = {capacity_of_solar_rooftop}")
 
-                capacity_of_solar_rooftop = min(master_data.max_capacity, requirement.contracted_demand, (requirement.roof_area / 10000))
-                logger.debug(f"capacity_of_solar_rooftop = min(master_data.max_capacity, requirement.contracted_demand, (requirement.roof_area / 10000))")
-                logger.debug(f"capacity_of_solar_rooftop = min({master_data.max_capacity}, {requirement.contracted_demand}, ({requirement.roof_area} / 10000))")
+                for i in range(len(hourly_generation)):
+                    hourly_generation[i] = (hourly_generation[i] / Wac_to_kW) * capacity_of_solar_rooftop
+
+                daily_average = [
+                    sum(hourly_generation[i:i+24]) / 24
+                    for i in range(0, len(hourly_generation), 24)
+                ]
+
+                logger.debug(f"hourly_generationaaaaaaa: {hourly_generation}")
+                logger.debug(f"daily_average: {daily_average}")
+
+                for i in range(12):
+                    generation_by_month[months[i]] = monthly_generation[i] * capacity_of_solar_rooftop
+
+                logger.debug(f"generation_by_month came from pvwatt's output (kWhac): {generation_by_month}")
 
                 for i, record in enumerate(monthly_data):
                     month_num = month_name_to_number.get(record.month)
-                    logger.debug(f"Month: {month_num}")
-                    monthly_consumption = record.monthly_consumption
-                    monthly_generation = generation_by_month.get(record.month, 0) * capacity_of_solar_rooftop
-                    logger.debug(f"monthly_generation = generation_by_month.get(month_num, 0) * capacity_of_solar_rooftop")
-                    logger.debug(f"monthly_generation = {generation_by_month.get(month_num, 0)} * {capacity_of_solar_rooftop}")
+                    logger.debug(f"Month: {record.month}")
+                    monthly_consumption = record.monthly_consumption * MW_to_kW
+                    monthly_generation = generation_by_month.get(record.month, 0)
+                    logger.debug(f"monthly_consumption (kWh) = {monthly_consumption}")
+                    logger.debug(f"monthly_generation (kWh) = {monthly_generation}")
 
                     # Step 3: Monthly savings
-                    savings = (monthly_consumption * grid_tariff.cost) - (monthly_generation * master_data.rooftop_price)
-                    logger.debug(f"savings = (monthly_consumption * grid_tariff.cost) - (monthly_generation * master_data.rooftop_price)")
-                    logger.debug(f"savings = ({monthly_consumption} * {grid_tariff.cost}) - ({monthly_generation} * {master_data.rooftop_price})")
+                    # savings = (monthly_consumption * grid_tariff.cost) - (monthly_generation * master_data.rooftop_price)
+                    savings = min(monthly_consumption, monthly_generation) * grid_tariff.cost - min(monthly_consumption, monthly_generation) * master_data.rooftop_price
+                    logger.debug(f"savings = min(monthly_consumption, monthly_generation) * grid_tariff.cost - min(monthly_consumption, monthly_generation) * master_data.rooftop_price")
+                    logger.debug(f"savings = min({monthly_consumption}, {monthly_generation}) * {grid_tariff.cost} - min({monthly_consumption}, {monthly_generation}) * {master_data.rooftop_price}")
+                    logger.debug(f"savings = {savings}")
+                    logger.debug(" ")
 
+                    offset = (monthly_generation / monthly_consumption) * in_percent
                     monthly_results.append({
                         "month": month_num,
                         "generation": round(monthly_generation, 2),
+                        "consumption": round(monthly_consumption, 2),
+                        "offset": round(offset, 2),
                         "savings": round(savings, 2)
                     })
                     total_savings += savings
                     total_consumption += monthly_consumption
                     total_generation += monthly_generation
 
-                energy_replaced = total_generation / total_consumption if total_consumption else 0
+                energy_replaced = total_generation / total_consumption
                 return Response({
                     "data": data, 
                     "monthly_data": monthly_results,
                     "energy_replaced": round(energy_replaced, 4),
                     "total_savings": round(total_savings, 2),
+                    "total_consumption": round(total_consumption, 2),
+                    "total_generation": round(total_generation, 2),
+                    "total_offset": round((total_generation / total_consumption) * 100, 2),
                     "capacity_of_solar_rooftop": capacity_of_solar_rooftop,
+                    "daily_average": daily_average,
+                    "hourly_generation": hourly_generation,
                     "id": f"{requirement.user.username}_{requirement.user.id}"
                 }, status=status.HTTP_200_OK)
 
             elif button_type == 'behind_the_meter':
 
                 hourly_demand = [float(x) for x in hourly_demand.hourly_demand.rstrip(',').split(',')]
+                logger.debug(f"Hourly demand (length={len(hourly_demand)}): first 5 values: {hourly_demand[:5]}")
 
                 # Find the max generation value
                 max_generation = max(hourly_generation)
                 max_index = hourly_generation.index(max_generation)
                 corresponding_demand = hourly_demand[max_index]
+                logger.debug(f"Max generation = {max_generation} at index {max_index}")
+                logger.debug(f"Corresponding demand at max generation hour = {corresponding_demand}")
 
-                capacity_of_solar_rooftop = min(requirement.contracted_demand, (requirement.roof_area / 10000), corresponding_demand / max_generation)
+                capacity_of_solar_rooftop = min(contracted_demand, (roof_area / 10000), (corresponding_demand / (max_generation / Wac_to_MW)))
+                logger.debug("capacity_of_solar_rooftop = min(contracted_demand, (roof_area / 10000), (corresponding_demand / (max_generation / Wac_to_MW))")
+                logger.debug(
+                    f"capacity_of_solar_rooftop = min({contracted_demand}, "
+                    f"({roof_area} / 10000), {corresponding_demand} / ({max_generation} / Wac_to_MW)"
+                )
+                capacity_of_solar_rooftop = capacity_of_solar_rooftop * MW_to_kW
+                logger.debug(f"capacity_of_solar_rooftop (kW) = {capacity_of_solar_rooftop}")
 
                 hourly_results = []
                 total_savings = 0
@@ -5364,12 +5455,13 @@ class PWattHourly(APIView):
 
                 # Prepare monthly aggregation dictionary
                 monthly_results = {}  # {month_number: {...aggregates...}}
-
+                daily_gen_average = []
                 for hour, (gen, cons) in enumerate(zip(hourly_generation, hourly_demand)):
-                    gen *= capacity_of_solar_rooftop
+                    gen = (gen / Wac_to_kW) * capacity_of_solar_rooftop
+                    cons = cons * MW_to_kW
                     used_solar = min(gen, cons)
-                    savings = used_solar * grid_tariff.cost
-                    curtailed_energy = max(0, gen - cons)
+                    savings = used_solar * (grid_tariff.cost - master_data.rooftop_price)
+                    curtailed_energy = max(0, gen - (cons))
 
                     # Determine month
                     date = datetime(2024, 1, 1) + timedelta(hours=hour)
@@ -5401,33 +5493,55 @@ class PWattHourly(APIView):
                         "curtailment": round(curtailed_energy, 2)
                     })
 
+                    daily_gen_average.append(gen)
+
                     total_savings += savings
                     total_consumption += cons
                     total_generation += gen
 
-                energy_replaced = total_generation / total_consumption if total_consumption else 0
+                daily_average = [
+                    sum(daily_gen_average[i:i+24]) / 24
+                    for i in range(0, len(daily_gen_average), 24)
+                ]
+
+                for i in range(len(hourly_generation)):
+                    hourly_generation[i] = (hourly_generation[i] / Wac_to_kW) * capacity_of_solar_rooftop
+
+                logger.debug(f"Monthly aggregated results: {monthly_results}")
+                logger.debug(f"Total savings={total_savings}, total_consumption={total_consumption}, total_generation={total_generation}")
+
+                energy_replaced = total_generation / (total_consumption)
+                logger.debug(f"energy_replaced = total_generation / total_consumption")
+                logger.debug(f"energy_replaced = {total_generation} / {total_consumption}")
+                logger.debug(f"energy_replaced = {energy_replaced}")
 
                 monthly_results_rounded = []
 
                 for month_num in sorted(monthly_results.keys()):
                     v = monthly_results[month_num]
+                    offset = (v["generation"] / v["consumption"]) * in_percent
                     monthly_results_rounded.append({
                         "month": month_num,
                         "generation": round(v["generation"], 2),
                         "consumption": round(v["consumption"], 2),
+                        "offset": round(offset, 2),
                         "savings": round(v["savings"], 2),
                         "curtailment": round(v["curtailment"], 2),
-                        "energy_replaced": round(v["generation"]/v["consumption"], 4) if v["consumption"] else 0
+                        "energy_replaced": round(v["generation"]/v["consumption"], 4)
                     })
 
 
                 return Response({
                     "data": data,
                     "hourly_data": hourly_results,
+                    "daily_average": daily_average,
                     "monthly_data": monthly_results_rounded,
                     "total_savings": round(total_savings, 2),
+                    "total_consumption": round(total_consumption, 2),
+                    "total_generation": round(total_generation, 2),
+                    "total_offset": round((total_generation / total_consumption) * in_percent, 2),
                     "energy_replaced": round(energy_replaced, 4),
-                    "capacity_of_solar_rooftop": capacity_of_solar_rooftop,
+                    "capacity_of_solar_rooftop": round(capacity_of_solar_rooftop, 2),
                     "id": f"{requirement.user.username}_{requirement.user.id}"
                 }, status=status.HTTP_200_OK)
 
