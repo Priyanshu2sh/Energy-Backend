@@ -5241,6 +5241,7 @@ class DistrictsByState(APIView):
         except State.DoesNotExist:
             return Response({"error": "State not found."}, status=status.HTTP_404_NOT_FOUND)
 
+# adfahsjhf
 
 class PWattHourly(APIView):
     authentication_classes = [JWTAuthentication]

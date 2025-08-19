@@ -153,7 +153,7 @@ class RegisterUser(APIView):
                 request.session['email'] = existing_user.email
 
                 # Send OTP via SMS using Twilio
-                self.send_sms_otp(existing_user.mobile, otp=mobile_otp)
+                # self.send_sms_otp(existing_user.mobile, otp=mobile_otp)
 
                 # Resend OTP
                 send_mail(
@@ -204,7 +204,7 @@ class RegisterUser(APIView):
                 )
 
                 # Send OTP via SMS using Twilio
-                self.send_sms_otp(user.mobile, mobile_otp)
+                # self.send_sms_otp(user.mobile, mobile_otp)
 
                 return Response({'message': 'OTP sent to your email', 'user_id': user.id}, status=status.HTTP_200_OK)
 
