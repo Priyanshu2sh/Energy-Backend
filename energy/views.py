@@ -11,6 +11,7 @@ import re
 import statistics
 import fitz
 from django.shortcuts import get_object_or_404
+import numpy as np
 import pytz
 import requests
 from accounts.models import GeneratorConsumerMapping, User
@@ -5371,13 +5372,14 @@ class PWattHourly(APIView):
                 for i in range(len(hourly_generation)):
                     hourly_generation[i] = (hourly_generation[i] / Wac_to_kW) * capacity_of_solar_rooftop
 
-                daily_average = [
-                    sum(hourly_generation[i:i+24]) / 24
-                    for i in range(0, len(hourly_generation), 24)
-                ]
+                hourly_values_np = np.array(hourly_generation)
+                hourly_reshaped = hourly_values_np.reshape((365, 24))
+                hourly_averages = hourly_reshaped.mean(axis=0)
+                hourly_averages_list = hourly_averages.tolist()
+                hourly_averages_list = [round(val, 2) for val in hourly_averages_list]
+                logger.debug(f'hourly_averages: {hourly_averages_list}')
 
                 logger.debug(f"hourly_generationaaaaaaa: {hourly_generation}")
-                logger.debug(f"daily_average: {daily_average}")
 
                 for i in range(12):
                     generation_by_month[months[i]] = monthly_generation[i] * capacity_of_solar_rooftop
@@ -5422,8 +5424,8 @@ class PWattHourly(APIView):
                     "total_generation": round(total_generation, 2),
                     "total_offset": round((total_generation / total_consumption) * 100, 2),
                     "capacity_of_solar_rooftop": capacity_of_solar_rooftop,
-                    "daily_average": daily_average,
                     "hourly_generation": hourly_generation,
+                    "hourly_averages": hourly_averages_list,
                     "id": f"{requirement.user.username}_{requirement.user.id}"
                 }, status=status.HTTP_200_OK)
 
@@ -5445,7 +5447,7 @@ class PWattHourly(APIView):
                     f"capacity_of_solar_rooftop = min({contracted_demand}, "
                     f"({roof_area} / 10000), {corresponding_demand} / ({max_generation} / Wac_to_MW)"
                 )
-                capacity_of_solar_rooftop = capacity_of_solar_rooftop * MW_to_kW
+                capacity_of_solar_rooftop = (capacity_of_solar_rooftop * MW_to_kW) - requirement.solar_rooftop_capacity
                 logger.debug(f"capacity_of_solar_rooftop (kW) = {capacity_of_solar_rooftop}")
 
                 hourly_results = []
@@ -5455,7 +5457,7 @@ class PWattHourly(APIView):
 
                 # Prepare monthly aggregation dictionary
                 monthly_results = {}  # {month_number: {...aggregates...}}
-                daily_gen_average = []
+                hourly_gen = []
                 for hour, (gen, cons) in enumerate(zip(hourly_generation, hourly_demand)):
                     gen = (gen / Wac_to_kW) * capacity_of_solar_rooftop
                     cons = cons * MW_to_kW
@@ -5493,16 +5495,18 @@ class PWattHourly(APIView):
                         "curtailment": round(curtailed_energy, 2)
                     })
 
-                    daily_gen_average.append(gen)
+                    hourly_gen.append(gen)
 
                     total_savings += savings
                     total_consumption += cons
                     total_generation += gen
 
-                daily_average = [
-                    sum(daily_gen_average[i:i+24]) / 24
-                    for i in range(0, len(daily_gen_average), 24)
-                ]
+                hourly_values_np = np.array(hourly_gen)
+                hourly_reshaped = hourly_values_np.reshape((365, 24))
+                hourly_averages = hourly_reshaped.mean(axis=0)
+                hourly_averages_list = hourly_averages.tolist()
+                hourly_averages_list = [round(val, 2) for val in hourly_averages_list]
+                logger.debug(f'hourly_averages: {hourly_averages_list}')
 
                 for i in range(len(hourly_generation)):
                     hourly_generation[i] = (hourly_generation[i] / Wac_to_kW) * capacity_of_solar_rooftop
@@ -5534,7 +5538,7 @@ class PWattHourly(APIView):
                 return Response({
                     "data": data,
                     "hourly_data": hourly_results,
-                    "daily_average": daily_average,
+                    "hourly_averages": hourly_averages_list,
                     "monthly_data": monthly_results_rounded,
                     "total_savings": round(total_savings, 2),
                     "total_consumption": round(total_consumption, 2),
