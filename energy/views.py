@@ -5427,6 +5427,7 @@ class PWattHourly(APIView):
                     "hourly_generation": hourly_generation,
                     "hourly_averages": hourly_averages_list,
                     "existing_rooftop_capacity": requirement.solar_rooftop_capacity,
+                    "rooftop_price": master_data.rooftop_price,
                     "id": f"{requirement.user.username}_{requirement.user.id}"
                 }, status=status.HTTP_200_OK)
 
@@ -5548,6 +5549,7 @@ class PWattHourly(APIView):
                     "energy_replaced": round(energy_replaced, 4),
                     "capacity_of_solar_rooftop": round(capacity_of_solar_rooftop, 2),
                     "existing_rooftop_capacity": requirement.solar_rooftop_capacity,
+                    "rooftop_price": master_data.rooftop_price,
                     "id": f"{requirement.user.username}_{requirement.user.id}"
                 }, status=status.HTTP_200_OK)
 
