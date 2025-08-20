@@ -5370,7 +5370,7 @@ class PWattHourly(APIView):
                 logger.debug(f"capacity_of_solar_rooftop (needed) (kW) = {capacity_of_solar_rooftop}")
 
                 for i in range(len(hourly_generation)):
-                    hourly_generation[i] = (hourly_generation[i] / Wac_to_kW) * capacity_of_solar_rooftop
+                    hourly_generation[i] = round((hourly_generation[i] / Wac_to_kW) * capacity_of_solar_rooftop, 2)
 
                 hourly_values_np = np.array(hourly_generation)
                 hourly_reshaped = hourly_values_np.reshape((365, 24))
@@ -5426,6 +5426,7 @@ class PWattHourly(APIView):
                     "capacity_of_solar_rooftop": capacity_of_solar_rooftop,
                     "hourly_generation": hourly_generation,
                     "hourly_averages": hourly_averages_list,
+                    "existing_rooftop_capacity": requirement.solar_rooftop_capacity,
                     "id": f"{requirement.user.username}_{requirement.user.id}"
                 }, status=status.HTTP_200_OK)
 
@@ -5546,6 +5547,7 @@ class PWattHourly(APIView):
                     "total_offset": round((total_generation / total_consumption) * in_percent, 2),
                     "energy_replaced": round(energy_replaced, 4),
                     "capacity_of_solar_rooftop": round(capacity_of_solar_rooftop, 2),
+                    "existing_rooftop_capacity": requirement.solar_rooftop_capacity,
                     "id": f"{requirement.user.username}_{requirement.user.id}"
                 }, status=status.HTTP_200_OK)
 
