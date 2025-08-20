@@ -2454,6 +2454,23 @@ class OptimizeCapacityAPI(APIView):
                             combo = Combination.objects.filter(combination=combination_key, requirement=consumer_requirement, annual_demand_offset=details["Annual Demand Offset"]).first()
                             terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
 
+                            OA_cost = (details["Final Cost"] - details['Per Unit Cost']) / 1000
+                            details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
+                            details['Final Cost'] = details['Final Cost'] / 1000
+                            details["Annual Demand Met"] = (details["Annual Demand Met"]) / 1000
+                            logger.debug('=============')
+
+                            transmission_losses = (master_record.transmission_loss/100) * details['Per Unit Cost']
+                            wheeling_losses = details['Per Unit Cost'] * (master_record.wheeling_losses/100)
+                            if master_record.state != 'Gujarat':
+                                banking_charges = (master_record.banking_charges / 100) * details['Per Unit Cost']
+                            else:
+                                banking_charges = 0
+
+                            OA_cost = transmission_charges + transmission_losses + wheeling_charges + wheeling_losses + banking_charges + standby_charges + electricity_tax + additional_surcharge + cross_subsidy_surcharge
+                            
+                            details["Final Cost"] = details['Per Unit Cost'] + OA_cost
+
                             terms_sheet_sent = False
                             if combo:
                                 terms_sheet_sent = combo.terms_sheet_sent
@@ -2468,8 +2485,8 @@ class OptimizeCapacityAPI(APIView):
                                     optimal_solar_capacity=details["Optimal Solar Capacity (MW)"],
                                     optimal_wind_capacity=details["Optimal Wind Capacity (MW)"],
                                     optimal_battery_capacity=details["Optimal Battery Capacity (MW)"],
-                                    per_unit_cost=details["Per Unit Cost"]/1000,
-                                    final_cost=details['Final Cost'] / 1000,
+                                    per_unit_cost=details["Per Unit Cost"],
+                                    final_cost=details['Final Cost'],
                                     annual_demand_offset=details["Annual Demand Offset"],
                                     annual_demand_met=annual_demand_met,
                                     annual_curtailment=details["Annual Curtailment"]
@@ -2487,28 +2504,12 @@ class OptimizeCapacityAPI(APIView):
                             if re_index is None:
                                 re_index = 0
 
-                            OA_cost = (details["Final Cost"] - details['Per Unit Cost']) / 1000
-                            details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
-                            details['Final Cost'] = details['Final Cost'] / 1000
-                            details["Annual Demand Met"] = (details["Annual Demand Met"]) / 1000
-                            logger.debug('=============')
-                            logger.debug(f'{grid_tariff.cost} - {re} - {ISTS_charges} - {master_record.state_charges}')
-                            logger.debug('=============')
 
                             if optimize_capacity_user == "Consumer":
                                 mapped_username = consumer_requirement.user.username
                             else:
                                 # Map the consumer username specific to the generator
                                 mapped_username = get_mapped_username(generator, consumer_requirement.user)
-
-                            transmission_losses = (master_record.transmission_loss/100) * details['Per Unit Cost']
-                            wheeling_losses = details['Per Unit Cost'] * (master_record.wheeling_losses/100)
-                            if master_record.state != 'Gujarat':
-                                banking_charges = (master_record.banking_charges / 100) * details['Per Unit Cost']
-                            else:
-                                banking_charges = 0
-                                
-                            OA_cost = transmission_charges + transmission_losses + wheeling_charges + wheeling_losses + banking_charges + standby_charges + electricity_tax + additional_surcharge + cross_subsidy_surcharge
 
                             # Update the aggregated response dictionary
                             if combination_key not in aggregated_response:
