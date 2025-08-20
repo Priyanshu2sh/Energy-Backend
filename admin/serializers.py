@@ -1,18 +1,18 @@
 from rest_framework import serializers
 from accounts.models import User
-from energy.models import ConsumerRequirements, GridTariff, HelpDeskQuery, MasterTable, NationalHoliday, PeakHours, RETariffMasterTable, SubscriptionType
+from energy.models import ConsumerRequirements, ESSPortfolio, GridTariff, HelpDeskQuery, MasterTable, NationalHoliday, PeakHours, RETariffMasterTable, SolarPortfolio, SubscriptionType, WindPortfolio
 
 class ConsumerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'company_representative', 'company', 'email', 'mobile', 'is_active']
+        fields = ['id', 'username', 'company_representative', 'company', 'email', 'mobile', 'is_active']
 
 class GeneratorSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'company_representative', 'company', 'email', 'mobile', 'is_active']
+        fields = ['id', 'username', 'company_representative', 'company', 'email', 'mobile', 'is_active']
         
 class SubscriptionTypeSerializer(serializers.ModelSerializer):
     class Meta:
@@ -67,3 +67,55 @@ class NationalHolidaySerializer(serializers.ModelSerializer):
     class Meta:
         model = NationalHoliday
         fields = '__all__'
+
+class SolarPortfolioSerializer(serializers.ModelSerializer):
+    user = serializers.SlugRelatedField(
+        queryset=User.objects.all(),
+        slug_field='id'  # Map the user field to the email field
+    )
+
+    class Meta:
+        model = SolarPortfolio
+        fields = ['id', 'user', 'state', 'connectivity', 'site_name', 'available_capacity', 'cod',
+                  'total_install_capacity', 'hourly_data', 'annual_generation_potential', 'updated', 'banking_available'] 
+        extra_kwargs = {
+            'total_install_capacity': {'required': False},
+            'hourly_data': {'required': False},
+            'annual_generation_potential': {'required': False},
+            'updated': {'read_only': True},  # Prevent manual update of this field
+            'banking_available': {'required': False},
+        }
+
+class WindPortfolioSerializer(serializers.ModelSerializer):
+    user = serializers.SlugRelatedField(
+        queryset=User.objects.all(),
+        slug_field='id'  # Map the user field to the email field
+    )
+
+    class Meta:
+        model = WindPortfolio
+        fields = ['id', 'user', 'state', 'connectivity', 'site_name', 'available_capacity', 'cod',
+                  'total_install_capacity', 'hourly_data', 'annual_generation_potential', 'updated', 'banking_available'] 
+        extra_kwargs = {
+            'total_install_capacity': {'required': False},
+            'hourly_data': {'required': False},
+            'annual_generation_potential': {'required': False},
+            'updated': {'read_only': True},  # Prevent manual update of this field
+            'banking_available': {'required': False},
+        }
+    
+class ESSPortfolioSerializer(serializers.ModelSerializer):
+    user = serializers.SlugRelatedField(
+        queryset=User.objects.all(),
+        slug_field='id'  # Map the user field to the email field
+    )
+    class Meta:
+        model = ESSPortfolio
+        fields = ['id', 'user', 'state', 'connectivity', 'site_name', 'available_capacity', 'cod',
+                  'total_install_capacity', 'efficiency_of_storage', 'efficiency_of_dispatch', 'updated'] 
+        extra_kwargs = {
+            'total_install_capacity': {'required': False},
+            'efficiency_of_storage': {'required': False},
+            'efficiency_of_dispatch': {'required': False},
+            'updated': {'read_only': True},  # Prevent manual update of this field
+        }
