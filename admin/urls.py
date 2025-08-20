@@ -28,4 +28,5 @@ urlpatterns = [
     path('peak-hours/<int:pk>', views.PeakHoursAPI.as_view()),
     path('national-holidays', views.NationalHolidayAPI.as_view()),
     path('national-holidays/<int:pk>', views.NationalHolidayAPI.as_view()),
+    path('offers', views.OffersAPI.as_view()),
 ]

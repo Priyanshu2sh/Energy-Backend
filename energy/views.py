@@ -538,8 +538,8 @@ class MonthlyConsumptionDataAPI(APIView):
                 "peak_end_1": peak_hours.peak_end_1.strftime('%H:%M'),
                 "peak_start_2": peak_hours.peak_start_2.strftime('%H:%M') if peak_hours.peak_start_2 else None,
                 "peak_end_2": peak_hours.peak_end_2.strftime('%H:%M') if peak_hours.peak_end_2 else None,
-                "off_peak_start": peak_hours.off_peak_start.strftime('%H:%M') if peak_hours.off_peak_start else None,
-                "off_peak_end": peak_hours.off_peak_end.strftime('%H:%M') if peak_hours.off_peak_end else None,
+                "off_peak_start_1": peak_hours.off_peak_start.strftime('%H:%M') if peak_hours.off_peak_start else None,
+                "off_peak_end_1": peak_hours.off_peak_end.strftime('%H:%M') if peak_hours.off_peak_end else None,
             }
 
         return Response({
@@ -3903,7 +3903,7 @@ class ConsumerDashboardAPI(APIView):
         states = unique_states
 
         response = {
-            'total_demands': total_demands,
+            'total_demands': round(total_demands, 2),
             'consumption_units': consumption_units,
             'unique_states_count': unique_states_count,
             'offers_sent': offers_sent,
@@ -5403,27 +5403,26 @@ class PWattHourly(APIView):
                     logger.debug(f"savings = {savings}")
                     logger.debug(" ")
 
-                    offset = (monthly_generation / monthly_consumption) * in_percent
+                    energy_replaced = (monthly_generation / monthly_consumption) * in_percent
                     monthly_results.append({
                         "month": month_num,
                         "generation": round(monthly_generation, 2),
                         "consumption": round(monthly_consumption, 2),
-                        "offset": round(offset, 2),
+                        "energy_replaced": round(energy_replaced, 2),
                         "savings": round(savings, 2)
                     })
                     total_savings += savings
                     total_consumption += monthly_consumption
                     total_generation += monthly_generation
 
-                energy_replaced = total_generation / total_consumption
+                total_energy_replaced = (total_generation / total_consumption) * in_percent
                 return Response({
                     "data": data, 
                     "monthly_data": monthly_results,
-                    "energy_replaced": round(energy_replaced, 4),
+                    "total_energy_replaced": round(total_energy_replaced, 2),
                     "total_savings": round(total_savings, 2),
                     "total_consumption": round(total_consumption, 2),
                     "total_generation": round(total_generation, 2),
-                    "total_offset": round((total_generation / total_consumption) * 100, 2),
                     "capacity_of_solar_rooftop": capacity_of_solar_rooftop,
                     "hourly_generation": hourly_generation,
                     "hourly_averages": hourly_averages_list,
@@ -5517,24 +5516,23 @@ class PWattHourly(APIView):
                 logger.debug(f"Monthly aggregated results: {monthly_results}")
                 logger.debug(f"Total savings={total_savings}, total_consumption={total_consumption}, total_generation={total_generation}")
 
-                energy_replaced = total_generation / (total_consumption)
-                logger.debug(f"energy_replaced = total_generation / total_consumption")
-                logger.debug(f"energy_replaced = {total_generation} / {total_consumption}")
-                logger.debug(f"energy_replaced = {energy_replaced}")
+                total_energy_replaced = (total_generation / total_consumption) * in_percent
+                logger.debug(f"total_energy_replaced = (total_generation / total_consumption) * in_percent")
+                logger.debug(f"total_energy_replaced = {total_generation} / {total_consumption} * {in_percent}")
+                logger.debug(f"total_energy_replaced = {total_energy_replaced}")
 
                 monthly_results_rounded = []
 
                 for month_num in sorted(monthly_results.keys()):
                     v = monthly_results[month_num]
-                    offset = (v["generation"] / v["consumption"]) * in_percent
+                    energy_replaced = (v["generation"] / v["consumption"]) * in_percent
                     monthly_results_rounded.append({
                         "month": month_num,
                         "generation": round(v["generation"], 2),
                         "consumption": round(v["consumption"], 2),
-                        "offset": round(offset, 2),
                         "savings": round(v["savings"], 2),
                         "curtailment": round(v["curtailment"], 2),
-                        "energy_replaced": round(v["generation"]/v["consumption"], 4)
+                        "energy_replaced": round(energy_replaced, 2)
                     })
 
 
@@ -5546,8 +5544,7 @@ class PWattHourly(APIView):
                     "total_savings": round(total_savings, 2),
                     "total_consumption": round(total_consumption, 2),
                     "total_generation": round(total_generation, 2),
-                    "total_offset": round((total_generation / total_consumption) * in_percent, 2),
-                    "energy_replaced": round(energy_replaced, 4),
+                    "total_energy_replaced": round(total_energy_replaced, 4),
                     "capacity_of_solar_rooftop": round(capacity_of_solar_rooftop, 2),
                     "existing_rooftop_capacity": requirement.solar_rooftop_capacity,
                     "rooftop_price": master_data.rooftop_price,

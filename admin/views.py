@@ -1,18 +1,18 @@
 from itertools import chain
+from operator import attrgetter
 from django.conf import settings
 from django.shortcuts import get_object_or_404, render
-from admin.serializers import ConsumerRequirementsUpdateSerializer, ConsumerSerializer, GeneratorSerializer, GridTariffSerializer, HelpDeskQuerySerializer, MasterTableSerializer, NationalHolidaySerializer, PeakHoursSerializer, RETariffMasterTableSerializer, SubscriptionTypeSerializer
+from admin.serializers import ConsumerRequirementsUpdateSerializer, ConsumerSerializer, GeneratorSerializer, GridTariffSerializer, HelpDeskQuerySerializer, MasterTableSerializer, NationalHolidaySerializer, PeakHoursSerializer, RETariffMasterTableSerializer, SubscriptionTypeSerializer, ESSPortfolioSerializer, SolarPortfolioSerializer, WindPortfolioSerializer
 from energy.models import *
 from accounts.models import User
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from django.db.models import Sum, Q
 from django.core.mail import send_mail
 
 import logging
-
-from energy.serializers import ESSPortfolioSerializer, SolarPortfolioSerializer, WindPortfolioSerializer
 traceback_logger = logging.getLogger('django')
 logger = logging.getLogger('debug_logger') 
 # Create your views here.
@@ -63,13 +63,21 @@ class Dashboard(APIView):
         return Response(response_data, status=200)
     
 
+class ListPagination(PageNumberPagination):
+    page_size = 2  # default items per page
+    max_page_size = 100  # prevent abuse by huge page sizes
+
 class Consumer(APIView):
 
     def get(self, request):
         # filter only users with user_category = 'Consumer'
-        consumers = User.objects.filter(user_category='Consumer', is_active=True)
-        serializer = ConsumerSerializer(consumers, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        consumers = User.objects.filter(user_category='Consumer', is_active=True).order_by('-id')
+
+        paginator = ListPagination()
+        result_page = paginator.paginate_queryset(consumers, request)
+        serializer = ConsumerSerializer(result_page, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
 
     def put(self, request, pk):
         consumer = User.objects.filter(pk=pk).first()
@@ -107,9 +115,13 @@ class Generator(APIView):
 
     def get(self, request):
         # filter only users with user_category = 'Consumer'
-        generators = User.objects.filter(user_category='Generator', is_active=True)
-        serializer = GeneratorSerializer(generators, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        generators = User.objects.filter(user_category='Generator', is_active=True).order_by('-id')
+
+        paginator = ListPagination()
+        result_page = paginator.paginate_queryset(generators, request)
+        serializer = GeneratorSerializer(result_page, many=True)
+
+        return paginator.get_paginated_response(serializer.data)
 
     def put(self, request, pk):
         generator = User.objects.filter(pk=pk).first()
@@ -257,10 +269,13 @@ class DemandData(APIView):
 
     def get(self, request):
 
-        requirements = ConsumerRequirements.objects.all()
+        requirements = ConsumerRequirements.objects.all().order_by('-id')
+
+        paginator = ListPagination()
+        paginated_requirements = paginator.paginate_queryset(requirements, request)
 
         demand_data = []
-        for requirement in requirements:
+        for requirement in paginated_requirements:
 
             monthly_consumption_data = []
             monthly_consumption = MonthlyConsumptionData.objects.filter(requirement=requirement)
@@ -293,7 +308,7 @@ class DemandData(APIView):
                 "monthly_consumption_data": monthly_consumption_data
             })
 
-        return Response(demand_data, status=status.HTTP_200_OK)
+        return paginator.get_paginated_response(demand_data)
     
     def put(self, request, pk):
 
@@ -327,21 +342,38 @@ class GenerationData(APIView):
 
     def get(self, request):
         try:
-            solar_data = SolarPortfolio.objects.all()
-            wind_data = WindPortfolio.objects.all()
-            ess_data = ESSPortfolio.objects.all()
+            solar_data = SolarPortfolio.objects.all().order_by('-id')
+            wind_data = WindPortfolio.objects.all().order_by('-id')
+            ess_data = ESSPortfolio.objects.all().order_by('-id')
 
-            # Combine the queryset data
-            combined_data = list(chain(solar_data, wind_data, ess_data))
+            # Combine & sort by id desc
+            combined_data = sorted(
+                chain(solar_data, wind_data, ess_data),
+                key=attrgetter('id'),
+                reverse=True
+            )
 
-            # Serialize the combined data
+            # Paginate combined list
+            paginator = ListPagination()
+            paginated_data = paginator.paginate_queryset(combined_data, request)
+
+            # Prepare grouped response
             response_data = {
-                "Solar": SolarPortfolioSerializer(solar_data, many=True).data,
-                "Wind": WindPortfolioSerializer(wind_data, many=True).data,
-                "ESS": ESSPortfolioSerializer(ess_data, many=True).data
+                "solar": [],
+                "wind": [],
+                "ess": []
             }
 
-            return Response(response_data, status=status.HTTP_200_OK)
+            for obj in paginated_data:
+                if isinstance(obj, SolarPortfolio):
+                    response_data["solar"].append(SolarPortfolioSerializer(obj).data)
+                elif isinstance(obj, WindPortfolio):
+                    response_data["wind"].append(WindPortfolioSerializer(obj).data)
+                elif isinstance(obj, ESSPortfolio):
+                    response_data["ess"].append(ESSPortfolioSerializer(obj).data)
+
+            # Return paginated response with grouped data
+            return paginator.get_paginated_response(response_data)
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -377,11 +409,10 @@ class SendNotificationAPI(APIView):
     def post(self, request):
         user_id = request.data.get('user_id')
         message = request.data.get('message')
-        send_type = request.data.get('send_type')  # 'notification' or 'email'
         user_category = request.data.get('user_category')  # Only required if user_id is 'all'
         title = request.data.get('title')  # Only required if send_type is 'email'
 
-        if not user_id or not message or not send_type:
+        if not user_id or not message:
             return Response({"error": "Missing required fields."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Determine target users
@@ -398,21 +429,17 @@ class SendNotificationAPI(APIView):
 
         # Send notifications or emails
         for user in users:
-            if send_type == 'notification':
-                Notifications.objects.create(user=user, message=message)
-            elif send_type == 'email':
-                if not title:
-                    return Response({"error": "Title is required for sending emails."}, status=status.HTTP_400_BAD_REQUEST)
-                send_mail(
-                    subject=title,
-                    message=message,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    fail_silently=False
-                )
-            else:
-                return Response({"error": "Invalid send_type. Use 'notification' or 'email'."}, status=status.HTTP_400_BAD_REQUEST)
-
+            Notifications.objects.create(user=user, message=message)
+            if not title:
+                return Response({"error": "Title is required for sending emails."}, status=status.HTTP_400_BAD_REQUEST)
+            send_mail(
+                subject=title,
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=False
+            )
+            
         return Response({"success": True, "sent_to": len(users)}, status=status.HTTP_200_OK)
 
 class MasterTableAPI(APIView):
@@ -559,3 +586,27 @@ class NationalHolidayAPI(APIView):
         obj = get_object_or_404(NationalHoliday, pk=pk)
         obj.delete()
         return Response({'message': "Record deleted successfully."}, status=status.HTTP_200_OK)
+    
+class OffersAPI(APIView):
+
+    def get(self, request):
+        offers = StandardTermsSheet.objects.all().order_by('-id')
+
+        paginator = ListPagination()
+        paginated_offers = paginator.paginate_queryset(offers, request)
+
+        response_data = []
+        for offer in paginated_offers:
+            response_data.append({
+                "id": offer.id,
+                "consumer": offer.consumer.id if offer.consumer else None,
+                "generator": offer.combination.generator.id if offer.combination and offer.combination.generator else None,
+                "contracted_energy": offer.contracted_energy,
+                "consumer_status": offer.consumer_status,
+                "generator_status": offer.generator_status,
+                "from_whom": offer.from_whom,
+                "consumer_is_read": offer.consumer_is_read,
+                "generator_is_read": offer.generator_is_read
+            })
+
+        return paginator.get_paginated_response(response_data)
