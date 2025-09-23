@@ -29,4 +29,9 @@ urlpatterns = [
     path('national-holidays', views.NationalHolidayAPI.as_view()),
     path('national-holidays/<int:pk>', views.NationalHolidayAPI.as_view()),
     path('offers', views.OffersAPI.as_view()),
+    path('credit_rating', views.CreditRating.as_view()),
+    path('login', views.AdminLogin.as_view()),
+    path('add-admin', views.AddAdmin.as_view()),
+    path('assign-plan', views.AssignPlan.as_view(), name='assign-plan'),
+    path('rooftop-offers', views.RooftopOffers.as_view(), name='rooftop-offers'),
 ]

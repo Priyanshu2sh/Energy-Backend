@@ -34,6 +34,7 @@ class UserManager(BaseUserManager):
 
 class User(AbstractUser, PermissionsMixin):
     user_category_choices = [
+    ("Admin", "Admin"),
     ("Consumer", "Consumer"),
     ("Generator", "Generator"),
     ]
@@ -44,7 +45,13 @@ class User(AbstractUser, PermissionsMixin):
         ("Edit", "Edit"),
         ("View", "View"),
     ]
-    
+
+    credit_rating_status_choices = [
+        ("Pending", "Pending"),
+        ("Approved", "Approved"),
+        ("Rejected", "Rejected"),
+    ]
+
     deleted = models.BooleanField(default=False)
     # Adding additional columns
     email = models.EmailField(max_length=254, unique=True)
@@ -63,6 +70,7 @@ class User(AbstractUser, PermissionsMixin):
     elite_generator = models.BooleanField(default=False)
     credit_rating = models.CharField(max_length=255, blank=True, null=True)
     credit_rating_proof = models.FileField(upload_to='credit_rating_proofs/', blank=True, null=True)
+    credit_rating_status = models.CharField(max_length=50, choices=credit_rating_status_choices, default='Pending')
     last_visited_page = models.CharField(max_length=255, null=True, blank=True)
     selected_requirement_id = models.IntegerField(null=True, blank=True)
     registration_token = models.CharField(max_length=64, blank=True, null=True)  # Token for password setup

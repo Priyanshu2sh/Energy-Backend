@@ -52,5 +52,7 @@ urlpatterns = [
     path('banking-charges', views.BankingCharges.as_view(), name='banking_charges'),
     path('pwatt-hourly', views.PWattHourly.as_view(), name='pwatt_hourly'),
     path('districts/<str:state_name>/', views.DistrictsByState.as_view(), name='districts-by-state'),
-
+    path('send-rooftop-quotation', views.SendRooftopQuotation.as_view(), name='send-rooftop-quotation'),
+    path('generator-quotation', views.GeneratorQuotations.as_view(), name='generator-quotation'),
+    path('generator-quotation/<int:user_id>', views.GeneratorQuotations.as_view(), name='generator-quotation'),
 ]

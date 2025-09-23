@@ -2,6 +2,7 @@ from itertools import chain
 from operator import attrgetter
 from django.conf import settings
 from django.shortcuts import get_object_or_404, render
+from django.contrib.auth.hashers import check_password
 from admin.serializers import ConsumerRequirementsUpdateSerializer, ConsumerSerializer, GeneratorSerializer, GridTariffSerializer, HelpDeskQuerySerializer, MasterTableSerializer, NationalHolidaySerializer, PeakHoursSerializer, RETariffMasterTableSerializer, SubscriptionTypeSerializer, ESSPortfolioSerializer, SolarPortfolioSerializer, WindPortfolioSerializer
 from energy.models import *
 from accounts.models import User
@@ -64,7 +65,7 @@ class Dashboard(APIView):
     
 
 class ListPagination(PageNumberPagination):
-    page_size = 2  # default items per page
+    page_size = 10  # default items per page
     max_page_size = 100  # prevent abuse by huge page sizes
 
 class Consumer(APIView):
@@ -84,12 +85,12 @@ class Consumer(APIView):
         if not consumer:
             return Response({"error": "Consumer not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        status = request.data.get('status')
-        if status and status == 'deactivate':
+        updated_status = request.data.get('status')
+        if updated_status and updated_status == 'deactivate':
             consumer.is_active = False
             consumer.save()
             return Response({"message": "Consumer deactivated."}, status=status.HTTP_200_OK)
-        elif status and status == 'activate':
+        elif updated_status and updated_status == 'activate':
             consumer.is_active = True
             consumer.save()
             return Response({"message": "Consumer activated."}, status=status.HTTP_200_OK)
@@ -128,12 +129,12 @@ class Generator(APIView):
         if not generator:
             return Response({"error": "Generator not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        status = request.data.get('status')
-        if status and status == 'deactivate':
+        updated_status = request.data.get('status')
+        if updated_status and updated_status == 'deactivate':
             generator.is_active = False
             generator.save()
             return Response({"message": "Generator deactivated."}, status=status.HTTP_200_OK)
-        elif status and status == 'activate':
+        elif updated_status and updated_status == 'activate':
             generator.is_active = True
             generator.save()
             return Response({"message": "Generator activated."}, status=status.HTTP_200_OK)
@@ -186,6 +187,7 @@ class OnlineSubscriptions(APIView):
 
 
 class OfflineSubscriptions(APIView):
+
     def get(self, request):
         offline_payments = OfflinePayment.objects.select_related('invoice', 'invoice__user', 'invoice__subscription')
         data = []
@@ -218,6 +220,9 @@ class OfflineSubscriptions(APIView):
 
         return Response(data)
     
+    # def post(self, request):
+
+    
     def put(self, request, pk):
         payment = get_object_or_404(OfflinePayment, pk=pk)
         new_status = request.data.get("status")
@@ -243,6 +248,41 @@ class OfflineSubscriptions(APIView):
             {"message": "Payment status updated successfully.", "new_status": payment.status},
             status=status.HTTP_200_OK
         )
+    
+class AssignPlan(APIView):
+
+    def post(self, request):
+        user_id = request.data.get('user_id')
+        subscription_id = request.data.get('subscription_id')
+
+        if not user_id or not subscription_id:
+            return Response({"error": "Missing required fields."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(id=user_id)
+            subscription = SubscriptionType.objects.get(id=subscription_id)
+
+            # Check if user already has an active subscription
+            active_subscription = SubscriptionEnrolled.objects.filter(user=user, status='active').first()
+            if active_subscription:
+                return Response({"error": "User already has an active subscription."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Assign new subscription
+            new_subscription = SubscriptionEnrolled(
+                user=user,
+                subscription=subscription,
+                start_date=date.today(),
+                end_date=date.today() + timedelta(subscription.duration_in_days),
+                status='active'
+            )
+            new_subscription.save()
+
+            return Response({"message": "Subscription assigned successfully."}, status=status.HTTP_201_CREATED)
+
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        except SubscriptionType.DoesNotExist:
+            return Response({"error": "Subscription type not found."}, status=status.HTTP_404_NOT_FOUND)
 
 
 class SubscriptionPlans(APIView):
@@ -400,7 +440,15 @@ class HelpDeskQueryAPI(APIView):
         query = get_object_or_404(HelpDeskQuery, pk=pk)
         serializer = HelpDeskQuerySerializer(query, data=request.data, partial=True)
         if serializer.is_valid():
-            serializer.save()
+            user=serializer.save()
+            Notifications.objects.create(user=query.user, message=f'Your query status has been updated to {request.data.get("status")}.')
+            send_mail(
+                subject='EXG Query Update',
+                message=f'Your query status has been updated to {request.data.get("status")}.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[query.user.email],
+                fail_silently=False
+            )
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
@@ -610,3 +658,115 @@ class OffersAPI(APIView):
             })
 
         return paginator.get_paginated_response(response_data)
+
+class CreditRating(APIView):
+
+    def get(self, request):
+        users = User.objects.all()
+        response_data = []
+        for user in users:
+            response_data.append({
+                "user_id": user.id,
+                "email": user.email,
+                "username": user.username,
+                "credit_rating": user.credit_rating,
+                "credit_rating_proof": user.credit_rating_proof.url if user.credit_rating_proof else None,
+                "credit_rating_status": user.credit_rating_status
+            })
+        return Response(response_data)
+
+    def put(self, request):
+        user_id = request.data.get('user_id')
+        credit_rating_status = request.data.get('credit_rating_status')
+
+        try:
+            user = User.objects.get(id=user_id)
+            user.credit_rating_status = credit_rating_status
+            user.save()
+            if user.credit_rating_status == 'Approved':
+                Notifications.objects.create(user=user, message='Your credit rating has been approved.')
+                send_mail(
+                    subject='Credit Rating Status',
+                    message='Your credit rating has been approved.',
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False
+                )
+            elif user.credit_rating_status == 'Rejected':
+                Notifications.objects.create(user=user, message='Your credit rating has been rejected. Please upload a valid credit rating proof.')
+                send_mail(
+                    subject='Credit Rating Status',
+                    message='Your credit rating has been rejected. Please upload a valid credit rating proof.',
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False
+                )
+            return Response({"message": "Credit rating status updated successfully."})
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=404)
+        
+class AdminLogin(APIView):
+
+    def post(self, request):
+        email = request.data.get("email")
+        password = request.data.get("password")
+
+        try:
+            admin = User.objects.get(email=email)
+            if check_password(password, admin.password):
+                return Response({"message": "Login successful."})
+            else:
+                return Response({"error": "Invalid credentials."}, status=401)
+        except User.DoesNotExist:
+            return Response({"error": "Admin not found."}, status=404)
+        
+class AddAdmin(APIView):
+
+    def post(self, request):
+        email = request.data.get("email")
+        password = request.data.get("password")
+        role = request.data.get("role")
+
+        if not email or not password or not role:
+            return Response({"error": "Missing required fields."}, status=400)
+
+        if User.objects.filter(email=email).exists():
+            return Response({"error": "Email already exists."}, status=400)
+
+        admin = User(email=email, user_category='Admin', role=role)
+        admin.set_password(password)
+        admin.save()
+        return Response({"message": "Admin created successfully.", "admin_id": admin.id}, status=201)
+
+class RooftopOffers(APIView):
+
+    def get(self, request):
+        offers = GeneratorQuotation.objects.filter(consumer_status='Accepted').order_by('-id')
+
+        response_data = []
+        for offer in offers:
+            response_data.append({
+                "id": offer.id,
+                "consumer": offer.rooftop_quotation.requirement.user.username,
+                "generator": offer.generator.username,
+                "offered_capacity": offer.offered_capacity,
+                "price": offer.price,
+                "consumer_status": offer.consumer_status,
+                "generator_status": offer.generator_status,
+                "consumer_is_read": offer.consumer_is_read,
+                "generator_is_read": offer.generator_is_read,
+            })
+
+        return Response(response_data, status=status.HTTP_200_OK)
+
+    def put(self, request):
+        updated_status = request.data.get('status')
+        pk = request.data.get('id')
+        offer = GeneratorQuotation.objects.filter(id=pk)
+        offer.consumer_status = updated_status
+        offer.generator_status = updated_status
+        offer.save()
+
+        return Response({'message': 'Status updated successfully'}, status=status.HTTP_200_OK)
+
+

@@ -16,7 +16,7 @@ import pytz
 import requests
 from accounts.models import GeneratorConsumerMapping, User
 from accounts.views import JWTAuthentication
-from .models import BankingOrder, CapacitySizingCombination, GeneratorDemand, GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GridTariff, Industry, NationalHoliday, NegotiationInvitation, PeakHours, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
+from .models import BankingOrder, CapacitySizingCombination, GeneratorDemand, GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GeneratorQuotation, GridTariff, Industry, NationalHoliday, NegotiationInvitation, PeakHours, RooftopQuotation, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
 from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -2186,19 +2186,28 @@ class OptimizeCapacityAPI(APIView):
                                     terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
                                     terms_sheet_sent = combo.terms_sheet_sent if combo else False
 
+                                    transmission_losses = (master_record.transmission_loss/100) * solar_data["banking_price"]
+                                    wheeling_losses = solar_data["banking_price"] * (master_record.wheeling_losses/100)
+                                    if master_record.state != 'Gujarat':
+                                        banking_charges = (master_record.banking_charges / 100) * solar_data["banking_price"]
+                                    else:
+                                        banking_charges = 0
+
+                                    OA_cost = transmission_charges + transmission_losses + wheeling_charges + wheeling_losses + banking_charges + standby_charges + electricity_tax + additional_surcharge + cross_subsidy_surcharge
+
                                     if not combo:
                                         banking_price = solar_data["banking_price"]
                                         combo, created = Combination.objects.get_or_create(
                                             requirement=consumer_requirement,
                                             generator=generator,
-                                            re_replacement=round(solar_data["re_replacement"], 0),
+                                            re_replacement=round(solar_data["re_replacement"], 2),
                                             combination=solar_data['combination'],
                                             state=state,
                                             optimal_solar_capacity=round(solar_data["s_capacity"], 2),
                                             optimal_wind_capacity=0,
                                             optimal_battery_capacity=0,
                                             per_unit_cost=banking_price,
-                                            final_cost=banking_price + master_record.state_charges,
+                                            final_cost=banking_price + OA_cost,
                                             annual_demand_offset=round(solar_data["re_replacement"], 0),
                                             annual_demand_met=solar_data['demand_met'],
                                             annual_curtailment=solar_data['curtailment'],
@@ -2231,7 +2240,16 @@ class OptimizeCapacityAPI(APIView):
                                             'capacity': capacity,
                                             'Per Unit Cost': combo.per_unit_cost,
                                             'Final Cost': combo.final_cost,
-                                            'OA_cost': ISTS_charges + master_record.state_charges,
+                                            "OA_transmission_charges": transmission_charges,
+                                            "OA_transmission_losses": transmission_losses,
+                                            "OA_wheeling_charges": wheeling_charges,
+                                            "OA_wheeling_losses": wheeling_losses,
+                                            "OA_banking_charges": banking_charges,
+                                            "OA_standby_charges": standby_charges,
+                                            "OA_electricity_tax": electricity_tax,
+                                            "OA_additional_surcharge": additional_surcharge,
+                                            "OA_cross_subsidy_surcharge": cross_subsidy_surcharge,
+                                            'OA_cost': OA_cost,
                                             'ISTS_charges': ISTS_charges,
                                             'state_charges': master_record.state_charges,
                                             "state": state,
@@ -2286,6 +2304,15 @@ class OptimizeCapacityAPI(APIView):
                                     terms_sheet = StandardTermsSheet.objects.filter(combination=combo).first()
                                     terms_sheet_sent = combo.terms_sheet_sent if combo else False
 
+                                    transmission_losses = (master_record.transmission_loss/100) * wind_data["banking_price"]
+                                    wheeling_losses = wind_data["banking_price"] * (master_record.wheeling_losses/100)
+                                    if master_record.state != 'Gujarat':
+                                        banking_charges = (master_record.banking_charges / 100) * wind_data["banking_price"]
+                                    else:
+                                        banking_charges = 0
+
+                                    OA_cost = transmission_charges + transmission_losses + wheeling_charges + wheeling_losses + banking_charges + standby_charges + electricity_tax + additional_surcharge + cross_subsidy_surcharge
+
                                     if not combo:
                                         banking_price = wind_data["banking_price"]
                                         combo, created = Combination.objects.get_or_create(
@@ -2298,7 +2325,7 @@ class OptimizeCapacityAPI(APIView):
                                             optimal_wind_capacity=round(wind_data["w_capacity"], 2),
                                             optimal_battery_capacity=0,
                                             per_unit_cost=banking_price,
-                                            final_cost=banking_price + master_record.state_charges,
+                                            final_cost=banking_price + OA_cost,
                                             annual_demand_offset=round(wind_data["re_replacement"], 0),
                                             annual_demand_met=wind_data['demand_met'],
                                             annual_curtailment=wind_data['curtailment'],
@@ -2331,7 +2358,16 @@ class OptimizeCapacityAPI(APIView):
                                             'capacity': capacity,
                                             'Per Unit Cost': combo.per_unit_cost,
                                             'Final Cost': combo.final_cost,
-                                            'OA_cost': ISTS_charges + master_record.state_charges,
+                                            "OA_transmission_charges": transmission_charges,
+                                            "OA_transmission_losses": transmission_losses,
+                                            "OA_wheeling_charges": wheeling_charges,
+                                            "OA_wheeling_losses": wheeling_losses,
+                                            "OA_banking_charges": banking_charges,
+                                            "OA_standby_charges": standby_charges,
+                                            "OA_electricity_tax": electricity_tax,
+                                            "OA_additional_surcharge": additional_surcharge,
+                                            "OA_cross_subsidy_surcharge": cross_subsidy_surcharge,
+                                            'OA_cost': OA_cost,
                                             'ISTS_charges': ISTS_charges,
                                             'state_charges': master_record.state_charges,
                                             "state": state,
@@ -2756,7 +2792,7 @@ class StandardTermsSheetAPI(APIView):
                         serialized_record['requirement'] = {
                             "rq_id": req.id,
                             "rq_state": req.state,
-                            "rq_site": req.consumption_unit,
+                            "rq_consumption_unit": req.consumption_unit,
                             "rq_industry": req.industry,
                             "rq_contracted_demand": req.contracted_demand,
                             "rq_tariff_category": req.tariff_category,
@@ -5423,7 +5459,7 @@ class PWattHourly(APIView):
                     "total_savings": round(total_savings, 2),
                     "total_consumption": round(total_consumption, 2),
                     "total_generation": round(total_generation, 2),
-                    "capacity_of_solar_rooftop": capacity_of_solar_rooftop,
+                    "capacity_of_solar_rooftop": round(capacity_of_solar_rooftop, 2),
                     "hourly_generation": hourly_generation,
                     "hourly_averages": hourly_averages_list,
                     "existing_rooftop_capacity": requirement.solar_rooftop_capacity,
@@ -5553,6 +5589,242 @@ class PWattHourly(APIView):
 
 
             
+        except Exception as e:
+            tb = traceback.format_exc()  # Get the full traceback
+            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
+            return Response({"error": str(e), "Traceback": tb}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class SendRooftopQuotation(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        requirement_id = request.data.get("requirement_id")
+        rooftop_type = request.data.get("rooftop_type")
+        capacity = request.data.get("capacity")
+        mode_of_development = request.data.get("mode_of_development")
+
+        try:
+            requirement = ConsumerRequirements.objects.get(id=requirement_id)
+            if RooftopQuotation.objects.filter(requirement=requirement, rooftop_type=rooftop_type).exists():
+                return Response({"error": "Quotation already exists for this requirement and rooftop type."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # creating rooftop quotation
+            rooftop_quotation = RooftopQuotation(requirement=requirement, rooftop_type=rooftop_type, capacity=capacity, mode_of_development=mode_of_development)
+            rooftop_quotation.save()
+
+            # sending quotation to all the generators
+            users = User.objects.filter(user_category='Generator', subscriptions__status = 'active')
+            for user in users:
+                generator_quotation = GeneratorQuotation(rooftop_quotation=rooftop_quotation, generator=user, offered_capacity=rooftop_quotation.capacity, count=1)
+                generator_quotation.save()
+
+            return Response({"message": "Quotation sent to all the Generators."}, status=status.HTTP_200_OK)
+
+        except ConsumerRequirements.DoesNotExist:
+            return Response({"error": "Requirement not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            tb = traceback.format_exc()  # Get the full traceback
+            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
+            return Response({"error": str(e), "Traceback": tb}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class GeneratorQuotations(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+            if user.user_category == 'Consumer':
+                quotations = GeneratorQuotation.objects.filter(rooftop_quotation__requirement__user=user).order_by('-id')
+            else:
+                quotations = GeneratorQuotation.objects.filter(generator=user).order_by('-id')
+            response = []
+            for quotation in quotations:
+                monthly_consumption = MonthlyConsumptionData.objects.filter(requirement=quotation.rooftop_quotation.requirement)
+
+                solar_portfolios = SolarPortfolio.objects.filter(user=quotation.generator).values("state", "connectivity", "total_install_capacity", "available_capacity", "banking_available")
+                wind_portfolios = WindPortfolio.objects.filter(user=quotation.generator).values("state", "connectivity", "total_install_capacity", "available_capacity", "banking_available")
+                ess_portfolios = ESSPortfolio.objects.filter(user=quotation.generator).values("state", "connectivity", "total_install_capacity", "available_capacity")
+
+                # Sum available capacity for all portfolios of this user
+                available_capacity = (
+                    SolarPortfolio.objects.filter(user=quotation.generator).aggregate(Sum("available_capacity"))["available_capacity__sum"] or 0
+                ) + (
+                    WindPortfolio.objects.filter(user=quotation.generator).aggregate(Sum("available_capacity"))["available_capacity__sum"] or 0
+                ) + (
+                    ESSPortfolio.objects.filter(user=quotation.generator).aggregate(Sum("available_capacity"))["available_capacity__sum"] or 0
+                )
+
+                # Sum installed capacity for all portfolios of this user
+                installed_capacity = (
+                    SolarPortfolio.objects.filter(user=quotation.generator).aggregate(Sum("total_install_capacity"))["total_install_capacity__sum"] or 0
+                ) + (
+                    WindPortfolio.objects.filter(user=quotation.generator).aggregate(Sum("total_install_capacity"))["total_install_capacity__sum"] or 0
+                ) + (
+                    ESSPortfolio.objects.filter(user=quotation.generator).aggregate(Sum("total_install_capacity"))["total_install_capacity__sum"] or 0
+                )
+
+                response.append({
+                    "id": quotation.id,
+                    "consumer": quotation.rooftop_quotation.requirement.user.username,
+                    "generator": quotation.generator.username,
+                    "available_capacity": available_capacity,
+                    "installed_capacity": installed_capacity,
+                    "solar": list(solar_portfolios),
+                    "wind": list(wind_portfolios),
+                    "ess": list(ess_portfolios),
+                    "contracted_demand": quotation.rooftop_quotation.requirement.contracted_demand,
+                    "roof_area": quotation.rooftop_quotation.requirement.roof_area,
+                    "industry": quotation.rooftop_quotation.requirement.industry,
+                    "sub_industry": quotation.rooftop_quotation.requirement.sub_industry,
+                    "site_name": quotation.rooftop_quotation.requirement.consumption_unit,
+                    "state": quotation.rooftop_quotation.requirement.state,
+                    "district": quotation.rooftop_quotation.requirement.location,
+                    "credit_rating": quotation.rooftop_quotation.requirement.user.credit_rating,
+                    "tariff_category": quotation.rooftop_quotation.requirement.tariff_category,
+                    "voltage_level": quotation.rooftop_quotation.requirement.voltage_level,
+                    "offered_capacity": quotation.offered_capacity,
+                    "mode_of_development": quotation.rooftop_quotation.mode_of_development,
+                    "price": quotation.price,
+                    "consumer_status": quotation.consumer_status,
+                    "generator_status": quotation.generator_status,
+                    "count": quotation.count,
+                    "followup_count": quotation.followup_count,
+                    "monthly_consumption": [record.monthly_consumption for record in monthly_consumption]
+                })
+
+            return Response(response)
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            tb = traceback.format_exc()  # Get the full traceback
+            traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
+            return Response({"error": str(e), "Traceback": tb}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    
+    def put(self, request):
+        id = request.data.get('id')
+        sent_from = request.data.get('sent_from')
+        offer_status = request.data.get('status')
+        offered_capacity = request.data.get('offered_capacity')
+        price = request.data.get('price')
+        followup = request.data.get('followup')
+
+        try:
+            quotation = GeneratorQuotation.objects.get(id=id)
+            if followup:
+                if sent_from == 'Consumer' and quotation.consumer_status in ['Offer Sent', 'Counter Offer Sent'] and quotation.followup_count < 2:
+                    quotation.followup_count += 1
+                    quotation.last_followup_at = timezone.now()
+                    quotation.save()
+
+                    # Send email with the link
+                    send_mail(
+                        "Rooftop Negotiation",
+                        f"Consumer has asked for the follow-up on rooftop negotiation for capacity - {quotation.offered_capacity} kWh.",
+                        f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
+                        [quotation.generator.email],
+                        fail_silently=False,
+                    )
+                    send_notification(quotation.generator.id, f'The consumer {quotation.rooftop_quotation.requirement.user.username} has sent you a follow-up request on rooftop negotiation for capacity - {quotation.offered_capacity} kWh.')
+                    return Response({"message": "Follow-up sent successfully."}, status=status.HTTP_200_OK)
+                elif sent_from == 'Generator':
+                    return Response({"message": "You can't ask for follow-up."}, status=status.HTTP_200_OK)
+                else:
+                    return Response({"error": "You have reached the maximum number of follow-ups or invalid status."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if offer_status == 'Accepted':
+                quotation.generator_status = 'Accepted'
+                quotation.consumer_status = 'Accepted'
+                message = 'offer accepted.'
+                email_message=(
+                    f"You have closed the rooftop negotiation for capacity - {quotation.offered_capacity} kWh. "
+                )
+                # Send email with the link
+                send_mail(
+                    "Rooftop Negotiation",
+                    email_message,
+                    f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
+                    [quotation.generator.email, quotation.rooftop_quotation.requirement.user.email],
+                    fail_silently=False,
+                )
+
+                admin_message = (
+                    f"A rooftop offer has been accepted.\n\n"
+                    f"Consumer: {quotation.rooftop_quotation.requirement.user.username} "
+                    f"({quotation.rooftop_quotation.requirement.user.email})\n"
+                    f"Generator: {quotation.generator.username} "
+                    f"({quotation.generator.email})\n\n"
+                    f"Accepted Capacity: {quotation.offered_capacity} kWh\n"
+                    f"Accepted Price: {quotation.price} INR\n"
+                )
+
+                send_mail(
+                    "Rooftop Offer Accepted",
+                    admin_message,
+                    f"EXG Global <{settings.DEFAULT_FROM_EMAIL}>",
+                    ['002iipt@gmail.com'],
+                    fail_silently=False,
+                )
+
+                if sent_from == 'Consumer':
+                    send_notification(quotation.generator.id, f'The consumer {quotation.rooftop_quotation.requirement.user.username} has accepted the rooftop offer for capacity - {quotation.offered_capacity} kWh.')
+                else:
+                    send_notification(quotation.rooftop_quotation.requirement.user.id, f'The generator {quotation.generator.username} has accepted the rooftop offer for capacity - {quotation.offered_capacity} kWh.')
+
+                other_quotations = GeneratorQuotation.objects.filter(rooftop_quotation=quotation.rooftop_quotation).exclude(id=quotation.id)
+                for other_quotation in other_quotations:
+                    other_quotation.generator_status = 'Rejected'
+                    other_quotation.consumer_status = 'Rejected'
+                    other_quotation.save()
+                    send_notification(other_quotation.generator.id, f'The consumer {quotation.rooftop_quotation.requirement.user.username} has accepted another rooftop offer.')
+
+                quotation.save()
+                return Response({"message": message}, status=status.HTTP_200_OK)
+
+            elif offer_status == 'Rejected':
+                quotation.generator_status = 'Rejected'
+                quotation.consumer_status = 'Rejected'
+                message = 'offer rejected.'
+                quotation.save()
+                return Response({"message": message}, status=status.HTTP_200_OK)
+
+            elif offer_status == 'Withdrawn':
+                quotation.generator_status = 'Withdrawn'
+                quotation.consumer_status = 'Withdrawn'
+                message = 'offer withdrawn.'
+                quotation.save()
+                return Response({"message": message}, status=status.HTTP_200_OK)
+
+            if sent_from == 'Generator':
+                if quotation.count == 1 or quotation.count == 3:
+                    quotation.price = price
+                    quotation.offered_capacity = offered_capacity
+                    quotation.generator_status = 'Counter Offer Sent'
+                    quotation.consumer_status = 'Counter Offer Received'
+                    quotation.count += 1
+                    message = 'Counter offer sent successfully.'
+                else:
+                    return Response({"error": "You can't send counter offer again."}, status=status.HTTP_400_BAD_REQUEST)
+            elif sent_from == 'Consumer':
+                if quotation.count == 2:
+                    quotation.price = price
+                    quotation.offered_capacity = offered_capacity
+                    quotation.generator_status = 'Counter Offer Received'
+                    quotation.consumer_status = 'Counter Offer Sent'
+                    quotation.count += 1
+                    message = 'Counter offer sent successfully.'
+                else:
+                    return Response({"error": "You can't send counter offer again."}, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                return Response({"error": "Invalid value of sent_from."}, status=status.HTTP_400_BAD_REQUEST)
+
+            quotation.save()
+            return Response({"message": message}, status=status.HTTP_200_OK)
+        except GeneratorQuotation.DoesNotExist:
+            return Response({"error": "Quotation not found."}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             tb = traceback.format_exc()  # Get the full traceback
             traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback

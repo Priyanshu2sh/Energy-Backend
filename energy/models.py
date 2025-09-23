@@ -2,14 +2,11 @@ from datetime import date, timedelta
 import random
 from django.db import models
 from django.utils.timezone import now
-from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from channels.layers import get_channel_layer
-from django.db.models import Count
-import json
-import asyncio
 from datetime import datetime, timedelta
-
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from accounts.models import User
 # Create your models here.
 
@@ -347,7 +344,7 @@ class StandardTermsSheet(models.Model):
     from_whom = models.CharField(max_length=200, choices=USER_CHOICES, null=True, blank=True)
     consumer_is_read = models.BooleanField(default=False)
     generator_is_read = models.BooleanField(default=False)
-    equity_contribution_required_from_consumer = models.FloatField(blank=True, null=True)
+    equity_contribution_required_from_consumer = models.FloatField(blank=True, null=True) # Inr crores
     late_payment_surcharge = models.FloatField(default=1.25) # unit is %/month
     termination_compensation = models.IntegerField(default=24) # number of months
 
@@ -384,9 +381,6 @@ class StandardTermsSheet(models.Model):
                 user_id = self.combination.generator.id
 
         # Send WebSocket update
-        from asgiref.sync import async_to_sync
-        from channels.layers import get_channel_layer
-
         channel_layer = get_channel_layer()
         unread_count = self.get_unread_terms_sheet_count(user_id)
         
@@ -432,7 +426,7 @@ class SubscriptionType(models.Model):
 
 # Model to store user subscriptions
 class SubscriptionEnrolled(models.Model):
-    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE)  # User who enrolled
+    user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, related_name="subscriptions")  # User who enrolled
     subscription = models.ForeignKey(SubscriptionType, on_delete=models.CASCADE)  # Subscription type
     start_date = models.DateField()  # Subscription start date
     end_date = models.DateField()  # Subscription end date
@@ -743,3 +737,93 @@ class HelpDeskQuery(models.Model):
 
     def __str__(self):
         return f"Query by {self.user} on {self.date.strftime('%Y-%m-%d %H:%M')} - {self.status}"
+
+
+class RooftopQuotation(models.Model):
+    requirement = models.ForeignKey(ConsumerRequirements, on_delete=models.CASCADE, related_name='rooftop_quotations')
+    rooftop_type = models.CharField(max_length=200) # grid_connected or behind_the_meter
+    capacity = models.FloatField() # in kWp
+    mode_of_development = models.CharField(max_length=200) # Capex or RESCO
+
+    def __str__(self):
+        return f"Rooftop Quotation for {self.requirement} - {self.rooftop_type} - {self.capacity} kWp"
+
+
+class GeneratorQuotation(models.Model):
+
+    STATUS_CHOICES = [
+        ('Offer Sent', 'Offer Sent'),
+        ('Offer Received', 'Offer Received'),
+        ('Counter Offer Sent', 'Counter Offer Sent'),
+        ('Counter Offer Received', 'Counter Offer Received'),
+        ('Accepted', 'Accepted'),
+        ('Rejected', 'Rejected'),
+        ('Withdrawn', 'Withdrawn'),
+    ]
+
+    rooftop_quotation = models.ForeignKey(RooftopQuotation, on_delete=models.CASCADE)
+    generator = models.ForeignKey('accounts.User', on_delete=models.CASCADE, limit_choices_to={'user_category': 'Generator'}, related_name='generator_quotation') # Restrict to users with user_category='Generator'
+    price = models.FloatField(null=True, blank=True) # CAPEX - INR per kWp, RESCO - INR per kWh (incl. GST)
+    count = models.IntegerField(help_text="Used for counting iterations, only 4 iterations are valid", default=0)
+    consumer_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Offer Sent', help_text="Status from the consumer's perspective")
+    generator_status = models.CharField(max_length=100, choices=STATUS_CHOICES, default='Offer Received', help_text="Status from the generator's perspective")
+    consumer_is_read = models.BooleanField(default=False)
+    generator_is_read = models.BooleanField(default=False)
+    offered_capacity = models.FloatField(null=True, blank=True)
+
+    # NEW FIELDS
+    followup_count = models.PositiveIntegerField(default=0, help_text="Max 2 follow-ups allowed")
+    last_followup_at = models.DateTimeField(null=True, blank=True)
+
+
+    def save(self, *args, **kwargs):
+        if not self.pk:  # If the object is new
+            self.count = 1  # Initialize count to 1
+
+        # Fetch existing record before saving
+        if self.pk:
+            previous = GeneratorQuotation.objects.get(pk=self.pk)
+
+            # Reset unread flags if status changes
+            if self.consumer_status != previous.consumer_status and previous.consumer_is_read:
+                self.consumer_is_read = False
+
+            if self.generator_status != previous.generator_status and previous.generator_is_read:
+                self.generator_is_read = False
+
+        super().save(*args, **kwargs)
+
+        # Send WebSocket update
+        channel_layer = get_channel_layer()
+
+        # Determine which user should receive notification
+        # Odd count → Consumer acted, Even count → Generator acted
+        if self.count % 2 == 1:  
+            user_id = self.rooftop_quotation.requirement.user.id
+        else:  
+            user_id = self.generator.id
+
+        unread_count = self.get_unread_offers_count(user_id)
+
+        async_to_sync(channel_layer.group_send)(
+            f"user_{user_id}",
+            {"type": "send_rooftop_offer", "unread_rooftop_count": unread_count},
+        )
+
+    @staticmethod
+    def get_unread_offers_count(user_id):
+        from accounts.models import User
+        user = User.objects.get(id=user_id)
+
+        if user.user_category == 'Consumer':
+            return GeneratorQuotation.objects.filter(
+                rooftop_quotation__requirement__user=user.id, consumer_is_read=False
+            ).count()
+        else:
+            return GeneratorQuotation.objects.filter(
+                generator=user.id, generator_is_read=False
+            ).count()
+
+    def __str__(self):
+        return f"{self.generator.username} -- {self.rooftop_quotation.rooftop_type}"
+
