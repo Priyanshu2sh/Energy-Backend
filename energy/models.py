@@ -513,10 +513,10 @@ class NegotiationInvitation(models.Model):
 
 class MasterTable(models.Model):
     state = models.CharField(max_length=200)
-    ISTS_charges = models.FloatField()
-    state_charges = models.FloatField()
+    ISTS_charges = models.FloatField(default=1)
+    state_charges = models.FloatField(default=1)
     banking_charges = models.FloatField(default=8, help_text="Banking charges in percentage (default = 8% now for all states)")
-    rooftop_price = models.FloatField(default=1, null=True, blank=True)
+    rooftop_price = models.FloatField(default=3.5, null=True, blank=True)
     max_capacity = models.FloatField(default=1, null=True, blank=True, help_text="Maximum capacity in MW for the state, minimum is 1 MW")
     transmission_charge = models.FloatField(default=126819, help_text="Rs / MW/Month")
     transmission_loss = models.FloatField(default=3.84, help_text="in percentage (%)")
@@ -524,6 +524,9 @@ class MasterTable(models.Model):
     wheeling_losses = models.FloatField(default=7.25, help_text="in percentage (%)")
     combined_average_replacement_PLF = models.FloatField(default=43, help_text="in percentage (%)")
 
+        
+    def __str__(self):
+        return f"{self.state}"
 
 class RETariffMasterTable(models.Model):
     industry = models.CharField(max_length=255)

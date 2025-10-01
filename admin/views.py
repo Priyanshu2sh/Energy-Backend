@@ -1,3 +1,8 @@
+import calendar # Add this import at the top
+from django.db.models import Func, IntegerField, Count
+from calendar import month_name
+# from django.forms import IntegerField
+import jwt
 from itertools import chain
 from operator import attrgetter
 from django.conf import settings
@@ -12,17 +17,56 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 from django.db.models import Sum, Q
 from django.core.mail import send_mail
-
+from accounts.serializers import UserSerializer
 import logging
+from django.db.models import Count
+from django.db.models.functions import Extract
+from django.utils import timezone
 traceback_logger = logging.getLogger('django')
 logger = logging.getLogger('debug_logger') 
+
+
 # Create your views here.
-
 class Dashboard(APIView):
+    # Custom database function to extract month from a date field
+    class Month(Func):
+        function = 'MONTH'
+        template = '%(function)s(%(expressions)s)'
+        output_field = IntegerField()
+        
+    #   helper function to get monthly data
+    def get_monthly_data(self, user_category, year):
+        monthly_counts = {month: 0 for month in range(1, 13)}
+        qs = (
+            User.objects.filter(
+                user_category=user_category,
+                date_joined__year=year,
+                date_joined__isnull=False
+            )
+            .annotate(month=self.Month('date_joined')) 
+            .values('month')
+            .annotate(count=Count('id'))
+            .order_by('month')
+        )
+        for item in qs:
+            monthly_counts[item['month']] = item['count']
 
+        data_with_names = [
+            {"month": calendar.month_name[month], "count": count}
+            for month, count in monthly_counts.items()
+        ]
+        
+        return data_with_names
+    
+    # GET method for dashboard data
     def get(self, request):
-
-        demand = ConsumerRequirements.objects.all()
+        year = request.GET.get('year')
+        try:
+           year = int(year)
+        except (ValueError, TypeError):
+            year = timezone.now().year
+        
+        demand = ConsumerRequirements.objects.all() 
         total_demand = demand.aggregate(total_contracted_demand=Sum('contracted_demand'))
         HT_Commercial = demand.filter(tariff_category='HT Commercial').aggregate(total_contracted_demand=Sum('contracted_demand'))
         HT_Industrial = demand.filter(tariff_category='HT Industrial').aggregate(total_contracted_demand=Sum('contracted_demand'))
@@ -39,7 +83,10 @@ class Dashboard(APIView):
         offers_rejected = offers.filter(Q(consumer_status='Rejected') | Q(generator_status='Rejected')).count()
         offers_accepted = offers.filter(Q(consumer_status='Accepted') | Q(generator_status='Accepted')).count()
         offers_pending = offers.filter(~Q(consumer_status__in=['Accepted', 'Rejected', 'Withdrawn']) | ~Q(generator_status__in=['Accepted', 'Rejected', 'Withdrawn'])).count()
-
+        
+        monthly_consumers = self.get_monthly_data("Consumer", year)
+        monthly_generators = self.get_monthly_data("Generator", year)
+    
         total_consumers = User.objects.filter(user_category='Consumer').count()
         total_generators = User.objects.filter(user_category='Generator').count()
 
@@ -59,6 +106,8 @@ class Dashboard(APIView):
             "offers_pending": offers_pending,
             "total_consumers": total_consumers,
             "total_generators": total_generators,
+            "monthly_consumers" : monthly_consumers,
+            "monthly_generators" : monthly_generators,
         }
 
         return Response(response_data, status=200)
@@ -425,6 +474,7 @@ class HelpDeskQueryAPI(APIView):
         response_data = []
         for query in queries:
             response_data.append({
+                'id': query.id,
                 'user': query.user.id, 
                 'user_category': query.user.user_category,
                 'company': query.user.company,
@@ -433,7 +483,6 @@ class HelpDeskQueryAPI(APIView):
                 'date': query.date,
                 'status': query.status,
             })
-
         return Response(response_data, status=status.HTTP_200_OK)
 
     def put(self, request, pk):
@@ -706,19 +755,46 @@ class CreditRating(APIView):
             return Response({"error": "User not found."}, status=404)
         
 class AdminLogin(APIView):
-
     def post(self, request):
         email = request.data.get("email")
         password = request.data.get("password")
-
+        if not email or not password:
+            return Response(
+                {"error": "Email and password are required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         try:
-            admin = User.objects.get(email=email)
-            if check_password(password, admin.password):
-                return Response({"message": "Login successful."})
-            else:
-                return Response({"error": "Invalid credentials."}, status=401)
+            admin = User.objects.get(email=email, user_category='Admin')
         except User.DoesNotExist:
-            return Response({"error": "Admin not found."}, status=404)
+            return Response(
+                {"error": "Admin not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+            
+        if not check_password(password, admin.password):
+            return Response(
+                {"error": "Invalid credentials."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        payload = {
+            "user_id": admin.id,
+            "email": admin.email,
+            "exp": datetime.utcnow() + timedelta(days=1),  # expires in 1 day
+        }
+        token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+
+        user_data = UserSerializer(admin).data
+
+        return Response(
+            {
+                "message": "Login successful",
+                "token": token,
+                "user": user_data,
+            },
+            status=status.HTTP_200_OK
+        )
         
 class AddAdmin(APIView):
 
@@ -741,14 +817,15 @@ class AddAdmin(APIView):
 class RooftopOffers(APIView):
 
     def get(self, request):
-        offers = GeneratorQuotation.objects.filter(consumer_status='Accepted').order_by('-id')
+        offers = GeneratorQuotation.objects.filter(consumer_status='Accepted').select_related("rooftop_quotation__requirement__user", "generator").order_by('-id')
+
 
         response_data = []
         for offer in offers:
             response_data.append({
                 "id": offer.id,
-                "consumer": offer.rooftop_quotation.requirement.user.username,
-                "generator": offer.generator.username,
+                "consumer": ConsumerSerializer(offer.rooftop_quotation.requirement.user).data,
+                "generator": GeneratorSerializer(offer.generator).data,
                 "offered_capacity": offer.offered_capacity,
                 "price": offer.price,
                 "consumer_status": offer.consumer_status,

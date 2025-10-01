@@ -5325,8 +5325,12 @@ class PWattHourly(APIView):
                 lat = requirement.latitude
                 lon = requirement.longitude
             else:
-                geo_code_url = f"https://geocode.maps.co/search?q={requirement.location}&api_key={settings.GEO_CODING_API_KEY}"
-                geo_response = requests.get(geo_code_url)
+                try:    
+                    geo_code_url = f"https://geocode.maps.co/search?q={requirement.location}&api_key={settings.GEO_CODING_API_KEY}"
+                    geo_response = requests.get(geo_code_url)
+                except Exception as e:
+                    logger.debug(f"Geocoding API error: {e}")
+                    return Response({"error": "Error fetching geocoding data."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
                 # Parse the JSON response
                 if geo_response.status_code == 200:
                     data = geo_response.json()
@@ -5397,7 +5401,8 @@ class PWattHourly(APIView):
                 total_savings = 0
                 total_consumption = 0
                 total_generation = 0
-
+                if not roof_area:
+                    return Response({"error": "Roof area is required."}, status=status.HTTP_400_BAD_REQUEST)
                 capacity_of_solar_rooftop = min(max_capacity, contracted_demand, (roof_area / 10000), (capacity_calculated / kW_to_MW))
                 logger.debug(f"capacity_of_solar_rooftop (MW) = min(max_capacity, contracted_demand, (roof_area / 10000), (capacity_calculated / kW_to_MW))")
                 logger.debug(f"capacity_of_solar_rooftop (MW) = min({max_capacity}, {contracted_demand}, ({roof_area} / 10000), {capacity_calculated} / kW_to_MW)")
