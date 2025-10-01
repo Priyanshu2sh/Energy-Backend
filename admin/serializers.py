@@ -1,19 +1,27 @@
 from rest_framework import serializers
 from accounts.models import User
 from energy.models import ConsumerRequirements, ESSPortfolio, GridTariff, HelpDeskQuery, MasterTable, NationalHoliday, PeakHours, RETariffMasterTable, SolarPortfolio, SubscriptionType, WindPortfolio
-
+from energy.models import GeneratorQuotation
 class ConsumerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'company_representative', 'company', 'email', 'mobile', 'is_active']
+        fields = '__all__'
 
 class GeneratorSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'company_representative', 'company', 'email', 'mobile', 'is_active']
+        fields = '__all__'
         
+class GeneratorQuotationSerializer(serializers.ModelSerializer):
+    consumer = ConsumerSerializer(source="rooftop_quotation.requirement.user", read_only=True)
+    generator = GeneratorSerializer(read_only=True)
+
+    class Meta:
+        model = GeneratorQuotation
+        fields = '__all__'
+
 class SubscriptionTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = SubscriptionType
