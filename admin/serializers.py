@@ -8,11 +8,16 @@ class ConsumerSerializer(serializers.ModelSerializer):
         model = User
         fields = '__all__'
 
+class SubscriptionTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SubscriptionType
+        fields = '__all__'
+        
 class GeneratorSerializer(serializers.ModelSerializer):
-
+    subscription_type = SubscriptionTypeSerializer(read_only=True)
     class Meta:
         model = User
-        fields = '__all__'
+        exclude = ['password']
         
 class GeneratorQuotationSerializer(serializers.ModelSerializer):
     consumer = ConsumerSerializer(source="rooftop_quotation.requirement.user", read_only=True)
@@ -22,10 +27,6 @@ class GeneratorQuotationSerializer(serializers.ModelSerializer):
         model = GeneratorQuotation
         fields = '__all__'
 
-class SubscriptionTypeSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SubscriptionType
-        fields = '__all__'
 
 class ConsumerRequirementsUpdateSerializer(serializers.ModelSerializer):
     class Meta:
