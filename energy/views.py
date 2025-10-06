@@ -5330,7 +5330,7 @@ class PWattHourly(APIView):
                     geo_response = requests.get(geo_code_url)
                 except Exception as e:
                     logger.debug(f"Geocoding API error: {e}")
-                    return Response({"error": "Error fetching geocoding data."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                    return Response({"error": "Error fetchi`ng geocoding data."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
                 # Parse the JSON response
                 if geo_response.status_code == 200:
                     data = geo_response.json()
