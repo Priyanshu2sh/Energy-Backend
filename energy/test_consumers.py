@@ -569,3 +569,10 @@ class TestNotificationConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             "unread_count": event["unread_count"]
         }))
+
+    # need to test this rooftop notification socket
+    # async def send_rooftop_offer(self, event):
+    #     await self.send(text_data=json.dumps({
+    #         "type": "rooftop_offer",
+    #         "unread_count": event["unread_count"]
+    #     }))

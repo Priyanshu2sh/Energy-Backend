@@ -1,0 +1,11 @@
+
+{
+  "id": "prushaltech13/my-gpu-notebook",
+  "title": "My GPU Notebook",
+  "code_file": "optimize_model.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "dataset_sources": ["prushaltech13/my-input-dataset"]
+}
