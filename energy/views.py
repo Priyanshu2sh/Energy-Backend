@@ -16,6 +16,8 @@ import pytz
 import requests
 from accounts.models import GeneratorConsumerMapping, User
 from accounts.views import JWTAuthentication
+from energy.capacity_sizing.user_input import apply_degradation
+from .capacity_sizing.main import optimization_model_capacity_sizing
 from .models import BankingOrder, CapacitySizingCombination, GeneratorDemand, GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorOffer, GeneratorQuotation, GridTariff, Industry, NationalHoliday, NegotiationInvitation, PeakHours, RooftopQuotation, ScadaFile, SolarPortfolio, State, StateTimeSlot, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs, NegotiationWindow, MasterTable, RETariffMasterTable, PerformaInvoice, SubIndustry
 from django.conf import settings
 from rest_framework.views import APIView
@@ -29,7 +31,7 @@ from django.core.mail import send_mail
 import random
 from django.contrib.auth.hashers import check_password
 from django.utils.timezone import make_aware, now
-from datetime import datetime, timedelta, time, date
+from datetime import datetime, timedelta, time, date, timezone as dtz
 from rest_framework.permissions import IsAuthenticated
 from .permissions import IsAuthenticatedOrInternal
 from django.db.models import Q, Sum
@@ -4302,12 +4304,97 @@ class CapacitySizingAPI(APIView):
 
 
     def post(self, request):
+        def parse_time_string(time_str):
+            return datetime.strptime(time_str, "%H:%M:%S").time() if time_str else None
+
+        def get_ist_hour(iso_time: str) -> int:
+            """Convert ISO UTC time to IST and return the hour (0–23)."""
+            # Define Indian Standard Time (UTC+5:30)
+            IST = dtz(timedelta(hours=5, minutes=30))
+            
+            # Convert the ISO string (replace 'Z' with UTC offset)
+            utc_time = datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
+            
+            # Convert to IST
+            ist_time = utc_time.astimezone(IST)
+            
+            # Return the hour
+            return ist_time.hour
+
+
         data = request.data
         user_id = data.get("user_id")
-        csv_file = data.get("csv_file")
+        OA_cost = data.get("OACost")
         curtailment_selling_price = data.get("curtailment_selling_price")
         sell_curtailment_percentage = data.get("sell_curtailment_percentage")
         annual_curtailment_limit = data.get("annual_curtailment_limit")
+
+        # tender conditions
+        tender_type = data.get('tenderType')
+        re_replacement = data.get('annualAvailability')
+        monthly_availability = data.get('monthlyAvailability')
+        peak_hour_availability = data.get('peakHourAvailability')
+        morning_slot_start = data.get('morningStart') or None
+        morning_slot_stop = data.get('morningStop') or None
+        evening_slot_start = data.get('eveningStart') or None
+        evening_slot_stop = data.get('eveningStop') or None
+        monthly_demand_fulfillment_ratio = data.get('monthlyFulfillmentRatio')
+        csv_file = data.get('demandProfile')
+        total_tender_capacity = data.get('totalTenderCapacity')
+        energy_from_exchange_allowed = data.get('energyExchange')
+        energy_allowed_percentage = data.get('energyExchangePercent')
+        penalty = data.get('penalty')
+
+        print(request.data)
+
+        # key constraints
+        PPA_capacity = data.get('ppaCapacity')
+        PPA_tenure = data.get('ppaTenure')
+        transmission_connectivity_capacity = data.get('transmissionCapacity')
+
+        # solar
+        solar_degradation = data.get('solarDegradation')
+        solar_total_capex = data.get('solarCapex')  # capital cost
+        solar_total_O_and_m = data.get('solarOandM')  # marginal cost
+        solar_O_and_m_escalation = data.get('solarEscalation')
+
+        # wind
+        wind_total_capex = data.get('windCapex')
+        wind_total_O_and_m = data.get('windOandM')
+        wind_O_and_m_escalation = data.get('windEscalation')
+
+        # BESS
+        bess_degradation = data.get('bessDegradation')
+        bess_total_capex = data.get('bessCapex')
+        bess_total_O_and_m = data.get('bessOandM')
+        bess_depth_of_discharge = data.get('depthOfDischarge')
+        bess_discharge_efficiency = data.get('dischargeEfficiency')
+        bess_electrical_loss = data.get('electricalLoss')
+        bess_auxiliary_consumption = data.get('auxConsumption')
+        bess_auxiliary_tariff = data.get('auxTariff')
+
+        # Excess Energy
+        allowed_excess = data.get('allowedExcess')
+        excess_energy_tariff = data.get('excessTariff')
+
+        if morning_slot_start:
+            morning_slot_start = get_ist_hour(morning_slot_start)
+        if morning_slot_stop:
+            morning_slot_stop = get_ist_hour(morning_slot_stop)
+        if evening_slot_start:
+            evening_slot_start = get_ist_hour(evening_slot_start)
+        if evening_slot_stop:
+            evening_slot_stop = get_ist_hour(evening_slot_stop)
+            
+        peak_hours = [
+            hour for hour in [
+                morning_slot_start,
+                morning_slot_stop,
+                evening_slot_start,
+                evening_slot_stop
+            ] if hour is not None
+        ]
+
 
         try:
             # Fetch the user
@@ -4316,10 +4403,12 @@ class CapacitySizingAPI(APIView):
         except User.DoesNotExist:
             return Response({"error": "Generator not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Handle RE Replacement
-        re_replacement = int(data.get("re_replacement")) if data.get("re_replacement") else None
-        if re_replacement == 0:
-            return Response({"message": "No available capacity."}, status=status.HTTP_200_OK)
+        # ---------------------------------------------------------------------------
+        # Initialize default peak hours if not provided
+        if peak_hours is None:
+            peak_hours = [6, 7, 8, 18, 19, 20]  # Default peak hours
+        # ---------------------------------------------------------------------------
+
         
         if csv_file:
             try:
@@ -4354,10 +4443,32 @@ class CapacitySizingAPI(APIView):
                 if not created:
                     obj.hourly_demand = hourly_demand_str
                     obj.save()
+
+                # ---------------------------------------------------------------------------
+                extended_demand['Demand'] += PPA_capacity
+                # ---------------------------------------------------------------------------
                     
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         else:
+            # ---------------------------------------------------------------------------
+            hourly_demand = pd.DataFrame({'Demand': [PPA_capacity] * 24})
+            csv_file = None
+
+            # === Extend Demand for PPA Tenure Years ===
+            hours_per_year = 24 * 365
+            base_hours = len(hourly_demand)
+
+            if base_hours == 24:
+                hourly_demand = pd.concat([hourly_demand] * 365, ignore_index=True)
+                print(f"Base hourly demand expanded for 1 year = {len(hourly_demand)} rows")
+
+            extended_demand = pd.concat([hourly_demand] * PPA_tenure, ignore_index=True)
+
+            if csv_file:
+                extended_demand['Demand'] += PPA_capacity
+            # ---------------------------------------------------------------------------
+
             def parse_time_string(time_str):
                 return datetime.strptime(time_str, "%H:%M:%S").time() if time_str else None
 
@@ -4397,12 +4508,12 @@ class CapacitySizingAPI(APIView):
                     peak_hours_availability_requirement=peak_hours_availability_requirement
                 )
                 generator_demand.save()
-            numeric_hourly_demand = self.calculate_annual_hourly_demand(generator_demand)
+            # numeric_hourly_demand = self.calculate_annual_hourly_demand(generator_demand)
 
-            df = pd.DataFrame({
-                'Index': numeric_hourly_demand.index,
-                'Demand': numeric_hourly_demand.values
-            })
+            # df = pd.DataFrame({
+            #     'Index': numeric_hourly_demand.index,
+            #     'Demand': numeric_hourly_demand.values
+            # })
 
             # Export to Excel
             # df.to_excel('hourly_demand.xlsx', index=False, engine='openpyxl')
@@ -4410,12 +4521,14 @@ class CapacitySizingAPI(APIView):
             # print('---------------------numeric_hourly_demand---------------------')
             # print(numeric_hourly_demand)
 
-            hourly_demand = GeneratorHourlyDemand.objects.filter(generator=generator).first()
-            if not hourly_demand:
-                hourly_demand = GeneratorHourlyDemand(generator=generator)
-            hourly_demand.hourly_demand = None
-            hourly_demand.set_hourly_data_from_list(numeric_hourly_demand)
-            hourly_demand.save()
+            generator_hourly_demand = GeneratorHourlyDemand.objects.filter(generator=generator).first()
+            if not generator_hourly_demand:
+                generator_hourly_demand = GeneratorHourlyDemand(generator=generator)
+            generator_hourly_demand.hourly_demand = None
+            generator_hourly_demand.set_hourly_data_from_list(hourly_demand)
+            generator_hourly_demand.save()
+
+            print(hourly_demand)
 
         try:
             # Initialize final aggregated response
@@ -4429,9 +4542,9 @@ class CapacitySizingAPI(APIView):
             generator = User.objects.get(id=user_id)
 
             # Extract Portfolio IDs
-            solar_portfolio_ids = data.get("solar_portfolio", [])
-            wind_portfolio_ids = data.get("wind_portfolio", [])
-            ess_portfolio_ids = data.get("ess_portfolio", [])
+            solar_portfolio_ids = data.get("solar", [])
+            wind_portfolio_ids = data.get("wind", [])
+            ess_portfolio_ids = data.get("ess", [])
             logger.debug(f'solar p: {solar_portfolio_ids}')
             logger.debug(f'wind p: {wind_portfolio_ids}')
             logger.debug(f'ess p: {ess_portfolio_ids}')
@@ -4452,6 +4565,8 @@ class CapacitySizingAPI(APIView):
             # Initialize data for the current generator
             input_data[generator.username] = {}
             # Add Solar projects if solar_data exists
+            solar_gen_all = pd.DataFrame()
+            wind_gen_all = pd.DataFrame()
             if solar_data.exists():
                 input_data[generator.username]["Solar"] = {}
                 for solar in solar_data:
@@ -4462,12 +4577,19 @@ class CapacitySizingAPI(APIView):
                     profile_data = self.extract_profile_data(solar.hourly_data.path)
                     # Divide all rows by 5
                     profile_data = profile_data / solar.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity 
+                    profile_df = apply_degradation(profile_data, solar_degradation, PPA_tenure)
                     input_data[generator.username]["Solar"][solar.project] = {
                         "profile": profile_data,
                         "max_capacity": solar.available_capacity,
                         "marginal_cost": solar.expected_tariff * 1000,
                         "capital_cost": solar.capital_cost,
                     }
+                    solar_gen_all[f'{generator.username}_Solar_{solar.project}'] = profile_df.reset_index(drop=True)
+        
+                if not solar_gen_all.empty:
+                    solar_gen_all.to_excel("extended_solar_generation.xlsx", index=False)
+                    print("✅ Solar generation file saved as 'extended_solar_generation.xlsx'")
+
             logger.debug(f'sssss: {input_data}')
             # Add Wind projects if wind_data exists
             if wind_data.exists():
@@ -4480,12 +4602,19 @@ class CapacitySizingAPI(APIView):
                     profile_data = self.extract_profile_data(wind.hourly_data.path)
                     # Divide all rows by 5
                     profile_data = profile_data / wind.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity
+                    profile_df = profile_df * PPA_tenure
                     input_data[generator.username]["Wind"][wind.project] = {
                         "profile": profile_data,
                         "max_capacity": wind.available_capacity,
                         "marginal_cost": wind.expected_tariff * 1000,
                         "capital_cost": wind.capital_cost,
                     }
+                    wind_gen_all[f'{generator.username}_Wind_{wind.project}'] = profile_df.reset_index(drop=True)
+        
+                if not wind_gen_all.empty:
+                    wind_gen_all.to_excel("extended_wind_generation.xlsx", index=False)
+                    print("✅ Wind generation file saved as 'extended_wind_generation.xlsx'")
+
             logger.debug(f'sssss: {input_data}')
             # Add ESS projects if ess_data exists
             if ess_data.exists():
@@ -4497,6 +4626,8 @@ class CapacitySizingAPI(APIView):
                         "efficiency": ess.efficiency_of_dispatch,
                         "marginal_cost": ess.expected_tariff * 1000,
                         "capital_cost": ess.capital_cost,
+                        'max_energy_capacity': ess.available_capacity,
+                        'battery_degradation': bess_degradation
                     }
             logger.debug(f'sssss: {input_data}')
             
@@ -4517,7 +4648,7 @@ class CapacitySizingAPI(APIView):
                 hourly_demand = pd.concat([hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
 
             logger.debug(f'input data: {input_data}')
-            response_data = optimization_model(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, valid_combinations=valid_combinations, curtailment_selling_price=curtailment_selling_price, sell_curtailment_percentage=sell_curtailment_percentage, annual_curtailment_limit=annual_curtailment_limit)
+            response_data = optimization_model_capacity_sizing(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, OA_cost=OA_cost, curtailment_selling_price=curtailment_selling_price, sell_curtailment_percentage=sell_curtailment_percentage, annual_curtailment_limit=annual_curtailment_limit, peak_target=peak_hour_availability, peak_hours=peak_hours, battery_max_hours=4)
             logger.debug(f'capacity sizing output: {response_data}')
             # if response_data == 'The demand cannot be met by the IPPs':
             if response_data.get('error'):
@@ -5804,7 +5935,7 @@ class GeneratorQuotations(APIView):
                 return Response({"message": message}, status=status.HTTP_200_OK)
 
             if sent_from == 'Generator':
-                if quotation.count == 1 or quotation.count == 3:
+                if quotation.count == 1 or quotation.count == 3 or quotation.count == 5:
                     quotation.price = price
                     quotation.offered_capacity = offered_capacity
                     quotation.generator_status = 'Counter Offer Sent'
@@ -5814,7 +5945,7 @@ class GeneratorQuotations(APIView):
                 else:
                     return Response({"error": "You can't send counter offer again."}, status=status.HTTP_400_BAD_REQUEST)
             elif sent_from == 'Consumer':
-                if quotation.count == 2:
+                if quotation.count == 2 or quotation.count == 4:
                     quotation.price = price
                     quotation.offered_capacity = offered_capacity
                     quotation.generator_status = 'Counter Offer Received'
