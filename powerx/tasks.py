@@ -5,7 +5,8 @@ import shutil
 from accounts.models import User
 from celery import shared_task
 from powerx.AI_Model.model_scheduling import run_models_sequentially
-from powerx.kaggle_runner import run_notebook, upload_dataset, upload_notebook
+# from powerx.kaggle_runner import run_notebook, upload_dataset, upload_notebook
+from powerx.kaggle_runner_new import run_notebook, run_pipeline, upload_dataset, upload_notebook
 from powerx.test_scraper import scrape_data
 from django.core.mail import send_mail
 from energy_transition import settings
@@ -215,6 +216,71 @@ def scrape_iex_data():
         return f"Scrapping Task failed: {str(e)}"
 
 
+def extract_version_number(filename):
+    match = re.search(r"_(\d+)\.pkl$", filename)
+    return int(match.group(1)) if match else -1
+
+
+def copy_latest_models():
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    mcp_folder = os.path.join(settings.BASE_DIR, "outputs", "Next_day_MCP_final")
+    mcv_folder = os.path.join(settings.BASE_DIR, "outputs", "Next_day_MCV_final")
+
+    dest_folder = os.path.join(settings.BASE_DIR, "powerx", "AI_Model", "models")
+    os.makedirs(dest_folder, exist_ok=True)
+
+    # Only consider today's files
+    def get_today_files(folder):
+        return [
+            os.path.join(folder, f)
+            for f in os.listdir(folder)
+            if f.startswith(today_str) and f.endswith(".pkl")
+        ]
+
+    new_files = get_today_files(mcp_folder) + get_today_files(mcv_folder)
+
+    if not new_files:
+        print(f"No model files found for today: {today_str}")
+        return
+
+    for new_file in new_files:
+        new_filename = os.path.basename(new_file)
+        new_version = extract_version_number(new_filename)
+
+        # Identify model core (everything except last _<number>.pkl)
+        core_name = "_".join(new_filename.split("_")[:-1])  # remove version
+        core_prefix = "_".join(core_name.split("_")[1:])     # remove date prefix
+
+        # Find already present files of same type in destination
+        existing_files = [
+            os.path.join(dest_folder, f)
+            for f in os.listdir(dest_folder)
+            if core_prefix in f
+        ]
+
+        highest_existing_version = -1
+        existing_file_to_remove = None
+
+        for old_file in existing_files:
+            old_version = extract_version_number(os.path.basename(old_file))
+            if old_version > highest_existing_version:
+                highest_existing_version = old_version
+                existing_file_to_remove = old_file
+
+        # Compare versions
+        if new_version > highest_existing_version:
+            if existing_file_to_remove:
+                os.remove(existing_file_to_remove)
+                print(f"Removed old: {os.path.basename(existing_file_to_remove)}")
+
+            shutil.copy2(new_file, dest_folder)
+            print(f"Copied new: {new_filename}")
+        else:
+            print(f"Skipped {new_filename}: newer version already present.")
+
+    print("Latest model sync completed.")
+
 
 @shared_task
 def model_training():
@@ -251,102 +317,106 @@ def model_training():
         today_str = datetime.now().strftime("%Y-%m-%d")
         file_name = f"{today_str}_input_data.csv"
 
-        # Path to save file on server
+        # ------------ 1) SAVE IN BASE_DIR / inputs ------------
+        inputs_dir = os.path.join(settings.BASE_DIR, "inputs")
+        os.makedirs(inputs_dir, exist_ok=True)   # create folder if not exists
+        file_path_inputs = os.path.join(inputs_dir, file_name)
+
+        # ------------ 2) SAVE IN CURRENT DIR / input_data ------------
         current_dir = os.path.dirname(os.path.abspath(__file__))
         input_data_dir = os.path.join(current_dir, "input_data")
         os.makedirs(input_data_dir, exist_ok=True)
-        file_path = os.path.join(input_data_dir, file_name)
+        file_path_input_data = os.path.join(input_data_dir, file_name)
 
-        # Write CSV to disk
-        with open(file_path, "w", newline="", encoding="utf-8") as csvfile:
-            writer = csv.writer(csvfile)
+        def write_csv(path):
+            with open(path, "w", newline="", encoding="utf-8") as csvfile:
+                writer = csv.writer(csvfile)
 
-            # Header
-            writer.writerow([
-                "Date",
-                "Hour",
-                "Time_x",
-                "Purchase Bid (MW)",
-                "Total Sell Bid (MW)",
-                "Sell bid Solar (MW)",
-                "Sell bid Non-Solar (MW)",
-                "Sell bid Hydro (MW)",
-                "MCV Total (MW)",
-                "MCV Solar (MW)",
-                "MCV Non-Solar (MW)",
-                "MCV Hydro (MW)",
-                "MCP (Rs/MWh)"
-            ])
-
-            queryset = CleanData.objects.all().order_by("date", "hour", "id")
-            index = 0
-            for obj in queryset:
-                time_x = TIME_SLOTS[index % 96]
-                index += 1
-
+                # Header
                 writer.writerow([
-                    obj.date.strftime("%Y-%m-%d"),
-                    obj.hour,
-                    time_x,
-                    obj.purchase_bid,
-                    obj.total_sell_bid,
-                    obj.sell_bid_solar,
-                    obj.sell_bid_non_solar,
-                    obj.sell_bid_hydro,
-                    obj.mcv_total,
-                    obj.mcv_solar,
-                    obj.mcv_non_solar,
-                    obj.mcv_hydro,
-                    obj.mcp,
+                    "Date", "Hour", "Time_x",
+                    "Purchase Bid (MW)", "Total Sell Bid (MW)",
+                    "Sell bid Solar (MW)", "Sell bid Non-Solar (MW)", "Sell bid Hydro (MW)",
+                    "MCV Total (MW)", "MCV Solar (MW)", "MCV Non-Solar (MW)", "MCV Hydro (MW)",
+                    "MCP (Rs/MWh)"
                 ])
 
-        logging.info("file generated successfully")
+                queryset = CleanData.objects.all().order_by("date", "hour", "id")
+                index = 0
+                for obj in queryset:
+                    time_x = TIME_SLOTS[index % 96]
+                    index += 1
+
+                    writer.writerow([
+                        obj.date.strftime("%Y-%m-%d"),
+                        obj.hour,
+                        time_x,
+                        obj.purchase_bid,
+                        obj.total_sell_bid,
+                        obj.sell_bid_solar,
+                        obj.sell_bid_non_solar,
+                        obj.sell_bid_hydro,
+                        obj.mcv_total,
+                        obj.mcv_solar,
+                        obj.mcv_non_solar,
+                        obj.mcv_hydro,
+                        obj.mcp,
+                    ])
+
+        # Write CSV in both folders
+        write_csv(file_path_inputs)
+        write_csv(file_path_input_data)
+
+        logging.info("file generated successfully in both folders")
 
         # model training using kaggle api
-        upload_dataset()
-        upload_notebook()
-        run_notebook()
+        # upload_dataset()
+        # upload_notebook()
+        # run_notebook()
+        run_pipeline()
 
-        src_folder = os.path.join(settings.BASE_DIR, "outputs")  # <-- change to your source folder
-        dest_folder = os.path.join(settings.BASE_DIR, "powerx", "AI_Model", "models")
+        copy_latest_models()
 
-        if not os.path.exists(dest_folder):
-            os.makedirs(dest_folder)
+        # src_folder = os.path.join(settings.BASE_DIR, "outputs")  # <-- change to your source folder
+        # dest_folder = os.path.join(settings.BASE_DIR, "powerx", "AI_Model", "models")
 
-        # Regex to match filenames like 2025-09-26_next_day_mcp_model.pkl
-        pattern = re.compile(r"(\d{4}-\d{2}-\d{2})_(next_day_mcp_model|next_day_mcv|scaler)\.pkl$")
+        # if not os.path.exists(dest_folder):
+        #     os.makedirs(dest_folder)
 
-        # Collect all files with valid pattern
-        dated_files = {}
-        for filename in os.listdir(src_folder):
-            match = pattern.match(filename)
-            if match:
-                file_date_str = match.group(1)
-                try:
-                    file_date = datetime.strptime(file_date_str, "%Y-%m-%d").date()
-                    dated_files.setdefault(file_date, []).append(filename)
-                except ValueError:
-                    continue
+        # # Regex to match filenames like 2025-09-26_next_day_mcp_model.pkl
+        # pattern = re.compile(r"(\d{4}-\d{2}-\d{2})_(next_day_mcp_model|next_day_mcv|scaler)\.pkl$")
 
-        if not dated_files:
-            print("⚠️ No valid model files found in source folder.")
-            return
+        # # Collect all files with valid pattern
+        # dated_files = {}
+        # for filename in os.listdir(src_folder):
+        #     match = pattern.match(filename)
+        #     if match:
+        #         file_date_str = match.group(1)
+        #         try:
+        #             file_date = datetime.strptime(file_date_str, "%Y-%m-%d").date()
+        #             dated_files.setdefault(file_date, []).append(filename)
+        #         except ValueError:
+        #             continue
 
-        # Find latest date
-        latest_date = max(dated_files.keys())
-        latest_files = dated_files[latest_date]
+        # if not dated_files:
+        #     print("⚠️ No valid model files found in source folder.")
+        #     return
 
-        print(f"📌 Latest date detected: {latest_date}")
-        print(f"📂 Files to copy: {latest_files}")
+        # # Find latest date
+        # latest_date = max(dated_files.keys())
+        # latest_files = dated_files[latest_date]
 
-        # Copy each file to destination
-        for filename in latest_files:
-            src_path = os.path.join(src_folder, filename)
-            dest_path = os.path.join(dest_folder, filename)
-            shutil.copy2(src_path, dest_path)
-            print(f"✅ Copied {filename}")
+        # print(f"📌 Latest date detected: {latest_date}")
+        # print(f"📂 Files to copy: {latest_files}")
 
-        print("🎯 Latest AI Model files copied successfully!")
+        # # Copy each file to destination
+        # for filename in latest_files:
+        #     src_path = os.path.join(src_folder, filename)
+        #     dest_path = os.path.join(dest_folder, filename)
+        #     shutil.copy2(src_path, dest_path)
+        #     print(f"✅ Copied {filename}")
+
+        # print("🎯 Latest AI Model files copied successfully!")
         
     except Exception as e:
         tb = traceback.format_exc()  # Get the full traceback

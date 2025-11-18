@@ -1,0 +1,10 @@
+{
+  "id": "prushaltech13/next-day-mcp-final",
+  "title": "next_day_mcp_final",
+  "code_file": "Next_day_MCP_final.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "dataset_sources": ["prushaltech13/my-input-dataset"]
+}

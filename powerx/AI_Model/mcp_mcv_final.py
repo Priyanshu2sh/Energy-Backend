@@ -1,3 +1,4 @@
+import glob
 import logging
 from pymongo import MongoClient
 import pandas as pd
@@ -34,6 +35,16 @@ models_folder = os.path.join(current_dir, "models")
 
 model_path_mcp = os.path.join(models_folder, "next_day_mcp_model.pkl")
 model_path_mcv = os.path.join(models_folder, "next_day_mcv.pkl")
+# For MCP
+# mcp_pattern = os.path.join(models_folder, "*_next_day_mcp_model_*.pkl")
+# mcp_files = glob.glob(mcp_pattern)
+# model_path_mcp = mcp_files[0] if mcp_files else None
+
+# # For MCV
+# mcv_pattern = os.path.join(models_folder, "*_next_day_mcv_*.pkl")
+# mcv_files = glob.glob(mcv_pattern)
+# model_path_mcv = mcv_files[0] if mcv_files else None
+
 scaler_path = os.path.join(models_folder, "scaler.pkl")
 
 best_model_mcp = joblib.load(model_path_mcp)
