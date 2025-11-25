@@ -1,7 +1,7 @@
 import pypsa
 def setup_network(demand_data=None, solar_profile=None, wind_profile=None, Solar_maxCapacity=None, Solar_captialCost=None, Solar_marginalCost=None,
                   Wind_maxCapacity=None, Wind_captialCost=None, Wind_marginalCost=None,
-                  Battery_captialCost = None, Battery_marginalCost= None,Battery_Eff_store=None,Battery_Eff_dispatch=None,snapshots=None,ess_name=None,solar_name=None,wind_name=None,Battery_max_energy_capacity=None):
+                  Battery_captialCost = None, Battery_marginalCost= None,Battery_Eff_store=None,Battery_Eff_dispatch=None,Battery_standing_loss=None,snapshots=None,ess_name=None,solar_name=None,wind_name=None,max_hours=None,transmission_capacity=None):
     """
     Function to initialize and set up the PyPSA network with demand, solar, wind, battery storage,
     and unmet demand generator.
@@ -69,16 +69,17 @@ def setup_network(demand_data=None, solar_profile=None, wind_profile=None, Solar
             network.add("StorageUnit",
                         "Battery",
                         bus="ElectricityBus",
-                        p_nom_extendable=True,             # Allow optimization of storage capacity (power)
-                        capital_cost=Battery_captialCost,              # Capital cost in INR (₹60 lakh/MW)
-                        marginal_cost=Battery_marginalCost,                   # Operational cost per MWh (e.g., degradation cost)
-                        efficiency_store=Battery_Eff_store,              # Charging efficiency
-                        efficiency_dispatch=Battery_Eff_dispatch,           # Discharging efficiency# Human-readable, for battery energy cap (MWh/MW = h)
-                        p_nom_max=Battery_max_energy_capacity,  # Human-readable, for battery energy cap (MWh/MW = h)
-                        # DoD=0.2,           # Minimum state of charge (1 - DoD), for DoD = 0.8
-            )
+                        p_nom_extendable=True,  # Allow optimization of storage power capacity (MW)
+                        # max_hours=float(Battery_max_energy_capacity),
+                        max_hours=float(max_hours),
+                        capital_cost=Battery_captialCost,  # This should now include BOTH power and energy costs
+                        marginal_cost=Battery_marginalCost,
+                        efficiency_store=Battery_Eff_store,
+                        efficiency_dispatch=Battery_Eff_dispatch,
+                        standing_loss=Battery_standing_loss,
+                        # cyclic_state_of_charge=True  # Ensures battery starts and ends at same SOC
+                )
 
-            #e_nom extendable true  
 
     # Add generator for unmet demand
     network.add("Generator", "Unmet_Demand",

@@ -2,62 +2,6 @@ import pandas as pd
 import os
 from .main import optimization_model_capacity_sizing
 
-def get_file_path(prompt):
-    while True:
-        path = input(prompt)
-        if path == '0':
-            return None
-        if os.path.isfile(path):
-            return path
-        else:
-            print("File not found. Please enter a valid file path or 0 if not available.")
-
-def get_float(prompt, default=None):
-    while True:
-        val = input(f"{prompt} [{default if default is not None else 'required'}]: ")
-        if val == '' and default is not None:
-            return default
-        try:
-            return float(val)
-        except ValueError:
-            print("Invalid input. Please enter a number.")
-
-def get_profile_inputs(profile_type):
-    profiles = []
-    n = int(get_float(f"How many {profile_type} profiles? Enter 0 if none", default=0))
-    for i in range(n):
-        print(f"Enter details for {profile_type} profile #{i+1}:")
-        path = get_file_path(f"  Path to {profile_type} profile Excel file: ")
-        max_capacity = get_float(f"  Max capacity (MW): ")
-        capital_cost = get_float(f"  Capital cost: ")
-        marginal_cost = get_float(f"  Marginal cost: ")
-        profiles.append({
-            'path': path,
-            'max_capacity': max_capacity,
-            'capital_cost': capital_cost,
-            'marginal_cost': marginal_cost
-        })
-    return profiles
-
-def get_battery_inputs():
-    batteries = []
-    n = int(get_float("How many battery systems? Enter 0 if none", default=0))
-    for i in range(n):
-        print(f"Enter details for battery system #{i+1}:")
-        capital_cost = get_float("  Capital cost: ")
-        marginal_cost = get_float("  Marginal cost: ")
-        efficiency = get_float("  Efficiency (0-1): ")
-        DoD = get_float("  Depth of Discharge (0-1): ")
-        max_energy_capacity = get_float("  Max energy capacity (MWh): ")
-        batteries.append({
-            'capital_cost': capital_cost,
-            'marginal_cost': marginal_cost,
-            'efficiency': efficiency,
-            'DoD': DoD,
-            'max_energy_capacity': max_energy_capacity
-        })
-    return batteries
-
 def apply_degradation(df, degradation_pct, years):
     """Apply yearly degradation across full hourly dataset."""
     frames = []

@@ -11,17 +11,21 @@ logger = logging.getLogger('debug_logger')  # Use the new debug logger
 
 def analyze_network_results(network=None, sell_curtailment_percentage=None, curtailment_selling_price=None,
                             solar_profile=None, wind_profile=None, results_dict=None, OA_cost=None,
-                            ess_name=None, solar_name=None, wind_name=None, ipp_name=None, battery_max_hours=None):
-  # if solar_profile is not None and not solar_profile.empty:
-  #  solar_name = solar_profile.name
-  # if wind_profile is not None and not wind_profile.empty:
-  #  wind_name = wind_profile.name
+                            ess_name=None, solar_name=None, wind_name=None, ipp_name=None, max_hours=None, transmission_capacity=None, monthly_availability=None):
+  
+  if solar_profile is not None and not solar_profile.empty:
+   solar_name = solar_profile.name
+  if wind_profile is not None and not wind_profile.empty:
+   wind_name = wind_profile.name
 
   try:
       # Solve the optimization model
       lopf_status = network.optimize.solve_model()
       if lopf_status[1] == "infeasible":
           raise ValueError("Optimization returned 'infeasible' status.")
+
+      # Assign shadow prices (duals) to the network
+      network.optimize.assign_duals()
 
       # Initialize placeholders for results
       gross_energy_generation = 0
@@ -43,7 +47,6 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
 
           # Solar costs
           solar_capital_cost = solar_capacity * network.generators.at["Solar", "capital_cost"]
-          # solar_marginal_cost = (solar_allocation * network.generators.at["Solar", "marginal_cost"]).sum(axis=0) * 2
           solar_marginal_cost = (solar_allocation * network.generators.at["Solar", "marginal_cost"]).sum(axis=0) 
           total_solar_cost = solar_capital_cost + solar_marginal_cost
       else:
@@ -63,7 +66,6 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
 
           # Wind costs
           wind_capital_cost = wind_capacity * network.generators.at["Wind", "capital_cost"]
-          # wind_marginal_cost = (wind_allocation * network.generators.at["Wind", "marginal_cost"]).sum(axis=0) * 2
           wind_marginal_cost = (wind_allocation * network.generators.at["Wind", "marginal_cost"]).sum(axis=0)
           total_wind_cost = wind_capital_cost + wind_marginal_cost
       else:
@@ -74,20 +76,18 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
 
       # Battery SOC, Discharge, Charge
       if ess_name is not None:
-          battery_max_hours = battery_max_hours # Default value, replace with user input if available
           battery_soc = network.storage_units_t.state_of_charge["Battery"]
           ess_discharge = network.storage_units_t.p_dispatch["Battery"]
           ess_discharge[abs(ess_discharge) < 1e-5] = 0
           ess_charge = network.storage_units_t.p_store["Battery"]
-          gross_energy_allocation += (ess_discharge - ess_charge)
           ess_capacity = network.storage_units.at["Battery", "p_nom_opt"]
-          battery_cap = ess_capacity * battery_max_hours
+          max_battery_energy = ess_capacity * max_hours if max_hours else 0
           ess_capital_cost = ess_capacity * network.storage_units.at["Battery", "capital_cost"]
-          # ess_marginal_cost = ((((network.storage_units_t.p_dispatch["Battery"] * network.storage_units.at["Battery", "marginal_cost"]).sum(axis=0)) + ((network.storage_units_t.p_store["Battery"] * network.storage_units.at["Battery", "marginal_cost"]).sum(axis=0)))) * 2
-          ess_marginal_cost = ((((network.storage_units_t.p_dispatch["Battery"] * network.storage_units.at["Battery", "marginal_cost"]).sum(axis=0)) + ((network.storage_units_t.p_store["Battery"] * network.storage_units.at["Battery", "marginal_cost"]).sum(axis=0)))) 
+          ess_marginal_cost = (
+              (network.storage_units_t.p_dispatch["Battery"] * network.storage_units.at["Battery", "marginal_cost"]).sum(axis=0) +
+              (network.storage_units_t.p_store["Battery"] * network.storage_units.at["Battery", "marginal_cost"]).sum(axis=0)
+          )
           total_ess_cost = ess_capital_cost + ess_marginal_cost
-
-          # Max hours 
       else:
           ess_capacity = 0
           battery_soc = 0
@@ -96,55 +96,155 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
           ess_capital_cost = 0
           ess_marginal_cost = 0
           total_ess_cost = 0
+        
+      total_allocated = solar_allocation + wind_allocation + (ess_discharge - ess_charge)
 
-      # Unmet demand and total demand met by allocation
-      virtual_gen = network.generators_t.p['Unmet_Demand']
-      demand_met = np.where(virtual_gen > 0, "No", "Yes")
+      if transmission_capacity is not None:
+        transmitted = np.minimum(total_allocated, transmission_capacity)
+      else:
+        transmitted = total_allocated
 
-  # Curtailment calculations
-      gross_curtailment = gross_energy_generation - solar_wind_allocation
-      gross_curtailment[gross_curtailment < 0] = 0
-      # gross_curtailment[abs(ess_discharge) < 1e-5] = 0
-      # annual_curtailment = gross_curtailment.sum() * 2
-      annual_curtailment = gross_curtailment.sum() 
-      gross_curtailment_marginal=0
+      # Calculate generator-level curtailment (waste at source, before transmission)
+      gross_curtailment = 0
+      if "Solar" in network.generators.index:
+          gross_curtailment += solar_generation - solar_allocation
+      if "Wind" in network.generators.index:
+          gross_curtailment += wind_generation - wind_allocation
+      gross_curtailment[gross_curtailment < 0] = 0  # Ensure non-negative
 
-      # Curtailment costs
+      # If transmission limits transmitted power, add extra curtailment (e.g., if total_allocated > transmitted, excess is wasted)
+      transmission_curtailment = np.maximum(0, total_allocated - transmitted)
+      gross_curtailment += transmission_curtailment
+
+      # Calculate sellable excess (transmitted power exceeding demand, for revenue)
+      sellable = np.maximum(0, transmitted - demand)
+      
+
+      print(f"Debug - Excess Generation (sellable): {np.sum(sellable)}")
+      print(f"Debug - Total Allocated: {np.sum(total_allocated)}")
+      print(f"Debug - Transmitted: {np.sum(transmitted)}")
+      print(f"Debug - Gross Curtailment: {np.sum(gross_curtailment)}")
+      print(f"Debug - ESS Charge: {np.sum(ess_charge)}")
+
+      gross_curtailment_marginal = 0
       if "Solar" in network.generators.index:
           solar_curtailment = (network.generators_t.p_max_pu['Solar'] * solar_capacity) - solar_allocation
           solar_curtailment[solar_curtailment < 0] = 0
           gross_curtailment_marginal += solar_curtailment * network.generators.at["Solar", "marginal_cost"]
-        # solar_curtailment = gross_curtailment * (solar_generation / gross_energy_generation)
-        # solar_curtailment_cost = (solar_curtailment * network.generators.at["Solar", "marginal_cost"]).sum(axis=0)
-      else:
-          solar_curtailment = 0
-
       if "Wind" in network.generators.index:
           wind_curtailment = (network.generators_t.p_max_pu['Wind'] * wind_capacity) - wind_allocation
           wind_curtailment[wind_curtailment < 0] = 0
           gross_curtailment_marginal += wind_curtailment * network.generators.at["Wind", "marginal_cost"]
-        #  wind_curtailment = gross_curtailment * (wind_generation / gross_energy_generation)
-        # wind_curtailment_cost = (wind_curtailment * network.generators.at["Wind", "marginal_cost"]).sum(axis=0)
-      else:
-          wind_curtailment = 0
-
-      sell_curtailment = sell_curtailment_percentage * (solar_curtailment + wind_curtailment) * curtailment_selling_price
-      # total_curtailment_cost = (gross_curtailment_marginal - sell_curtailment).sum(axis=0) * 2
-      total_curtailment_cost = (gross_curtailment_marginal - sell_curtailment).sum(axis=0) 
+    
+      sell_curtailment = sell_curtailment_percentage * sellable * curtailment_selling_price
+      # Total curtailment cost
+      total_curtailment_cost = (gross_curtailment_marginal - sell_curtailment).sum(axis=0)
 
       # Total cost calculation
       total_cost = total_solar_cost + total_wind_cost + total_curtailment_cost + total_ess_cost
-      # annual_demand_met = gross_energy_allocation.sum() * 2
-      annual_demand_met = gross_energy_allocation.sum()
+      # annual_demand_met = gross_energy_allocation.sum()  # OLD: Overestimates
+
+      virtual_gen = np.maximum(0, demand - transmitted)
+      demand_met = np.minimum(demand, transmitted)
+
+      # -------------------------
+      # Monthly fulfillment summary
+      # -------------------------
+      try:
+          # Aggregate by calendar month across the whole time series (sums all years together)
+          monthly_demand = demand.groupby(demand.index.month).sum()
+          monthly_transmitted = pd.Series(transmitted, index=demand.index).groupby(demand.index.month).sum()
+          monthly_met = demand_met.groupby(demand.index.month).sum()
+
+          percent_met = (monthly_met / monthly_demand.replace({0: np.nan})) * 100
+          percent_met = percent_met.fillna(0)
+
+          # Prepare target percentages if provided
+          target_pct = None
+          meets_target = None
+          if monthly_availability is not None:
+              # Normalize input to length-12 list of percentages (0-100)
+              if isinstance(monthly_availability, (list, tuple, pd.Series)):
+                  targets = list(monthly_availability)
+              else:
+                  targets = [monthly_availability]
+              # Expand single-value target to 12 months
+              if len(targets) == 1:
+                  targets = targets * 12
+              # Convert fractions (0-1) to percentages and ensure values are in 0-100
+              normalized = []
+              for t in targets:
+                  try:
+                      val = float(t)
+                  except Exception:
+                      val = 0.0
+                  if val <= 1:
+                      val = val * 100
+                  normalized.append(val)
+              target_pct = pd.Series(normalized, index=range(1, 13))
+
+              # Compare percent_met (index 1..12) to target_pct
+              meets_target = percent_met >= target_pct
+
+          # Build monthly summary DataFrame
+          monthly_summary = pd.DataFrame({
+              'Month': percent_met.index,
+              'Demand (MWh)': monthly_demand.values,
+              'Transmitted (MWh)': monthly_transmitted.values,
+              'Met (MWh)': monthly_met.values,
+              'Percent Met (%)': percent_met.values
+          })
+          if target_pct is not None:
+              monthly_summary['Target (%)'] = target_pct.values
+              monthly_summary['Meets Target'] = meets_target.values
+
+          # Save monthly summary to Excel
+          monthly_path = Path("optimization_monthly_summary.xlsx")
+          for attempt in range(3):
+              try:
+                  monthly_summary.to_excel(monthly_path, index=False)
+                  break
+              except PermissionError:
+                  logger.error(f"Attempt {attempt + 1}: Unable to write to {monthly_path}. Ensure the file is not open.")
+                  if attempt < 2:
+                      time.sleep(2)
+                  else:
+                      raise
+
+          # Print a concise monthly summary to console
+          print("\n=== Monthly Fulfillment Summary ===")
+          print(monthly_summary)
+
+      except Exception as me_err:
+          logger.debug(f"Could not compute monthly summary: {me_err}")
+
+      
+      annual_demand_met = demand_met.sum()  # NEW: Actual met demand
       per_unit_cost = total_cost / annual_demand_met if annual_demand_met > 0 else float('inf')
-      annual_demand_offset = 100 -  (virtual_gen.sum() / network.loads_t.p_set.sum().sum()) * 100
+
+      # Define unmet (virtual) generation as unmet demand and demand met by allocation
+      # virtual_gen: energy not met (demand > transmitted)
+      # demand_met: energy met (min of demand and transmitted)
+      virtual_gen = np.maximum(0, demand - transmitted)
+      demand_met = np.minimum(demand, transmitted)
+
+      # Annual demand offset as percentage of unmet demand relative to total annual demand
+      total_annual_demand = network.loads_t.p_set.sum().sum() if hasattr(network, "loads_t") else demand.sum()
+      annual_demand_offset = 100 - (virtual_gen.sum() / total_annual_demand) * 100 if total_annual_demand > 0 else 0
+
       # annual_generation = gross_energy_generation.sum() * 2
       annual_generation = gross_energy_generation.sum()
-      excess_percentage = (annual_curtailment / annual_generation) * 100
+      # Annual curtailment (sum of hourly curtailment)
+      annual_curtailment = gross_curtailment.sum()
+      excess_percentage = (annual_curtailment / annual_generation) * 100 if annual_generation > 0 else 0
+
       # annual_demand = demand.sum() * 2
-      annual_demand = demand.sum() 
-      OA_cost=OA_cost
-      Final_cost=OA_cost + per_unit_cost
+      annual_demand = demand.sum()
+      # Battery total capacity in MWh (use max_battery_energy calculated earlier or 0)
+      battery_cap = max_battery_energy
+
+      OA_cost = OA_cost
+      Final_cost = OA_cost + per_unit_cost
       # objective_for_aggregate_cost = network.objective * 2
       objective_for_aggregate_cost = network.objective 
 
@@ -154,7 +254,7 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
           "Optimal Wind Capacity (MW)": wind_capacity,
           "Optimal Battery Capacity (MW)": ess_capacity,
           "Battery total Capacity (MWh)": battery_cap,
-          "Battery max hours (h)": battery_max_hours,
+          "Battery max hours (h)": max_hours,
           "Per Unit Cost (INR/MWh)": per_unit_cost,
           "Final Cost (INR)": Final_cost,
           "Total Cost (INR)": total_cost,
@@ -255,21 +355,98 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
                   "Demand met": demand_met
 
               }
-      # results_df.to_excel(f"results_{key}.xlsx", index=False)
-      # logger.debug(f"{key} - Optimization successful.")
-      # logger.debug(results_dict)
+     
 
-      # logger.debug("Optimization completed successfully.")
+      attributes_dict = {}
+      if "Solar" in network.generators.index:
+            solar_attrs = {
+                'p_nom_opt': network.generators.at["Solar", "p_nom_opt"],
+                'p': network.generators_t.p["Solar"],
+            }
+            # Add shadow prices if available
+            if 'mu_upper' in network.generators_t and "Solar" in network.generators_t.mu_upper.columns:
+                solar_attrs['mu_upper'] = network.generators_t.mu_upper["Solar"]
+            if 'mu_lower' in network.generators_t and "Solar" in network.generators_t.mu_lower.columns:
+                solar_attrs['mu_lower'] = network.generators_t.mu_lower["Solar"]
+            if 'mu_p_set' in network.generators_t and "Solar" in network.generators_t.mu_p_set.columns:
+                solar_attrs['mu_p_set'] = network.generators_t.mu_p_set["Solar"]
+            if 'mu_ramp_limit_up' in network.generators_t and "Solar" in network.generators_t.mu_ramp_limit_up.columns:
+                solar_attrs['mu_ramp_limit_up'] = network.generators_t.mu_ramp_limit_up["Solar"]
+            if 'mu_ramp_limit_down' in network.generators_t and "Solar" in network.generators_t.mu_ramp_limit_down.columns:
+                solar_attrs['mu_ramp_limit_down'] = network.generators_t.mu_ramp_limit_down["Solar"]
+            # Committable attributes (if committable=True was set, but in this model it's not)
+            if 'status' in network.generators_t and "Solar" in network.generators_t.status.columns:
+                solar_attrs['status'] = network.generators_t.status["Solar"]
+            if 'start_up' in network.generators_t and "Solar" in network.generators_t.start_up.columns:
+                solar_attrs['start_up'] = network.generators_t.start_up["Solar"]
+            if 'shut_down' in network.generators_t and "Solar" in network.generators_t.shut_down.columns:
+                solar_attrs['shut_down'] = network.generators_t.shut_down["Solar"]
+            attributes_dict['Solar'] = pd.DataFrame(solar_attrs)
 
-  except ValueError as ve:
-    logger.debug(" ")
+      # For Wind Generator
+      if "Wind" in network.generators.index:
+            wind_attrs = {
+                'p_nom_opt': network.generators.at["Wind", "p_nom_opt"],
+                'p': network.generators_t.p["Wind"],
+            }
+            # Add shadow prices if available
+            if 'mu_upper' in network.generators_t and "Wind" in network.generators_t.mu_upper.columns:
+                wind_attrs['mu_upper'] = network.generators_t.mu_upper["Wind"]
+            if 'mu_lower' in network.generators_t and "Wind" in network.generators_t.mu_lower.columns:
+                wind_attrs['mu_lower'] = network.generators_t.mu_lower["Wind"]
+            if 'mu_p_set' in network.generators_t and "Wind" in network.generators_t.mu_p_set.columns:
+                wind_attrs['mu_p_set'] = network.generators_t.mu_p_set["Wind"]
+            if 'mu_ramp_limit_up' in network.generators_t and "Wind" in network.generators_t.mu_ramp_limit_up.columns:
+                wind_attrs['mu_ramp_limit_up'] = network.generators_t.mu_ramp_limit_up["Wind"]
+            if 'mu_ramp_limit_down' in network.generators_t and "Wind" in network.generators_t.mu_ramp_limit_down.columns:
+                wind_attrs['mu_ramp_limit_down'] = network.generators_t.mu_ramp_limit_down["Wind"]
+            # Committable attributes
+            if 'status' in network.generators_t and "Wind" in network.generators_t.status.columns:
+                wind_attrs['status'] = network.generators_t.status["Wind"]
+            if 'start_up' in network.generators_t and "Wind" in network.generators_t.start_up.columns:
+                wind_attrs['start_up'] = network.generators_t.start_up["Wind"]
+            if 'shut_down' in network.generators_t and "Wind" in network.generators_t.shut_down.columns:
+                wind_attrs['shut_down'] = network.generators_t.shut_down["Wind"]
+            attributes_dict['Wind'] = pd.DataFrame(wind_attrs)
 
+      # For Battery StorageUnit
+      if "Battery" in network.storage_units.index:
+            battery_attrs = {
+                'p_nom_opt': network.storage_units.at["Battery", "p_nom_opt"],
+                'p_dispatch': network.storage_units_t.p_dispatch["Battery"],
+                'p_store': network.storage_units_t.p_store["Battery"],
+                'state_of_charge': network.storage_units_t.state_of_charge["Battery"],
+            }
+            # Add other attributes if available
+            if 'q' in network.storage_units_t and "Battery" in network.storage_units_t.q.columns:
+                battery_attrs['q'] = network.storage_units_t.q["Battery"]
+            if 'spill' in network.storage_units_t and "Battery" in network.storage_units_t.spill.columns:
+                battery_attrs['spill'] = network.storage_units_t.spill["Battery"]
+            if 'mu_upper' in network.storage_units_t and "Battery" in network.storage_units_t.mu_upper.columns:
+                battery_attrs['mu_upper'] = network.storage_units_t.mu_upper["Battery"]
+            if 'mu_lower' in network.storage_units_t and "Battery" in network.storage_units_t.mu_lower.columns:
+                battery_attrs['mu_lower'] = network.storage_units_t.mu_lower["Battery"]
+            if 'mu_state_of_charge_set' in network.storage_units_t and "Battery" in network.storage_units_t.mu_state_of_charge_set.columns:
+                battery_attrs['mu_state_of_charge_set'] = network.storage_units_t.mu_state_of_charge_set["Battery"]
+            if 'mu_energy_balance' in network.storage_units_t and "Battery" in network.storage_units_t.mu_energy_balance.columns:
+                battery_attrs['mu_energy_balance'] = network.storage_units_t.mu_energy_balance["Battery"]
+            attributes_dict['Battery'] = pd.DataFrame(battery_attrs)
+
+      # Print the attributes
+      print("\n=== Generator and Storage Attributes ===")
+      for component, df in attributes_dict.items():
+            print(f"\n{component} Attributes:")
+            print(df.head())  # Print first few rows for brevity
+            # Or print summary
+            print(f"Shape: {df.shape}")
+            print(f"Columns: {list(df.columns)}")
+        # Save to Excel with multiple sheets
+      attributes_path = Path("generator_attributes.xlsx")
+      with pd.ExcelWriter(attributes_path) as writer:
+            for component, df in attributes_dict.items():
+                df.to_excel(writer, sheet_name=component, index=True)
+      print(f"\n✅ Generator and Storage attributes saved to '{attributes_path}'")
   except Exception as e:
     tb = traceback.format_exc()  # Get the full traceback
     traceback_logger.error(f"Exception: {str(e)}\nTraceback:\n{tb}")  # Log error with traceback
     logger.debug(f"An unexpected error occurred during optimization: {e}")
-
-
-
-
-

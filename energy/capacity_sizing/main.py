@@ -1,3 +1,4 @@
+# def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replacement=None, OA_cost=None, curtailment_selling_price=None, sell_curtailment_percentage=None, annual_curtailment_limit=None, peak_target=None, peak_hours=None, max_hours=None, transmission_capacity=None, monthly_availability=None, PPA_tenure=None):
 import pypsa
 import pandas as pd
 # from .preprocessing import preprocess_multiple_profiles
@@ -10,7 +11,7 @@ import logging
 logger = logging.getLogger('debug_logger')  # Use the new debug logger
 
 
-def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replacement=None, OA_cost=None, curtailment_selling_price=None, sell_curtailment_percentage=None, annual_curtailment_limit=None, peak_target=None, peak_hours=None, battery_max_hours=None):
+def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replacement=None, OA_cost=None, curtailment_selling_price=None, sell_curtailment_percentage=None, annual_curtailment_limit=None, peak_target=None, peak_hours=None, max_hours=None, transmission_capacity=None, monthly_availability=None, PPA_tenure=None):
     print("🚀 Starting optimization model...", input_data)
     
 
@@ -56,9 +57,19 @@ def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replac
                     Battery_Eff_store = ess_projects[ess_system]['efficiency']
                     Battery_Eff_dispatch = ess_projects[ess_system]['efficiency']
                     DoD = ess_projects[ess_system]['DoD']
-                    Battery_max_energy_capacity = ess_projects[ess_system].get('max_energy_capacity', None)  # Human-readable, for battery energy cap
+                    # Battery_max_energy_capacity = ess_projects[ess_system].get('max_energy_capacity', None)
+                    Battery_standing_loss = ess_projects[ess_system].get('standing_loss', None)
+                    auxiliary_consumption = ess_projects[ess_system].get('auxiliary_consumption', None)
+                    auxiliary_tariff = ess_projects[ess_system].get('auxiliary_tariff', None)
                     ess_name = ess_system
 
+                    # Add auxiliary cost to battery marginal cost
+                    if auxiliary_consumption is not None and auxiliary_tariff is not None:
+                        Battery_marginalCost += auxiliary_consumption * auxiliary_tariff * 1000
+                    else:
+                        print("Warning: auxiliary_consumption or auxiliary_tariff is None. Skipping auxiliary cost calculation.")
+
+                    # Pass to setup_network
                     network = setup_network(
                         demand_data=demand_data,
                         solar_profile=solar_profile,
@@ -69,11 +80,15 @@ def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replac
                         Battery_marginalCost=Battery_marginalCost,
                         Battery_Eff_store=Battery_Eff_store,
                         Battery_Eff_dispatch=Battery_Eff_dispatch,
+                        Battery_standing_loss=Battery_standing_loss,
                         ess_name=ess_name,
                         solar_name=solar_name,
-                        Battery_max_energy_capacity=Battery_max_energy_capacity  # Human-readable, for battery energy cap
+                        max_hours=max_hours,  # Add this
+                        transmission_capacity=transmission_capacity
                     )
 
+                    # Pass to optimize_network
+                    # Pass to optimize_network
                     m = optimize_network(
                         network=network,
                         solar_profile=solar_profile,
@@ -91,10 +106,13 @@ def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replac
                         ess_name=ess_name,
                         peak_target=peak_target,
                         peak_hours=peak_hours,
-                        Battery_max_energy_capacity=Battery_max_energy_capacity  # Human-readable, for battery energy cap
+                        max_hours=max_hours,
+                        transmission_capacity=transmission_capacity,
+                        monthly_availability=monthly_availability
                     )
+
                     print("🔧 Optimization model created and solved.")
-                    print("--------------", battery_max_hours)
+                    print("--------------", max_hours)
                     analyze_network_results(
                         network=network,
                         sell_curtailment_percentage=sell_curtailment_percentage,
@@ -105,7 +123,9 @@ def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replac
                         ess_name=ess_name,
                         solar_name=solar_name,
                         ipp_name=ipp_name,
-                        battery_max_hours=battery_max_hours
+                        max_hours=max_hours,
+                                        transmission_capacity=transmission_capacity,
+                                        monthly_availability=monthly_availability
                     )
 
     # Convert results_dict to DataFrame for easy sorting
