@@ -4302,6 +4302,155 @@ class CapacitySizingAPI(APIView):
 
         return pd.Series(hourly_data)
 
+    @staticmethod
+    def generate_heatmap(demand, demand_met, PPA_tenure):
+
+        month_hours = [744, 672, 744, 720, 744, 720, 744, 744, 720, 744, 720, 744]
+        hours_per_year = 8760
+
+        heatmap = {}
+
+        for year in range(PPA_tenure):  
+            year_start = year * hours_per_year
+            year_end = year_start + hours_per_year
+
+            year_demand = demand[year_start:year_end]
+            year_met    = demand_met[year_start:year_end]
+
+            heatmap[str(year+1)] = {}
+
+            month_start = 0
+            for month_idx, m_hours in enumerate(month_hours):
+
+                month_end = month_start + m_hours
+
+                month_demand = year_demand[month_start:month_end]
+                month_met    = year_met[month_start:month_end]
+
+                num_days = m_hours // 24
+
+                heatmap[str(year+1)][str(month_idx+1)] = {}
+
+                for hour in range(24):
+                    indices = [hour + 24*d for d in range(num_days)]
+
+                    hour_vals_demand = [month_demand[i] for i in indices]
+                    hour_vals_met    = [month_met[i] for i in indices]
+
+                    avg_demand = sum(hour_vals_demand) / len(hour_vals_demand)
+                    avg_met    = sum(hour_vals_met) / len(hour_vals_met)
+
+                    heatmap[str(year+1)][str(month_idx+1)][str(hour)] = {
+                        "demand": round(avg_demand, 3),
+                        "demand_met": round(avg_met, 3)
+                    }
+
+                month_start = month_end
+
+        return heatmap
+
+    @staticmethod
+    def financial_assumptions(capacity, capex, debt_frac, roe_post_tax, tax, interest, debt_tenor, salvage, discount_rate, o_m_cost, o_m_escalation, degrade_1, degrade_rest, ppa_years, annual_energy):
+
+        # If you want to compute annual_energy from BESS_input & cycles:
+        # bess_input = data.get("bess_input")
+        # if annual_energy is None and bess_input is not None and cycles is not None:
+        #     annual_energy = bess_input * 365 * cycles
+
+        # === SUBCALCULATIONS ===
+
+        # Total Project Cost (Rs Cr)
+        # Excel: BESS!C5 = C3 * C4
+        total_project_cost = capacity * capex
+
+        equity_per = 1 - debt_frac
+
+        # Total Debt / Total Equity (Rs Cr)
+        # Excel: BESS!C8 = C5 * C6, C9 = C5 * C7
+        total_debt = total_project_cost * debt_frac
+        total_equity = total_project_cost * equity_per
+
+        # ROE Pre-Tax
+        # Excel: BESS!C13 = C11 / (1 - C12)
+        roe_pre_tax = roe_post_tax / (1 - tax)
+
+        # Base annual loan repayment (before IF condition)
+        # Excel logic used in B52: = $C$8 * (1/$C$16)
+        repay_base = total_debt / debt_tenor
+
+        arr_vals = []
+        per_unit_cost = []
+        disc_factors = []
+
+        # Year-1 Energy with First-Year Degradation
+        # Excel: BESS!B43 = C2 * (1 - C28)
+        energy = annual_energy * (1 - degrade_1)
+
+        opening = total_debt
+
+        for year in range(1, ppa_years + 1):
+
+            # ---------- ENERGY ----------
+            # Excel: Next year = Previous year * (1 - C29)
+            if year > 1:
+                energy *= (1 - degrade_rest)
+            energy_mwh = energy  # BESS!Row43 values
+
+            # ---------- O&M ----------
+            # Excel: BESS!B34 (O&M for ARR):
+            # = C3 * C25 / 100 * (1 + C26)^(year-1)
+            o_m = (capacity * o_m_cost / 100) * ((1 + o_m_escalation) ** (year - 1))
+
+            # ---------- Debt Repayment (B52) ----------
+            # Excel: B52 = $C$8*(1/$C$16)*($C$16>=B34)
+            repay = repay_base if year <= debt_tenor else 0.0
+
+            # ---------- Depreciation / Loan Repayment ----------
+            # Excel: =IF(B34<=$C$16, B52, (1-$C$17-$C$6)*$C$5/($C$30-$C$16))
+            if year <= debt_tenor:
+                depreciation = repay
+            else:
+                depreciation = ((1 - salvage - debt_frac) * total_project_cost) / (ppa_years - debt_tenor)
+
+            # ---------- Interest on Term Loan ----------
+            # Excel: Interest on TL in schedule:
+            # = ((Opening + Closing)/2) * C14
+            closing = opening - repay
+            interest_calc = ((opening + closing) / 2) * interest
+            opening = closing
+
+            # ---------- Return on Equity (ARR component) ----------
+            # Excel: Row "RoE (pre-tax)" for ARR = C9 * C13
+            roe = total_equity * roe_pre_tax
+
+            # ---------- Total ARR (Rs Cr) for that year ----------
+            # Excel: BESSARR row = O&M + Depreciation + Interest + RoE (+ WC part skipped to avoid circularity)
+            arr = o_m + depreciation + interest_calc + roe
+            arr_vals.append(arr)
+
+            # ---------- Per Unit Cost (Rs/kWh) ----------
+            # Excel: B45 = (B40*10^7)/(B43*10^3)
+            # Here, B40 ≈ arr (total yearly cost), B43 = energy_mwh
+            cost = (arr * 10**7) / (energy_mwh * 10**3)
+            per_unit_cost.append(cost)
+
+            # ---------- Discount Factor ----------
+            # Excel: B64 = 1
+            #         C64 = B64/(1+$C$24)
+            #         D64 = C64/(1+$C$24)  ...
+            if year == 1:
+                df = 1.0
+            else:
+                df = disc_factors[-1] / (1 + discount_rate)
+            disc_factors.append(df)
+
+        # === FINAL LEVELIZED MARGINAL COST (Rs/kWh) ===
+        # Excel: BESS!C46 = SUMPRODUCT(B45:Z45, B64:Z64) / SUM(B64:Z64)
+        numerator = sum(c * d for c, d in zip(per_unit_cost, disc_factors))
+        denominator = sum(disc_factors)
+        lmc = numerator / denominator if denominator != 0 else None # levelized marginal cost
+
+        return round(lmc, 6)
 
     def post(self, request):
         def parse_time_string(time_str):
