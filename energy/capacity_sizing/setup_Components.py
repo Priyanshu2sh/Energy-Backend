@@ -71,7 +71,7 @@ def setup_network(demand_data=None, solar_profile=None, wind_profile=None, Solar
                         bus="ElectricityBus",
                         p_nom_extendable=True,  # Allow optimization of storage power capacity (MW)
                         # max_hours=float(Battery_max_energy_capacity),
-                        max_hours=float(max_hours),
+                        max_hours=float(max_hours) if max_hours else None,
                         capital_cost=Battery_captialCost,  # This should now include BOTH power and energy costs
                         marginal_cost=Battery_marginalCost,
                         efficiency_store=Battery_Eff_store,

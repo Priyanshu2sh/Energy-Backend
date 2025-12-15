@@ -6,7 +6,7 @@ def apply_degradation(df, degradation_pct, years):
     """Apply yearly degradation across full hourly dataset."""
     frames = []
     for y in range(years):
-        degraded_df = df * ((1 - (degradation_pct / 100)) ** y)
+        degraded_df = df * ((1 - (degradation_pct[0] / 100)) ** y)
         degraded_df = degraded_df.reset_index(drop=True)
         frames.append(degraded_df)
     return pd.concat(frames, ignore_index=True)

@@ -630,6 +630,70 @@ class GeneratorDemand(models.Model):
     annual_evening_peak_hours_consumption = models.FloatField(null=True, blank=True)  # in MWh
     peak_hours_availability_requirement = models.FloatField(null=True, blank=True)  # in %
 
+    OA_cost = models.FloatField(null=True, blank=True)  # in INR/kWh
+    curtailment_selling_price = models.FloatField(null=True, blank=True)  # in INR/kWh
+    sell_curtailment_percentage = models.FloatField(null=True, blank=True)  # in %
+    annual_curtailment_limit = models.FloatField(null=True, blank=True)  # in %
+
+    # ------------new inputs------------
+    # tender conditions
+    tender_type = models.CharField(max_length=255, null=True, blank=True)
+    re_replacement = models.FloatField(null=True, blank=True)  # in %
+    monthly_availability = models.CharField(max_length=255, null=True, blank=True)  # in %
+    peak_hour_availability = models.FloatField(null=True, blank=True)  # in %
+    morning_slot_start = models.IntegerField(null=True, blank=True)
+    morning_slot_stop = models.IntegerField(null=True, blank=True)
+    evening_slot_start = models.IntegerField(null=True, blank=True)
+    evening_slot_stop = models.IntegerField(null=True, blank=True)
+    monthly_demand_fulfillment_ratio = models.FloatField(null=True, blank=True)  # in %
+    hourly_demand = models.TextField(blank=True, null=True)  # Stores a single string of values
+    total_tender_capacity = models.FloatField(null=True, blank=True)  # in MW
+    energy_from_exchange_allowed = models.BooleanField(null=True, blank=True)
+    energy_allowed_percentage = models.FloatField(null=True, blank=True)  # in %
+    penalty = models.FloatField(null=True, blank=True)  # times of tariff
+
+    # key constraints
+    PPA_capacity = models.FloatField(null=True, blank=True)  # in MW
+    PPA_tenure = models.FloatField(null=True, blank=True)  # in years
+    transmission_capacity = models.FloatField(null=True, blank=True)  # in MW
+
+    # solar
+    solar_degradation = models.TextField(null=True, blank=True)  # in %
+    solar_total_capex = models.FloatField(null=True, blank=True)  # in INR cr/MW
+    solar_total_O_and_m = models.FloatField(null=True, blank=True)  # in INR lakhs/MW
+    solar_O_and_m_escalation = models.FloatField(null=True, blank=True)  # in %
+
+    # wind
+    wind_degradation = models.TextField(null=True, blank=True)  # in %
+    wind_total_capex = models.FloatField(null=True, blank=True)  # in INR cr/MW
+    wind_total_O_and_m = models.FloatField(null=True, blank=True)  # in INR lakhs/MW
+    wind_O_and_m_escalation = models.FloatField(null=True, blank=True)  # in %
+
+    # BESS
+    bess_degradation = models.TextField(null=True, blank=True)  # in %
+    bess_total_capex = models.FloatField(null=True, blank=True)  # in INR cr/MW
+    bess_total_O_and_m = models.FloatField(null=True, blank=True)  # in INR lakhs/MW
+    bess_O_and_m_escalation = models.FloatField(null=True, blank=True)  # in %
+    bess_depth_of_discharge = models.FloatField(null=True, blank=True)  # in %
+    bess_discharge_efficiency = models.FloatField(null=True, blank=True)  # in %
+    bess_electrical_loss = models.FloatField(null=True, blank=True)  # in %
+    bess_standing_loss = models.FloatField(null=True, blank=True)  # in %
+    bess_auxiliary_consumption = models.FloatField(null=True, blank=True)  # in %
+    bess_auxiliary_tariff = models.FloatField(null=True, blank=True)  # in INR/kWh
+
+    # Excess Energy
+    allowed_excess = models.FloatField(null=True, blank=True)  # in %
+
+    # === Financial Assumptions USER INPUTS ===
+    debt_frac = models.FloatField(null=True, blank=True)  # in %
+    roe_post_tax = models.FloatField(null=True, blank=True)  # in %
+    tax = models.FloatField(null=True, blank=True)  # in %
+    interest = models.FloatField(null=True, blank=True)  # in %
+    debt_tenor = models.FloatField(null=True, blank=True)
+    salvage = models.FloatField(null=True, blank=True)  # in %
+
+
+
 class PeakHours(models.Model):
     state = models.ForeignKey(State, on_delete=models.CASCADE, related_name="peak_hours")
     peak_start_1 = models.TimeField()  # Start time of peak hours 1
@@ -701,6 +765,9 @@ class CapacitySizingCombination(models.Model):
     demand_met = models.JSONField(blank=True, null=True)
     state = models.JSONField(blank=True, null=True)
     site_name = models.JSONField(blank=True, null=True)
+
+    # 🔥 NEW FIELD ADDED
+    heatmap = models.JSONField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.generator} - {self.record_name} - {self.combination}"

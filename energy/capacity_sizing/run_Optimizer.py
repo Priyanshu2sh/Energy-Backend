@@ -14,9 +14,9 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
                             ess_name=None, solar_name=None, wind_name=None, ipp_name=None, max_hours=None, transmission_capacity=None, monthly_availability=None):
   
   if solar_profile is not None and not solar_profile.empty:
-   solar_name = solar_profile.name
+   solar_name = solar_name
   if wind_profile is not None and not wind_profile.empty:
-   wind_name = wind_profile.name
+   wind_name = wind_name
 
   try:
       # Solve the optimization model
@@ -48,7 +48,7 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
           # Solar costs
           solar_capital_cost = solar_capacity * network.generators.at["Solar", "capital_cost"]
           solar_marginal_cost = (solar_allocation * network.generators.at["Solar", "marginal_cost"]).sum(axis=0) 
-          total_solar_cost = solar_capital_cost + solar_marginal_cost
+          total_solar_cost = solar_marginal_cost #solar_capital_cost + solar_marginal_cost
       else:
           solar_capacity = 0
           solar_capital_cost = 0
@@ -67,7 +67,7 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
           # Wind costs
           wind_capital_cost = wind_capacity * network.generators.at["Wind", "capital_cost"]
           wind_marginal_cost = (wind_allocation * network.generators.at["Wind", "marginal_cost"]).sum(axis=0)
-          total_wind_cost = wind_capital_cost + wind_marginal_cost
+          total_wind_cost =wind_marginal_cost # wind_capital_cost + wind_marginal_cost
       else:
           wind_capacity = 0
           total_wind_cost = 0
@@ -81,13 +81,19 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
           ess_discharge[abs(ess_discharge) < 1e-5] = 0
           ess_charge = network.storage_units_t.p_store["Battery"]
           ess_capacity = network.storage_units.at["Battery", "p_nom_opt"]
-          max_battery_energy = ess_capacity * max_hours if max_hours else 0
+          
+          # Only calculate max_battery_energy if max_hours is provided
+          if max_hours is not None:
+              max_battery_energy = ess_capacity * max_hours
+          else:
+              max_battery_energy = None
+          
           ess_capital_cost = ess_capacity * network.storage_units.at["Battery", "capital_cost"]
           ess_marginal_cost = (
               (network.storage_units_t.p_dispatch["Battery"] * network.storage_units.at["Battery", "marginal_cost"]).sum(axis=0) +
               (network.storage_units_t.p_store["Battery"] * network.storage_units.at["Battery", "marginal_cost"]).sum(axis=0)
           )
-          total_ess_cost = ess_capital_cost + ess_marginal_cost
+          total_ess_cost = ess_marginal_cost #ess_capital_cost + ess_marginal_cost
       else:
           ess_capacity = 0
           battery_soc = 0
@@ -96,6 +102,7 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
           ess_capital_cost = 0
           ess_marginal_cost = 0
           total_ess_cost = 0
+          max_battery_energy = None
         
       total_allocated = solar_allocation + wind_allocation + (ess_discharge - ess_charge)
 
@@ -141,7 +148,17 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
       total_curtailment_cost = (gross_curtailment_marginal - sell_curtailment).sum(axis=0)
 
       # Total cost calculation
+      print("Debug - Cost Components:")
+      print(f"  Solar Capital Cost: {solar_capital_cost}")
+      print(f"  Solar Marginal Cost: {solar_marginal_cost}")
+      print(f"  Wind Capital Cost: {wind_capital_cost}")
+      print(f"  Wind Marginal Cost: {wind_marginal_cost}")
+      print(f"  ESS Capital Cost: {ess_capital_cost}")
+      print(f"  ESS Marginal Cost: {ess_marginal_cost}")
+      print(f"  Curtailment Cost: {total_curtailment_cost}")
       total_cost = total_solar_cost + total_wind_cost + total_curtailment_cost + total_ess_cost
+
+      print(f"  Total Cost: {total_cost}")
       # annual_demand_met = gross_energy_allocation.sum()  # OLD: Overestimates
 
       virtual_gen = np.maximum(0, demand - transmitted)
@@ -254,7 +271,6 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
           "Optimal Wind Capacity (MW)": wind_capacity,
           "Optimal Battery Capacity (MW)": ess_capacity,
           "Battery total Capacity (MWh)": battery_cap,
-          "Battery max hours (h)": max_hours,
           "Per Unit Cost (INR/MWh)": per_unit_cost,
           "Final Cost (INR)": Final_cost,
           "Total Cost (INR)": total_cost,
@@ -266,6 +282,10 @@ def analyze_network_results(network=None, sell_curtailment_percentage=None, curt
           "OA Cost (INR)": OA_cost,
           "Objective Aggregate Cost (INR)": objective_for_aggregate_cost
       }
+      
+      # Only add max_hours to summary if it's not None (i.e., C rating was not NA)
+      if max_hours is not None:
+          annual_summary["Battery max hours (h)"] = max_hours
 
       # Create Results DataFrame (hourly results)
       results_df = pd.DataFrame({

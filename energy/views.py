@@ -4243,7 +4243,7 @@ class CapacitySizingAPI(APIView):
         df = pd.read_excel(file_path)
 
         # Select only the relevant column (B) and start from the 4th row (index 3)
-        df_cleaned = df.iloc[1:, 1].reset_index(drop=True)  # Column B corresponds to index 1
+        df_cleaned = df.iloc[:, 1].fillna(0).reset_index(drop=True)  # Column B corresponds to index 1
 
         # Fill NaN values with 0
         profile = df_cleaned.fillna(0).reset_index(drop=True)
@@ -4341,8 +4341,8 @@ class CapacitySizingAPI(APIView):
                     avg_met    = sum(hour_vals_met) / len(hour_vals_met)
 
                     heatmap[str(year+1)][str(month_idx+1)][str(hour)] = {
-                        "demand": round(avg_demand, 3),
-                        "demand_met": round(avg_met, 3)
+                        "demand": round(avg_demand, 2),
+                        "demand_met": round(avg_met, 2)
                     }
 
                 month_start = month_end
@@ -4350,7 +4350,12 @@ class CapacitySizingAPI(APIView):
         return heatmap
 
     @staticmethod
-    def financial_assumptions(capacity, capex, debt_frac, roe_post_tax, tax, interest, debt_tenor, salvage, discount_rate, o_m_cost, o_m_escalation, degrade_1, degrade_rest, ppa_years, annual_energy):
+    def financial_assumptions(capacity, capex, debt_frac, roe_post_tax, tax, interest, debt_tenor, salvage, o_m_cost, o_m_escalation, degrade_1, degrade_rest, ppa_years, annual_energy, receivables_months=1.5, interest_on_wc=0.09, maintenance_spares=0, om_exp_wcap=0):
+
+        # receivables_months=1.5,   # Excel default
+        # interest_on_wc=0.09,      # Excel C23
+        # maintenance_spares=0,     # if needed
+        # om_exp_wcap=0             # if needed
 
         # If you want to compute annual_energy from BESS_input & cycles:
         # bess_input = data.get("bess_input")
@@ -4361,6 +4366,14 @@ class CapacitySizingAPI(APIView):
 
         # Total Project Cost (Rs Cr)
         # Excel: BESS!C5 = C3 * C4
+
+        print("\n======== INITIAL PARAMETERS ========")
+        print(f"Capacity: {capacity}")
+        print(f"CAPEX: {capex}")
+        print(f"Debt Fraction: {debt_frac}")
+        print(f"Annual Energy Input: {annual_energy}")
+        print("====================================\n")
+        
         total_project_cost = capacity * capex
 
         equity_per = 1 - debt_frac
@@ -4378,6 +4391,8 @@ class CapacitySizingAPI(APIView):
         # Excel logic used in B52: = $C$8 * (1/$C$16)
         repay_base = total_debt / debt_tenor
 
+        discount_rate = debt_frac * interest * (1 - tax) + equity_per * roe_post_tax
+
         arr_vals = []
         per_unit_cost = []
         disc_factors = []
@@ -4388,22 +4403,40 @@ class CapacitySizingAPI(APIView):
 
         opening = total_debt
 
+        # === PARAMETERS FOR CIRCULAR LOOP ===
+        a = receivables_months / 12                    # Receivables factor
+        r_wc = interest_on_wc                          # interest on working capital
+        # B58, B59 are fixed working capital components
+        B58 = maintenance_spares
+        B59 = om_exp_wcap
+        known_wc_other = B58 + B59
+
+        print(f"Initial Energy (after degrade_1): {energy}")
+        print(f"Total Debt: {total_debt}, Total Equity: {total_equity}")
+        print(f"ROE Pre-Tax: {roe_pre_tax}, Base Repayment: {repay_base}\n")
+
         for year in range(1, ppa_years + 1):
+            
+            print(f"\n================ YEAR {year} ================\n")
 
             # ---------- ENERGY ----------
             # Excel: Next year = Previous year * (1 - C29)
             if year > 1:
-                energy *= (1 - degrade_rest)
+                energy *= (1 - degrade_rest[year-1])
             energy_mwh = energy  # BESS!Row43 values
+
+            print(f"Energy (MWh): {energy_mwh}")
 
             # ---------- O&M ----------
             # Excel: BESS!B34 (O&M for ARR):
             # = C3 * C25 / 100 * (1 + C26)^(year-1)
             o_m = (capacity * o_m_cost / 100) * ((1 + o_m_escalation) ** (year - 1))
+            print(f"O&M Cost: {o_m}")
 
             # ---------- Debt Repayment (B52) ----------
             # Excel: B52 = $C$8*(1/$C$16)*($C$16>=B34)
             repay = repay_base if year <= debt_tenor else 0.0
+            print(f"Repayment: {repay}")
 
             # ---------- Depreciation / Loan Repayment ----------
             # Excel: =IF(B34<=$C$16, B52, (1-$C$17-$C$6)*$C$5/($C$30-$C$16))
@@ -4411,27 +4444,51 @@ class CapacitySizingAPI(APIView):
                 depreciation = repay
             else:
                 depreciation = ((1 - salvage - debt_frac) * total_project_cost) / (ppa_years - debt_tenor)
+            print(f"Depreciation: {depreciation}")
 
             # ---------- Interest on Term Loan ----------
             # Excel: Interest on TL in schedule:
             # = ((Opening + Closing)/2) * C14
             closing = opening - repay
             interest_calc = ((opening + closing) / 2) * interest
+            print(f"Opening TL: {opening}, Closing TL: {closing}, Interest: {interest_calc}")
             opening = closing
 
             # ---------- Return on Equity (ARR component) ----------
             # Excel: Row "RoE (pre-tax)" for ARR = C9 * C13
             roe = total_equity * roe_pre_tax
+            print(f"ROE: {roe}")
 
             # ---------- Total ARR (Rs Cr) for that year ----------
             # Excel: BESSARR row = O&M + Depreciation + Interest + RoE (+ WC part skipped to avoid circularity)
-            arr = o_m + depreciation + interest_calc + roe
+            arr0 = o_m + depreciation + interest_calc + roe
+            print(f"ARR0 (before WC): {arr0}")
+
+            # ---------------------------------------------------------
+            # 🔥 🔥 EXCEL CIRCULAR REFERENCE SOLVED BY ITERATION 🔥 🔥
+            # ---------------------------------------------------------
+            x = arr0                     # initial guess (Excel starts from arr0)
+            for _ in range(50):          # iterate for convergence
+                B57 = a * x              # receivables
+                B60 = B57 + known_wc_other
+                B61 = B60 * r_wc         # WC interest
+                B39 = B61                # included in B40
+                x_new = arr0 + B39       # B40 = arr0 + WC interest
+                if abs(x_new - x) < 1e-9:
+                    break
+                x = x_new
+
+            arr = x   # final B40
+            print(f"Final ARR after WC: {arr}")
+            # ---------------------------------------------------------
+
             arr_vals.append(arr)
 
             # ---------- Per Unit Cost (Rs/kWh) ----------
             # Excel: B45 = (B40*10^7)/(B43*10^3)
             # Here, B40 ≈ arr (total yearly cost), B43 = energy_mwh
             cost = (arr * 10**7) / (energy_mwh * 10**3)
+            print(f"Per Unit Cost (Rs/kWh): {cost}")
             per_unit_cost.append(cost)
 
             # ---------- Discount Factor ----------
@@ -4443,12 +4500,18 @@ class CapacitySizingAPI(APIView):
             else:
                 df = disc_factors[-1] / (1 + discount_rate)
             disc_factors.append(df)
+            print(f"Discount Factor: {df}")
 
         # === FINAL LEVELIZED MARGINAL COST (Rs/kWh) ===
         # Excel: BESS!C46 = SUMPRODUCT(B45:Z45, B64:Z64) / SUM(B64:Z64)
         numerator = sum(c * d for c, d in zip(per_unit_cost, disc_factors))
         denominator = sum(disc_factors)
+        print("\n=========== FINAL LMC CALCULATION ===========")
+        print(f"Numerator = {numerator}")
+        print(f"Denominator = {denominator}")
+        print("=============================================\n")
         lmc = numerator / denominator if denominator != 0 else None # levelized marginal cost
+        print(f"\n🔥🔥 FINAL LMC = {lmc} 🔥🔥\n")
 
         return round(lmc, 6)
 
@@ -4458,24 +4521,35 @@ class CapacitySizingAPI(APIView):
 
         def get_ist_hour(iso_time: str) -> int:
             """Convert ISO UTC time to IST and return the hour (0–23)."""
-            # Define Indian Standard Time (UTC+5:30)
-            IST = dtz(timedelta(hours=5, minutes=30))
+    
+            if not iso_time:
+                return None
+
+            IST = dtz(timedelta(hours=5, minutes=30))  # UTC+5:30
             
-            # Convert the ISO string (replace 'Z' with UTC offset)
+            # Convert the ISO string to UTC then IST
             utc_time = datetime.fromisoformat(iso_time.replace("Z", "+00:00"))
-            
-            # Convert to IST
             ist_time = utc_time.astimezone(IST)
-            
-            # Return the hour
             return ist_time.hour
+
+        def expand_hours(start, stop):
+            """Return all hours between start & stop inclusively (wrap if needed)."""
+            if start is None or stop is None:
+                return []
+            
+            if start <= stop:
+                return list(range(start, stop + 1))
+            else:
+                # Example: 22 → 3 next day
+                return list(range(start, 24)) + list(range(0, stop + 1))
+
 
 
         data = request.data
         user_id = data.get("user_id")
-        OA_cost = data.get("OACost")
-        curtailment_selling_price = data.get("curtailment_selling_price")
-        sell_curtailment_percentage = data.get("sell_curtailment_percentage")
+        OA_cost = data.get("OA_cost") # * 1000
+        # curtailment_selling_price = data.get("curtailment_selling_price") * 1000
+        # sell_curtailment_percentage = data.get("sell_curtailment_percentage")
         annual_curtailment_limit = data.get("annual_curtailment_limit")
 
         # tender conditions
@@ -4494,38 +4568,58 @@ class CapacitySizingAPI(APIView):
         energy_allowed_percentage = data.get('energyExchangePercent')
         penalty = data.get('penalty')
 
-        print(request.data)
-
         # key constraints
         PPA_capacity = data.get('ppaCapacity')
         PPA_tenure = data.get('ppaTenure')
-        transmission_connectivity_capacity = data.get('transmissionCapacity')
+        transmission_capacity = data.get('transmissionCapacity')
+
+        # optimization for how many year
+        run_for_years = data.get('optimizationYear')
 
         # solar
-        solar_degradation = data.get('solarDegradation')
+        solar_degradation = data.get('solarDegradation', [])
         solar_total_capex = data.get('solarCapex')  # capital cost
         solar_total_O_and_m = data.get('solarOandM')  # marginal cost
         solar_O_and_m_escalation = data.get('solarEscalation')
 
         # wind
+        wind_degradation = data.get('windDegradation', [])
         wind_total_capex = data.get('windCapex')
         wind_total_O_and_m = data.get('windOandM')
         wind_O_and_m_escalation = data.get('windEscalation')
 
         # BESS
-        bess_degradation = data.get('bessDegradation')
+        bess_degradation = data.get('bessDegradation', [])
         bess_total_capex = data.get('bessCapex')
         bess_total_O_and_m = data.get('bessOandM')
+        bess_O_and_m_escalation = data.get('bessEscalation')
         bess_depth_of_discharge = data.get('depthOfDischarge')
         bess_discharge_efficiency = data.get('dischargeEfficiency')
         bess_electrical_loss = data.get('electricalLoss')
+        bess_standing_loss = data.get('standingLoss')
         bess_auxiliary_consumption = data.get('auxConsumption')
         bess_auxiliary_tariff = data.get('auxTariff')
+        c_rating = data.get('cRating')
 
         # Excess Energy
         allowed_excess = data.get('allowedExcess')
-        excess_energy_tariff = data.get('excessTariff')
+        excessTariff = data.get('excessTariff')
 
+        # === Financial Assumptions USER INPUTS ===
+        # capacity = data.get("project_capacity")        # Excel: BESS!C3  (Project Capacity)
+        # capex = data.get("capex")                      # Excel: BESS!C4  (Capex Rs Cr/MWh)
+        debt_frac = data.get("debt")                   # Excel: BESS!C6  (Debt %)
+        # equity_frac = data.get("equity")               # Excel: BESS!C7  (Equity %)
+        roe_post_tax = data.get("ROE")                 # Excel: BESS!C11 (Return on Equity (post-tax))
+        tax = data.get("tax")                          # Excel: BESS!C12 (Tax)
+        interest = data.get("interest_on_term_loan")   # Excel: BESS!C14 (Interest on Term Loan)
+        debt_tenor = data.get("debt_tenor")            # Excel: BESS!C16 (Debt Tenor)
+        salvage = data.get("salvage_value")            # Excel: BESS!C17 (Salvage value %)
+        # discount_rate = data.get("discounting_rate")   # Excel: BESS!C24 (Discounting rate for levelisation)
+        # degrade_1 = data.get("first_year_degradation") # Excel: BESS!C28 (Degradation First Year)
+        # degrade_rest = data.get("rest_of_year_degradation") # Excel: BESS!C29 (Degradation Rest of years)
+
+        # Convert incoming slots
         if morning_slot_start:
             morning_slot_start = get_ist_hour(morning_slot_start)
         if morning_slot_stop:
@@ -4534,15 +4628,25 @@ class CapacitySizingAPI(APIView):
             evening_slot_start = get_ist_hour(evening_slot_start)
         if evening_slot_stop:
             evening_slot_stop = get_ist_hour(evening_slot_stop)
-            
-        peak_hours = [
-            hour for hour in [
-                morning_slot_start,
-                morning_slot_stop,
-                evening_slot_start,
-                evening_slot_stop
-            ] if hour is not None
-        ]
+
+        # Build expanded list
+        peak_hours = (
+            expand_hours(morning_slot_start, morning_slot_stop) +
+            expand_hours(evening_slot_start, evening_slot_stop)
+        )
+
+        # Unique + sorted
+        peak_hours = sorted(set(peak_hours))
+
+        if c_rating == "1":
+            max_hours = 1
+        elif c_rating == "0.5":
+            max_hours = 2
+        elif c_rating == "0.25":
+            max_hours = 4
+        else:
+            max_hours = None
+
 
 
         try:
@@ -4555,7 +4659,7 @@ class CapacitySizingAPI(APIView):
         # ---------------------------------------------------------------------------
         # Initialize default peak hours if not provided
         if peak_hours is None:
-            peak_hours = [6, 7, 8, 18, 19, 20]  # Default peak hours
+            peak_hours = [18, 19, 20, 21]  # Default peak hours
         # ---------------------------------------------------------------------------
 
         
@@ -4583,19 +4687,11 @@ class CapacitySizingAPI(APIView):
                 # Convert to a comma-separated string
                 hourly_demand_str = ','.join(hourly_values)
 
-                # Save the data in one record
-                obj, created = GeneratorHourlyDemand.objects.get_or_create(
-                    generator=generator,
-                    defaults={"hourly_demand": hourly_demand_str}
-                )
-
-                if not created:
-                    obj.hourly_demand = hourly_demand_str
-                    obj.save()
-
                 # ---------------------------------------------------------------------------
                 extended_demand['Demand'] += PPA_capacity
                 # ---------------------------------------------------------------------------
+
+                monthly_availability = list(monthly_demand_fulfillment_ratio)
                     
             except Exception as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -4612,78 +4708,160 @@ class CapacitySizingAPI(APIView):
                 hourly_demand = pd.concat([hourly_demand] * 365, ignore_index=True)
                 print(f"Base hourly demand expanded for 1 year = {len(hourly_demand)} rows")
 
-            extended_demand = pd.concat([hourly_demand] * PPA_tenure, ignore_index=True)
+            # Convert to a comma-separated string
+            hourly_demand_str = ','.join(hourly_demand)
 
-            if csv_file:
-                extended_demand['Demand'] += PPA_capacity
+            extended_demand = pd.concat([hourly_demand] * run_for_years, ignore_index=True)
+            print(f"Base hourly demand expanded for 1 year = {len(extended_demand)} rows")
             # ---------------------------------------------------------------------------
 
-            def parse_time_string(time_str):
-                return datetime.strptime(time_str, "%H:%M:%S").time() if time_str else None
+            # def parse_time_string(time_str):
+            #     return datetime.strptime(time_str, "%H:%M:%S").time() if time_str else None
 
-            annual_consumption = data.get("annual_consumption")
-            contracted_demand = data.get("contracted_demand")
-            morning_peak_hours_start = parse_time_string(data.get("morning_peak_hours_start"))
-            morning_peak_hours_end = parse_time_string(data.get("morning_peak_hours_end"))
-            annual_morning_peak_hours_consumption = data.get("annual_morning_peak_hours_consumption")
-            evening_peak_hours_start = parse_time_string(data.get("evening_peak_hours_start"))
-            evening_peak_hours_end = parse_time_string(data.get("evening_peak_hours_end"))
-            annual_evening_peak_hours_consumption = data.get("annual_evening_peak_hours_consumption")
-            peak_hours_availability_requirement = data.get("peak_hours_availability_requirement")
+            # annual_consumption = data.get("annual_consumption")
+            # contracted_demand = data.get("contracted_demand")
+            # morning_peak_hours_start = parse_time_string(data.get("morning_peak_hours_start"))
+            # morning_peak_hours_end = parse_time_string(data.get("morning_peak_hours_end"))
+            # annual_morning_peak_hours_consumption = data.get("annual_morning_peak_hours_consumption")
+            # evening_peak_hours_start = parse_time_string(data.get("evening_peak_hours_start"))
+            # evening_peak_hours_end = parse_time_string(data.get("evening_peak_hours_end"))
+            # annual_evening_peak_hours_consumption = data.get("annual_evening_peak_hours_consumption")
+            # peak_hours_availability_requirement = data.get("peak_hours_availability_requirement")
 
-            generator_demand = GeneratorDemand.objects.filter(generator=generator).first()
-            if generator_demand:
-                generator_demand.annual_consumption = annual_consumption
-                generator_demand.contracted_demand = contracted_demand
-                generator_demand.morning_peak_hours_start = morning_peak_hours_start
-                generator_demand.morning_peak_hours_end = morning_peak_hours_end
-                generator_demand.annual_morning_peak_hours_consumption = annual_morning_peak_hours_consumption
-                generator_demand.evening_peak_hours_start = evening_peak_hours_start
-                generator_demand.evening_peak_hours_end = evening_peak_hours_end
-                generator_demand.annual_evening_peak_hours_consumption = annual_evening_peak_hours_consumption
-                generator_demand.peak_hours_availability_requirement = peak_hours_availability_requirement
-                generator_demand.save()
-            else:
-                generator_demand = GeneratorDemand(
-                    generator=generator,
-                    annual_consumption=annual_consumption,
-                    contracted_demand=contracted_demand,
-                    morning_peak_hours_start=morning_peak_hours_start,
-                    morning_peak_hours_end=morning_peak_hours_end,
-                    annual_morning_peak_hours_consumption=annual_morning_peak_hours_consumption,
-                    evening_peak_hours_start=evening_peak_hours_start,
-                    evening_peak_hours_end=evening_peak_hours_end,
-                    annual_evening_peak_hours_consumption=annual_evening_peak_hours_consumption,
-                    peak_hours_availability_requirement=peak_hours_availability_requirement
-                )
-                generator_demand.save()
-            # numeric_hourly_demand = self.calculate_annual_hourly_demand(generator_demand)
+        # Enter monthly availability percentages (comma-separated, 12 values for Jan..Dec OR 1 value for all months, values 0-100 or 0-1)", default=None, cast_type=list)
+        # normalize if user provided ints in the config as strings
+        if monthly_availability:
+            # Handle single value case: replicate across all 12 months
+            if len(monthly_availability) == 1:
+                # print(f"ℹ️ Single monthly availability value provided ({monthly_availability[0]}). Applying to all 12 months.")
+                monthly_availability = monthly_availability * 12
+            elif len(monthly_availability) != 12:
+                # print("Warning: monthly_availability must contain 12 values (Jan..Dec) or 1 value for all months. Ignoring monthly availability.")
+                monthly_availability = None
+            
+            # convert 0-100 -> 0-1
+            if monthly_availability:
+                monthly_availability = [v/100.0 if v>1.0 else v for v in monthly_availability]
 
-            # df = pd.DataFrame({
-            #     'Index': numeric_hourly_demand.index,
-            #     'Demand': numeric_hourly_demand.values
-            # })
+        generator_demand = GeneratorDemand(
+            generator=generator,
+            OA_cost = OA_cost,
+            # curtailment_selling_price = curtailment_selling_price,
+            # sell_curtailment_percentage = sell_curtailment_percentage,
+            annual_curtailment_limit = annual_curtailment_limit,
+            # tender conditions
+            tender_type = tender_type,
+            re_replacement = re_replacement,
+            monthly_availability = monthly_availability,
+            peak_hour_availability = peak_hour_availability,
+            morning_slot_start = morning_slot_start,
+            morning_slot_stop = morning_slot_stop,
+            evening_slot_start = evening_slot_start,
+            evening_slot_stop = evening_slot_stop,
+            monthly_demand_fulfillment_ratio = monthly_demand_fulfillment_ratio,
+            hourly_demand = hourly_demand_str,
+            total_tender_capacity = total_tender_capacity,
+            energy_from_exchange_allowed = True if energy_from_exchange_allowed == 'Yes' else False,
+            energy_allowed_percentage = energy_allowed_percentage,
+            penalty = penalty,
+            # key constraints
+            PPA_capacity = PPA_capacity,
+            PPA_tenure = PPA_tenure,
+            transmission_capacity = transmission_capacity,
+            # solar
+            solar_degradation = solar_degradation,
+            solar_total_capex = solar_total_capex,
+            solar_total_O_and_m = solar_total_O_and_m,
+            solar_O_and_m_escalation = solar_O_and_m_escalation,
+            # wind
+            wind_degradation = wind_degradation,
+            wind_total_capex = wind_total_capex,
+            wind_total_O_and_m = wind_total_O_and_m,
+            wind_O_and_m_escalation = wind_O_and_m_escalation,
+            # BESS
+            bess_degradation = bess_degradation,
+            bess_total_capex = bess_total_capex,
+            bess_total_O_and_m = bess_total_O_and_m,
+            bess_O_and_m_escalation = bess_O_and_m_escalation,
+            bess_depth_of_discharge = bess_depth_of_discharge,
+            bess_discharge_efficiency = bess_discharge_efficiency,
+            bess_electrical_loss = bess_electrical_loss,
+            bess_standing_loss = bess_standing_loss,
+            bess_auxiliary_consumption = bess_auxiliary_consumption,
+            bess_auxiliary_tariff = bess_auxiliary_tariff,
+            # Excess Energy
+            allowed_excess = allowed_excess,
+            # === Financial Assumptions USER INPUTS ===
+            debt_frac = debt_frac,
+            roe_post_tax = roe_post_tax,
+            tax = tax,
+            interest = interest,
+            debt_tenor = debt_tenor,
+            salvage = salvage,
+        )
+        generator_demand.save()
 
-            # Export to Excel
-            # df.to_excel('hourly_demand.xlsx', index=False, engine='openpyxl')
-            # print(f"Excel file 'hourly_demand.xlsx' created successfully with {len(numeric_hourly_demand)} rows.")
-            # print('---------------------numeric_hourly_demand---------------------')
-            # print(numeric_hourly_demand)
+        def validate_required(value, field_name):
+            if value is None:
+                errors[field_name] = f"{field_name} is required"
+                return value
 
-            generator_hourly_demand = GeneratorHourlyDemand.objects.filter(generator=generator).first()
-            if not generator_hourly_demand:
-                generator_hourly_demand = GeneratorHourlyDemand(generator=generator)
-            generator_hourly_demand.hourly_demand = None
-            generator_hourly_demand.set_hourly_data_from_list(hourly_demand)
-            generator_hourly_demand.save()
+        def div_or_zero(value, field_name):
+            validate_required(value, field_name)
+            return 0 if value == 0 else value / 100
 
-            print(hourly_demand)
+        def mul_or_zero(value, multiplier, field_name):
+            validate_required(value, field_name)
+            return value * multiplier
+
+        def safe_div(value, denom=100):
+            return round((value / denom), 2) if value else None
+
+        # SAFELY divide simple numeric params
+        processed_debt_frac = safe_div(debt_frac)
+        processed_roe_post_tax = safe_div(roe_post_tax)
+        processed_tax = safe_div(tax)
+        processed_interest = safe_div(interest)
+        processed_salvage = safe_div(salvage)
+
+
+        errors = {}
+
+        peak_hour_availability = div_or_zero(peak_hour_availability, "peak_hour_availability")
+        annual_curtailment_limit = div_or_zero(annual_curtailment_limit, "annual_curtailment_limit")
+        bess_depth_of_discharge = div_or_zero(bess_depth_of_discharge, "bess_depth_of_discharge")
+        bess_electrical_loss = div_or_zero(bess_electrical_loss, "bess_electrical_loss")
+        bess_standing_loss = div_or_zero(bess_standing_loss, "bess_standing_loss")
+        bess_auxiliary_consumption = div_or_zero(bess_auxiliary_consumption, "bess_auxiliary_consumption")
+
+        if data.get("solar"):
+            solar_total_capex = mul_or_zero(solar_total_capex, 10000000, "solar_total_capex")
+            solar_total_O_and_m = mul_or_zero(solar_total_O_and_m, 100000, "solar_total_O_and_m")
+            processed_solar_degrade_first = safe_div(solar_degradation[0])
+            processed_solar_degrade_rest = [d/100 for d in solar_degradation[1:]]
+            processed_solar_O_and_m_escalation = safe_div(solar_O_and_m_escalation)
+
+        if data.get("wind"):
+            wind_total_capex = mul_or_zero(wind_total_capex, 10000000, "wind_total_capex")
+            wind_total_O_and_m = mul_or_zero(wind_total_O_and_m, 100000, "wind_total_O_and_m")
+            processed_wind_degrade_first = safe_div(wind_degradation[0])
+            processed_wind_degrade_rest = [d/100 for d in wind_degradation[1:]]
+            processed_wind_O_and_m_escalation = safe_div(wind_O_and_m_escalation)
+
+        if data.get("ess"):
+            bess_total_capex = mul_or_zero(bess_total_capex, 10000000, "bess_total_capex")
+            bess_total_O_and_m = mul_or_zero(bess_total_O_and_m, 100000, "bess_total_O_and_m")
+            processed_bess_degrade_first = safe_div(bess_degradation[0])
+            processed_bess_degrade_rest = [d/100 for d in bess_degradation[1:]]
+            processed_bess_O_and_m_escalation = safe_div(bess_O_and_m_escalation)
+
+        # If any missing fields → return 400 with errors
+        if errors:
+            return Response({"errors": errors}, status=400)
+
 
         try:
             # Initialize final aggregated response
-            # grid_tariff = GridTariff.objects.get(state=consumer_requirement.state, tariff_category=consumer_requirement.tariff_category)
-            # master_record = MasterTable.objects.get(state=consumer_requirement.state)
-            # record = RETariffMasterTable.objects.filter(industry=consumer_requirement.industry).first()
             aggregated_response = {}
             input_data = {}  # Initialize the final dictionary
             
@@ -4694,17 +4872,17 @@ class CapacitySizingAPI(APIView):
             solar_portfolio_ids = data.get("solar", [])
             wind_portfolio_ids = data.get("wind", [])
             ess_portfolio_ids = data.get("ess", [])
-            logger.debug(f'solar p: {solar_portfolio_ids}')
-            logger.debug(f'wind p: {wind_portfolio_ids}')
-            logger.debug(f'ess p: {ess_portfolio_ids}')
+            # logger.debug(f'solar p: {solar_portfolio_ids}')
+            # logger.debug(f'wind p: {wind_portfolio_ids}')
+            # logger.debug(f'ess p: {ess_portfolio_ids}')
 
             # Query generator's portfolios
             solar_data = SolarPortfolio.objects.filter(id__in=solar_portfolio_ids)
             wind_data = WindPortfolio.objects.filter(id__in=wind_portfolio_ids)
             ess_data = ESSPortfolio.objects.filter(id__in=ess_portfolio_ids)
-            logger.debug(f'solar data: {solar_data}')
-            logger.debug(f'wind data: {wind_data}')
-            logger.debug(f'ess data: {ess_data}')
+            # logger.debug(f'solar data: {solar_data}')
+            # logger.debug(f'wind data: {wind_data}')
+            # logger.debug(f'ess data: {ess_data}')
 
 
             solar_project = []
@@ -4722,24 +4900,53 @@ class CapacitySizingAPI(APIView):
                     solar_project.append(solar.project)
                     if not solar.hourly_data:
                         continue
+
+                    if not (debt_frac and roe_post_tax and tax and interest and debt_tenor and salvage and PPA_tenure):
+                        solar_marginal_cost = solar_total_O_and_m
+                    else:
+                    
+                        print(f'solar_marginal_cost = self.financial_assumptions({solar.available_capacity}, {solar_total_capex}, {processed_debt_frac}, {processed_roe_post_tax}, {processed_tax}, {processed_interest}, {debt_tenor}, {processed_salvage}, {solar_total_O_and_m}, {processed_solar_O_and_m_escalation}, {processed_solar_degrade_first}, {processed_solar_degrade_rest}, {PPA_tenure}, {solar.annual_generation_potential})')
+                        
+                        solar_marginal_cost = self.financial_assumptions(
+                            capacity=solar.available_capacity, 
+                            capex=solar_total_capex, 
+                            debt_frac=processed_debt_frac, 
+                            roe_post_tax=processed_roe_post_tax, 
+                            tax=processed_tax, 
+                            interest=processed_interest, 
+                            debt_tenor=debt_tenor, 
+                            salvage=processed_salvage, 
+                            o_m_cost=solar_total_O_and_m, 
+                            o_m_escalation=processed_solar_O_and_m_escalation, 
+                            degrade_1=processed_solar_degrade_first, 
+                            degrade_rest=processed_solar_degrade_rest, 
+                            ppa_years=PPA_tenure, 
+                            annual_energy=solar.annual_generation_potential
+                        )
+
+                    print('ssssss ', solar_marginal_cost)
+                    # solar.annual_generation_potential is the annual energy taken from financial assumptions 
+                    # solar.available_capacity is the project capacity taken from financial assumptions 
+
                     # Extract profile data from file
                     profile_data = self.extract_profile_data(solar.hourly_data.path)
                     # Divide all rows by 5
-                    profile_data = profile_data / solar.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity 
-                    profile_df = apply_degradation(profile_data, solar_degradation, PPA_tenure)
+                    # profile_data = profile_data / solar.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity 
+                    profile_df = apply_degradation(profile_data, solar_degradation, run_for_years)
+                    print('length of solar ', len(profile_df))
                     input_data[generator.username]["Solar"][solar.project] = {
-                        "profile": profile_data,
+                        "profile": profile_df,
                         "max_capacity": solar.available_capacity,
-                        "marginal_cost": solar.expected_tariff * 1000,
-                        "capital_cost": solar.capital_cost,
+                        "marginal_cost": solar_marginal_cost,
+                        "capital_cost": solar_total_capex,
                     }
                     solar_gen_all[f'{generator.username}_Solar_{solar.project}'] = profile_df.reset_index(drop=True)
         
                 if not solar_gen_all.empty:
                     solar_gen_all.to_excel("extended_solar_generation.xlsx", index=False)
-                    print("✅ Solar generation file saved as 'extended_solar_generation.xlsx'")
+                    # print("✅ Solar generation file saved as 'extended_solar_generation.xlsx'")
 
-            logger.debug(f'sssss: {input_data}')
+            # logger.debug(f'sssss: {input_data}')
             # Add Wind projects if wind_data exists
             if wind_data.exists():
                 input_data[generator.username]["Wind"] = {}
@@ -4747,45 +4954,103 @@ class CapacitySizingAPI(APIView):
                     wind_project.append(wind.project)
                     if not wind.hourly_data:
                         continue
+
+                    if not (debt_frac and roe_post_tax and tax and interest and debt_tenor and salvage and PPA_tenure):
+                        wind_marginal_cost = wind_total_O_and_m
+                    else:
+
+                        print(f'wind_marginal_cost = self.financial_assumptions({wind.available_capacity}, {wind_total_capex}, {processed_debt_frac}, {processed_roe_post_tax}, {processed_tax}, {processed_interest}, {debt_tenor}, {processed_salvage}, {wind_total_O_and_m}, {processed_wind_O_and_m_escalation}, {processed_wind_degrade_first}, {processed_wind_degrade_rest}, {PPA_tenure}, {wind.annual_generation_potential})')
+                        
+                        wind_marginal_cost = self.financial_assumptions(
+                            capacity=wind.available_capacity, 
+                            capex=wind_total_capex, 
+                            debt_frac=processed_debt_frac, 
+                            roe_post_tax=processed_roe_post_tax, 
+                            tax=processed_tax, 
+                            interest=processed_interest, 
+                            debt_tenor=debt_tenor, 
+                            salvage=processed_salvage, 
+                            o_m_cost=wind_total_O_and_m, 
+                            o_m_escalation=processed_wind_O_and_m_escalation, 
+                            degrade_1=processed_wind_degrade_first, 
+                            degrade_rest=processed_wind_degrade_rest, 
+                            ppa_years=PPA_tenure, 
+                            annual_energy=wind.annual_generation_potential
+                        )
+
+                    print('wwwwwww ', wind_marginal_cost)
+                        # wind.annual_generation_potential = annual energy taken from financial assumptions 
+                        # wind.available_capacity = project capacity taken from financial assumptions
+
                     # Extract profile data from file
                     profile_data = self.extract_profile_data(wind.hourly_data.path)
                     # Divide all rows by 5
                     profile_data = profile_data / wind.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity
-                    profile_df = profile_df * PPA_tenure
+                    profile_df = profile_df * run_for_years
+                    print('length of wind ', len(profile_df))
                     input_data[generator.username]["Wind"][wind.project] = {
                         "profile": profile_data,
                         "max_capacity": wind.available_capacity,
-                        "marginal_cost": wind.expected_tariff * 1000,
-                        "capital_cost": wind.capital_cost,
+                        "marginal_cost": wind_marginal_cost,
+                        "capital_cost": wind_total_capex,
                     }
                     wind_gen_all[f'{generator.username}_Wind_{wind.project}'] = profile_df.reset_index(drop=True)
         
                 if not wind_gen_all.empty:
                     wind_gen_all.to_excel("extended_wind_generation.xlsx", index=False)
-                    print("✅ Wind generation file saved as 'extended_wind_generation.xlsx'")
+                    # print("✅ Wind generation file saved as 'extended_wind_generation.xlsx'")
 
-            logger.debug(f'sssss: {input_data}')
+            # logger.debug(f'sssss: {input_data}')
             # Add ESS projects if ess_data exists
             if ess_data.exists():
                 input_data[generator.username]["ESS"] = {}
                 for ess in ess_data:
+                    bess_degrade_rest = [d/100 for d in bess_degradation[1:]]
+                    
+                    if not (debt_frac and roe_post_tax and tax and interest and debt_tenor and salvage and PPA_tenure):
+                        ess_marginal_cost = bess_total_O_and_m
+                    else:
+                        print(f'ess_marginal_cost = self.financial_assumptions({ess.available_capacity}, {bess_total_capex}, {processed_debt_frac}, {processed_roe_post_tax}, {processed_tax}, {processed_interest}, {debt_tenor}, {processed_salvage}, {bess_total_O_and_m}, {processed_bess_O_and_m_escalation}, {processed_bess_degrade_first}, {processed_bess_degrade_rest}, {PPA_tenure}, 151000)')
+                        
+                        ess_marginal_cost = self.financial_assumptions(
+                            capacity=ess.available_capacity, 
+                            capex=bess_total_capex, 
+                            debt_frac=processed_debt_frac, 
+                            roe_post_tax=processed_roe_post_tax, 
+                            tax=processed_tax, 
+                            interest=interest, 
+                            debt_tenor=debt_tenor, 
+                            salvage=salvage, 
+                            o_m_cost=bess_total_O_and_m, 
+                            o_m_escalation=bess_O_and_m_escalation, 
+                            degrade_1=processed_bess_degrade_first, 
+                            degrade_rest=processed_bess_degrade_rest, 
+                            ppa_years=PPA_tenure, 
+                            annual_energy=51000
+                        )
+
+                    print('eeeeeee ', ess_marginal_cost)
+                    # ess.annual_generation_potential = annual energy taken from financial assumptions 
+                    # ess.available_capacity = project capacity taken from financial assumptions
+
                     ess_project.append(ess.project)
                     input_data[generator.username]["ESS"][ess.project] = {
-                        "DoD": ess.efficiency_of_dispatch,
-                        "efficiency": ess.efficiency_of_dispatch,
-                        "marginal_cost": ess.expected_tariff * 1000,
-                        "capital_cost": ess.capital_cost,
-                        'max_energy_capacity': ess.available_capacity,
-                        'battery_degradation': bess_degradation
+                        "DoD": ess.efficiency_of_dispatch if ess.efficiency_of_dispatch else 0,
+                        "efficiency": ess.efficiency_of_dispatch * (1 - float(bess_electrical_loss)),
+                        "marginal_cost": ess_marginal_cost,
+                        "capital_cost": bess_total_capex,
+                        'battery_degradation': bess_degradation,
+                        'max_hours': float(max_hours) if max_hours else None,
+                        'standing_loss': float(bess_standing_loss),
+                        'auxiliary_consumption': float(bess_auxiliary_consumption),
+                        'auxiliary_tariff': float(bess_auxiliary_tariff)
                     }
-            logger.debug(f'sssss: {input_data}')
+            # logger.debug(f'sssss: {input_data}')
             
             
             valid_combinations = []  
 
-            hourly_demand = GeneratorHourlyDemand.objects.get(generator=generator)
-
-            hourly_demand_list = hourly_demand.hourly_demand.split(',')
+            hourly_demand_list = generator_demand.hourly_demand.split(',')
             hourly_demand_series = pd.Series(hourly_demand_list)
             hourly_demand = pd.to_numeric(hourly_demand_series, errors='coerce')
         
@@ -4796,23 +5061,25 @@ class CapacitySizingAPI(APIView):
                 padding_length = 8760 - len(hourly_demand)
                 hourly_demand = pd.concat([hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
 
-            logger.debug(f'input data: {input_data}')
-            response_data = optimization_model_capacity_sizing(input_data, hourly_demand=hourly_demand, re_replacement=re_replacement, OA_cost=OA_cost, curtailment_selling_price=curtailment_selling_price, sell_curtailment_percentage=sell_curtailment_percentage, annual_curtailment_limit=annual_curtailment_limit, peak_target=peak_hour_availability, peak_hours=peak_hours, battery_max_hours=4)
-            logger.debug(f'capacity sizing output: {response_data}')
+            logger.debug(f'length of demand {len(extended_demand)}')
+            print(f"input = optimization_model_capacity_sizing({input_data}, hourly_demand={extended_demand}, re_replacement={re_replacement}, OA_cost={OA_cost}, curtailment_selling_price={excessTariff}, annual_curtailment_limit={annual_curtailment_limit}, peak_target={peak_hour_availability}, peak_hours={peak_hours}, max_hours={max_hours}, transmission_capacity={transmission_capacity}, monthly_availability={monthly_availability})")
+
+            response_data = optimization_model_capacity_sizing(input_data, hourly_demand=extended_demand, re_replacement=re_replacement, OA_cost=OA_cost, curtailment_selling_price=excessTariff, annual_curtailment_limit=annual_curtailment_limit, peak_target=peak_hour_availability, peak_hours=peak_hours, max_hours=max_hours, transmission_capacity=transmission_capacity, monthly_availability=monthly_availability)
+
+            # logger.debug(f'capacity sizing output: {response_data}')
             # if response_data == 'The demand cannot be met by the IPPs':
             if response_data.get('error'):
-                return Response({"error": "The demand cannot be met by the IPPs."}, status=status.HTTP_200_OK)
+                return Response({"error": "The demand cannot be met by the IPPs."}, status=status.HTTP_204_NO_CONTENT)
             
             for combination_key, details in response_data.items():
                 # Extract user and components from combination_key
                 components = combination_key.split('-')
-                            
+
                 # Safely extract components, ensuring that we have enough elements
                 username = components[0] if len(components) > 0 else None  # Example: 'IPP241'
                 component_1 = components[1] if len(components) > 1 else None  # Example: 'Solar_1' (if present)
                 component_2 = components[2] if len(components) > 2 else None  # Example: 'Wind_1' (if present)
                 component_3 = components[3] if len(components) > 3 else None  # Example: 'ESS_1' (if present)
-
                 generator = User.objects.get(username=username)
 
                 solar = wind = ess = None
@@ -4872,11 +5139,17 @@ class CapacitySizingAPI(APIView):
                 details["Annual Demand Met"] = (details["Annual Demand Met"]) / 1000
                # Update the aggregated response dictionary
                 if combination_key not in aggregated_response:
+                    heatmap = self.generate_heatmap(
+                        demand=response_data[combination_key]["Demand"],
+                        demand_met=response_data[combination_key]["Demand met"],
+                        PPA_tenure=run_for_years
+                    )
                     aggregated_response[combination_key] = {
                         **details,
                         'OA_cost': OA_cost,
                         'state': state,
-                        'site_name': site_name
+                        'site_name': site_name,
+                        "heatmap": heatmap
                     }
                 else:
                     # Merge the details if combination already exists

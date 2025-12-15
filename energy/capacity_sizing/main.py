@@ -1,4 +1,3 @@
-# def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replacement=None, OA_cost=None, curtailment_selling_price=None, sell_curtailment_percentage=None, annual_curtailment_limit=None, peak_target=None, peak_hours=None, max_hours=None, transmission_capacity=None, monthly_availability=None, PPA_tenure=None):
 import pypsa
 import pandas as pd
 # from .preprocessing import preprocess_multiple_profiles
@@ -11,9 +10,9 @@ import logging
 logger = logging.getLogger('debug_logger')  # Use the new debug logger
 
 
-def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replacement=None, OA_cost=None, curtailment_selling_price=None, sell_curtailment_percentage=None, annual_curtailment_limit=None, peak_target=None, peak_hours=None, max_hours=None, transmission_capacity=None, monthly_availability=None, PPA_tenure=None):
+def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replacement=None, OA_cost=None, curtailment_selling_price=None, annual_curtailment_limit=None, peak_target=None, peak_hours=None, max_hours=None, transmission_capacity=None, monthly_availability=None):
     print("🚀 Starting optimization model...", input_data)
-    
+    sell_curtailment_percentage = annual_curtailment_limit
 
     ipp_name = None
     solar = None
@@ -35,6 +34,8 @@ def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replac
     results_dict = {}
     final_dict = input_data
     for ipp in final_dict:
+        # keep track of which IPP we're processing so the final error/result keys are populated
+        ipp_name = ipp
         solar_projects = final_dict[ipp].get('Solar', {})
         wind_projects = final_dict[ipp].get('Wind', {})
         ess_projects = final_dict[ipp].get('ESS', {})
@@ -112,7 +113,6 @@ def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replac
                     )
 
                     print("🔧 Optimization model created and solved.")
-                    print("--------------", max_hours)
                     analyze_network_results(
                         network=network,
                         sell_curtailment_percentage=sell_curtailment_percentage,
@@ -128,11 +128,12 @@ def optimization_model_capacity_sizing(input_data, hourly_demand=None, re_replac
                                         monthly_availability=monthly_availability
                     )
 
-    # Convert results_dict to DataFrame for easy sorting
+    # Convert results_dict to DataFrame for easy sorting and return full dict
     if results_dict:
         res_df = pd.DataFrame.from_dict(results_dict, orient='index')
+        # Sort by 'Per Unit Cost'
         sorted_results = res_df.sort_values(by='Per Unit Cost')
-        # sorted_results.to_excel("optimization_output_results.xlsx")
+        # Convert to dictionary with index as keys
         sorted_dict = sorted_results.to_dict(orient="index")
         return sorted_dict
     else:
