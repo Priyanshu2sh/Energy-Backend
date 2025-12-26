@@ -1,0 +1,10 @@
+{
+  "id": "prushaltech13/month-ahead",
+  "title": "month_ahead",
+  "code_file": "Month_ahead.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "dataset_sources": ["prushaltech13/my-input-dataset"]
+}

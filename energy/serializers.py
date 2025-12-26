@@ -246,9 +246,19 @@ class StateTimeSlotSerializer(serializers.ModelSerializer):
         fields = ["state_name", "peak_hours", "off_peak_hours"]
 
 class CapacitySizingCombinationSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = CapacitySizingCombination
         fields = '__all__'
+        extra_kwargs = {}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Make every field required except generator (you already overwrite it)
+        for field_name, field in self.fields.items():
+            field.required = True
+            field.allow_null = False
 
 class OfflinePaymentSerializer(serializers.ModelSerializer):
     class Meta:

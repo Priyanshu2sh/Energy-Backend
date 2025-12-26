@@ -1,23 +1,101 @@
 from rest_framework import serializers
 from accounts.models import User
-from energy.models import ConsumerRequirements, ESSPortfolio, GridTariff, HelpDeskQuery, MasterTable, NationalHoliday, PeakHours, RETariffMasterTable, SolarPortfolio, SubscriptionType, WindPortfolio
+from energy.models import ConsumerRequirements, ESSPortfolio, GridTariff, HelpDeskQuery, MasterTable, NationalHoliday, PeakHours, RETariffMasterTable, SolarPortfolio, SubscriptionEnrolled, SubscriptionType, WindPortfolio
+from energy.models import GeneratorQuotation
 
 class ConsumerSerializer(serializers.ModelSerializer):
+    subscription_type = serializers.SerializerMethodField()
+    price = serializers.SerializerMethodField()
+    duration_in_days = serializers.SerializerMethodField()
+    start_date = serializers.SerializerMethodField()
+    end_date = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'company_representative', 'company', 'email', 'mobile', 'is_active']
+        exclude = ['password']
 
-class GeneratorSerializer(serializers.ModelSerializer):
+    def _get_active_subscription(self, obj):
+        # Assuming only one active subscription per user
+        return obj.subscriptions.filter(status="active").first()
 
-    class Meta:
-        model = User
-        fields = ['id', 'username', 'company_representative', 'company', 'email', 'mobile', 'is_active']
-        
+    def get_subscription_type(self, obj):
+        sub = self._get_active_subscription(obj)
+        return sub.subscription.subscription_type if sub else None
+
+    def get_price(self, obj):
+        sub = self._get_active_subscription(obj)
+        return str(sub.subscription.price) if sub else None
+
+    def get_duration_in_days(self, obj):
+        sub = self._get_active_subscription(obj)
+        return sub.subscription.duration_in_days if sub else None
+
+    def get_start_date(self, obj):
+        sub = self._get_active_subscription(obj)
+        return sub.start_date if sub else None
+
+    def get_end_date(self, obj):
+        sub = self._get_active_subscription(obj)
+        return sub.end_date if sub else None
+
+    def get_status(self, obj):
+        sub = self._get_active_subscription(obj)
+        return sub.status if sub else None
+
 class SubscriptionTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = SubscriptionType
         fields = '__all__'
+        
+class GeneratorSerializer(serializers.ModelSerializer):
+    subscription_type = serializers.SerializerMethodField()
+    price = serializers.SerializerMethodField()
+    duration_in_days = serializers.SerializerMethodField()
+    start_date = serializers.SerializerMethodField()
+    end_date = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = User
+        exclude = ['password']
+
+    def _get_active_subscription(self, obj):
+        # Assuming only one active subscription per user
+        return obj.subscriptions.filter(status="active").first()
+
+    def get_subscription_type(self, obj):
+        sub = self._get_active_subscription(obj)
+        return sub.subscription.subscription_type if sub else None
+
+    def get_price(self, obj):
+        sub = self._get_active_subscription(obj)
+        return str(sub.subscription.price) if sub else None
+
+    def get_duration_in_days(self, obj):
+        sub = self._get_active_subscription(obj)
+        return sub.subscription.duration_in_days if sub else None
+
+    def get_start_date(self, obj):
+        sub = self._get_active_subscription(obj)
+        return sub.start_date if sub else None
+
+    def get_end_date(self, obj):
+        sub = self._get_active_subscription(obj)
+        return sub.end_date if sub else None
+
+    def get_status(self, obj):
+        sub = self._get_active_subscription(obj)
+        return sub.status if sub else None
+        
+class GeneratorQuotationSerializer(serializers.ModelSerializer):
+    consumer = ConsumerSerializer(source="rooftop_quotation.requirement.user", read_only=True)
+    generator = GeneratorSerializer(read_only=True)
+
+    class Meta:
+        model = GeneratorQuotation
+        fields = '__all__'
+
 
 class ConsumerRequirementsUpdateSerializer(serializers.ModelSerializer):
     class Meta:

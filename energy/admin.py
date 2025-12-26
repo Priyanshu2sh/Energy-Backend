@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import BankingOrder, District, GeneratorHourlyDemand, GeneratorMonthlyConsumption, HelpDeskQuery, NationalHoliday, NegotiationInvitation, OfflinePayment, PeakHours, State, Industry, PaymentTransaction, SolarPortfolio, StateTimeSlot, SubIndustry, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs,GeneratorOffer, NegotiationWindow, MasterTable, GridTariff, ScadaFile, RETariffMasterTable, PerformaInvoice
+from .models import BankingOrder, District, GeneratorHourlyDemand, GeneratorMonthlyConsumption, GeneratorQuotation, HelpDeskQuery, NationalHoliday, NegotiationInvitation, OfflinePayment, PeakHours, RooftopQuotation, State, Industry, PaymentTransaction, SolarPortfolio, StateTimeSlot, SubIndustry, WindPortfolio, ESSPortfolio, ConsumerRequirements, MonthlyConsumptionData, HourlyDemand, Combination, StandardTermsSheet, MatchingIPP, SubscriptionType, SubscriptionEnrolled, Notifications, Tariffs,GeneratorOffer, NegotiationWindow, MasterTable, GridTariff, ScadaFile, RETariffMasterTable, PerformaInvoice
 from django.conf import settings
 import requests
 from datetime import datetime
@@ -40,6 +40,8 @@ admin.site.register(StateTimeSlot)
 admin.site.register(GeneratorHourlyDemand)
 admin.site.register(PeakHours)
 admin.site.register(NationalHoliday)
+admin.site.register(RooftopQuotation)
+admin.site.register(GeneratorQuotation)
 
 @admin.register(GeneratorMonthlyConsumption)
 class GeneratorMonthlyConsumptionAdmin(admin.ModelAdmin):
