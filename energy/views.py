@@ -4422,7 +4422,9 @@ class CapacitySizingAPI(APIView):
             # ---------- ENERGY ----------
             # Excel: Next year = Previous year * (1 - C29)
             if year > 1:
-                energy *= (1 - degrade_rest[year-1])
+                idx = year - 2
+                if idx < len(degrade_rest):
+                    energy *= (1 - degrade_rest[idx])
             energy_mwh = energy  # BESS!Row43 values
 
             print(f"Energy (MWh): {energy_mwh}")
@@ -4513,7 +4515,7 @@ class CapacitySizingAPI(APIView):
         lmc = numerator / denominator if denominator != 0 else None # levelized marginal cost
         print(f"\n🔥🔥 FINAL LMC = {lmc} 🔥🔥\n")
 
-        return round(lmc, 6)
+        return round(lmc, 2)
 
     def post(self, request):
         def parse_time_string(time_str):
@@ -4547,9 +4549,7 @@ class CapacitySizingAPI(APIView):
 
         data = request.data
         user_id = data.get("user_id")
-        OA_cost = data.get("OA_cost") # * 1000
-        # curtailment_selling_price = data.get("curtailment_selling_price") * 1000
-        # sell_curtailment_percentage = data.get("sell_curtailment_percentage")
+        OA_cost = data.get("OA_cost")
         annual_curtailment_limit = data.get("annual_curtailment_limit")
 
         # tender conditions
@@ -4824,6 +4824,9 @@ class CapacitySizingAPI(APIView):
         processed_interest = safe_div(interest)
         processed_salvage = safe_div(salvage)
 
+        OA_cost = mul_or_zero(OA_cost, 1000, "OA_cost")
+        excessTariff = mul_or_zero(excessTariff, 1000, "excessTariff")
+
 
         errors = {}
 
@@ -4840,6 +4843,9 @@ class CapacitySizingAPI(APIView):
             processed_solar_degrade_first = safe_div(solar_degradation[0])
             processed_solar_degrade_rest = [d/100 for d in solar_degradation[1:]]
             processed_solar_O_and_m_escalation = safe_div(solar_O_and_m_escalation)
+            # processed_solar_degrade_first = solar_degradation[0]
+            # processed_solar_degrade_rest = [d for d in solar_degradation[1:]]
+            # processed_solar_O_and_m_escalation = solar_O_and_m_escalation
 
         if data.get("wind"):
             wind_total_capex = mul_or_zero(wind_total_capex, 10000000, "wind_total_capex")
@@ -4854,6 +4860,9 @@ class CapacitySizingAPI(APIView):
             processed_bess_degrade_first = safe_div(bess_degradation[0])
             processed_bess_degrade_rest = [d/100 for d in bess_degradation[1:]]
             processed_bess_O_and_m_escalation = safe_div(bess_O_and_m_escalation)
+            # processed_bess_degrade_first = bess_degradation[0]
+            # processed_bess_degrade_rest = [d for d in bess_degradation[1:]]
+            # processed_bess_O_and_m_escalation = bess_O_and_m_escalation
 
         # If any missing fields → return 400 with errors
         if errors:
@@ -4904,9 +4913,27 @@ class CapacitySizingAPI(APIView):
                     if not (debt_frac and roe_post_tax and tax and interest and debt_tenor and salvage and PPA_tenure):
                         solar_marginal_cost = solar_total_O_and_m
                     else:
-                    
-                        print(f'solar_marginal_cost = self.financial_assumptions({solar.available_capacity}, {solar_total_capex}, {processed_debt_frac}, {processed_roe_post_tax}, {processed_tax}, {processed_interest}, {debt_tenor}, {processed_salvage}, {solar_total_O_and_m}, {processed_solar_O_and_m_escalation}, {processed_solar_degrade_first}, {processed_solar_degrade_rest}, {PPA_tenure}, {solar.annual_generation_potential})')
                         
+                        solar_marginal_calculated = f'''solar_marginal_cost = self.financial_assumptions(
+                            capacity={solar.available_capacity}, 
+                            capex={solar_total_capex}, 
+                            debt_frac={processed_debt_frac}, 
+                            roe_post_tax={processed_roe_post_tax}, 
+                            tax={processed_tax}, 
+                            interest={processed_interest}, 
+                            debt_tenor={debt_tenor}, 
+                            salvage={processed_salvage}, 
+                            o_m_cost={solar_total_O_and_m}, 
+                            o_m_escalation={processed_solar_O_and_m_escalation}, 
+                            degrade_1={processed_solar_degrade_first}, 
+                            degrade_rest={processed_solar_degrade_rest}, 
+                            ppa_years={PPA_tenure}, 
+                            annual_energy={solar.annual_generation_potential}
+                        )'''
+
+                        with open("solar_marginal_calculated.txt", "w", encoding="utf-8") as f:
+                            f.write(solar_marginal_calculated)
+
                         solar_marginal_cost = self.financial_assumptions(
                             capacity=solar.available_capacity, 
                             capex=solar_total_capex, 
@@ -4924,7 +4951,7 @@ class CapacitySizingAPI(APIView):
                             annual_energy=solar.annual_generation_potential
                         )
 
-                    print('ssssss ', solar_marginal_cost)
+                    print('ssssss marginal - ', solar_marginal_cost)
                     # solar.annual_generation_potential is the annual energy taken from financial assumptions 
                     # solar.available_capacity is the project capacity taken from financial assumptions 
 
@@ -4959,8 +4986,26 @@ class CapacitySizingAPI(APIView):
                         wind_marginal_cost = wind_total_O_and_m
                     else:
 
-                        print(f'wind_marginal_cost = self.financial_assumptions({wind.available_capacity}, {wind_total_capex}, {processed_debt_frac}, {processed_roe_post_tax}, {processed_tax}, {processed_interest}, {debt_tenor}, {processed_salvage}, {wind_total_O_and_m}, {processed_wind_O_and_m_escalation}, {processed_wind_degrade_first}, {processed_wind_degrade_rest}, {PPA_tenure}, {wind.annual_generation_potential})')
-                        
+                        wind_marginal_calculated = f'''wind_marginal_cost = self.financial_assumptions(
+                            capacity={wind.available_capacity}, 
+                            capex={wind_total_capex}, 
+                            debt_frac={processed_debt_frac}, 
+                            roe_post_tax={processed_roe_post_tax}, 
+                            tax={processed_tax}, 
+                            interest={processed_interest}, 
+                            debt_tenor={debt_tenor}, 
+                            salvage={processed_salvage}, 
+                            o_m_cost={wind_total_O_and_m}, 
+                            o_m_escalation={processed_wind_O_and_m_escalation}, 
+                            degrade_1={processed_wind_degrade_first}, 
+                            degrade_rest={processed_wind_degrade_rest}, 
+                            ppa_years={PPA_tenure}, 
+                            annual_energy={wind.annual_generation_potential}
+                        )'''
+
+                        with open("wind_marginal_calculated.txt", "w", encoding="utf-8") as f:
+                            f.write(wind_marginal_calculated)
+
                         wind_marginal_cost = self.financial_assumptions(
                             capacity=wind.available_capacity, 
                             capex=wind_total_capex, 
@@ -4978,7 +5023,7 @@ class CapacitySizingAPI(APIView):
                             annual_energy=wind.annual_generation_potential
                         )
 
-                    print('wwwwwww ', wind_marginal_cost)
+                    print('wwwwwww marginal - ', wind_marginal_cost)
                         # wind.annual_generation_potential = annual energy taken from financial assumptions 
                         # wind.available_capacity = project capacity taken from financial assumptions
 
@@ -5010,8 +5055,27 @@ class CapacitySizingAPI(APIView):
                     if not (debt_frac and roe_post_tax and tax and interest and debt_tenor and salvage and PPA_tenure):
                         ess_marginal_cost = bess_total_O_and_m
                     else:
-                        print(f'ess_marginal_cost = self.financial_assumptions({ess.available_capacity}, {bess_total_capex}, {processed_debt_frac}, {processed_roe_post_tax}, {processed_tax}, {processed_interest}, {debt_tenor}, {processed_salvage}, {bess_total_O_and_m}, {processed_bess_O_and_m_escalation}, {processed_bess_degrade_first}, {processed_bess_degrade_rest}, {PPA_tenure}, 151000)')
                         
+                        bess_marginal_calculated = f'''ess_marginal_cost = self.financial_assumptions(
+                            capacity={ess.available_capacity}, 
+                            capex={bess_total_capex}, 
+                            debt_frac={processed_debt_frac}, 
+                            roe_post_tax={processed_roe_post_tax}, 
+                            tax={processed_tax}, 
+                            interest={interest}, 
+                            debt_tenor={debt_tenor}, 
+                            salvage={salvage}, 
+                            o_m_cost={bess_total_O_and_m}, 
+                            o_m_escalation={processed_bess_O_and_m_escalation}, 
+                            degrade_1={processed_bess_degrade_first}, 
+                            degrade_rest={processed_bess_degrade_rest}, 
+                            ppa_years={PPA_tenure}, 
+                            annual_energy={ess.available_capacity * 365 * 1}
+                        )'''
+
+                        with open("bess_marginal_calculated.txt", "w", encoding="utf-8") as f:
+                            f.write(bess_marginal_calculated)
+
                         ess_marginal_cost = self.financial_assumptions(
                             capacity=ess.available_capacity, 
                             capex=bess_total_capex, 
@@ -5026,10 +5090,10 @@ class CapacitySizingAPI(APIView):
                             degrade_1=processed_bess_degrade_first, 
                             degrade_rest=processed_bess_degrade_rest, 
                             ppa_years=PPA_tenure, 
-                            annual_energy=51000
+                            annual_energy=ess.available_capacity * 365 * 1
                         )
 
-                    print('eeeeeee ', ess_marginal_cost)
+                    print('eeeeeee marginal - ', ess_marginal_cost)
                     # ess.annual_generation_potential = annual energy taken from financial assumptions 
                     # ess.available_capacity = project capacity taken from financial assumptions
 
@@ -5062,9 +5126,49 @@ class CapacitySizingAPI(APIView):
                 hourly_demand = pd.concat([hourly_demand, pd.Series([0] * padding_length)], ignore_index=True)
 
             logger.debug(f'length of demand {len(extended_demand)}')
-            print(f"input = optimization_model_capacity_sizing({input_data}, hourly_demand={extended_demand}, re_replacement={re_replacement}, OA_cost={OA_cost}, curtailment_selling_price={excessTariff}, annual_curtailment_limit={annual_curtailment_limit}, peak_target={peak_hour_availability}, peak_hours={peak_hours}, max_hours={max_hours}, transmission_capacity={transmission_capacity}, monthly_availability={monthly_availability})")
+            loggs_input_data = f"input = optimization_model_capacity_sizing({input_data}, hourly_demand={extended_demand}, re_replacement={re_replacement}, OA_cost={OA_cost}, curtailment_selling_price={excessTariff}, annual_curtailment_limit={annual_curtailment_limit}, peak_target={peak_hour_availability}, peak_hours={peak_hours}, max_hours={max_hours}, transmission_capacity={transmission_capacity}, monthly_availability={monthly_availability})"
+
+            with open("full_input_data.txt", "w", encoding="utf-8") as f:
+                f.write(str(loggs_input_data))
+
+            def series_to_compact_json(series, head=5, tail=5):
+                return {
+                    "total_hours": int(len(series)),
+                    "start_hours": {int(k): float(v) for k, v in series.head(head).items()},
+                    "end_hours": {int(k): float(v) for k, v in series.tail(tail).items()},
+                    "skipped_hours": int(len(series) - head - tail)
+                }
+
+
+            def json_safe(data):
+                if isinstance(data, pd.Series):
+                    return series_to_compact_json(data)
+
+                if isinstance(data, pd.DataFrame):
+                    return data.to_dict(orient="records")
+
+                if isinstance(data, np.ndarray):
+                    return data.tolist()
+
+                if isinstance(data, dict):
+                    return {k: json_safe(v) for k, v in data.items()}
+
+                if isinstance(data, list):
+                    return [json_safe(v) for v in data]
+
+                return data
+
+            safe_data = json_safe(input_data)
+
+            with open("input_data.txt", "w", encoding="utf-8") as f:
+                json.dump(safe_data, f, indent=4)
 
             response_data = optimization_model_capacity_sizing(input_data, hourly_demand=extended_demand, re_replacement=re_replacement, OA_cost=OA_cost, curtailment_selling_price=excessTariff, annual_curtailment_limit=annual_curtailment_limit, peak_target=peak_hour_availability, peak_hours=peak_hours, max_hours=max_hours, transmission_capacity=transmission_capacity, monthly_availability=monthly_availability)
+            print('output---------------- ', response_data)
+            with open("response_data.txt", "w", encoding="utf-8") as f:
+                f.write(str(response_data))
+
+            print("-----------------response_data written to response_data.txt-----------------")
 
             # logger.debug(f'capacity sizing output: {response_data}')
             # if response_data == 'The demand cannot be met by the IPPs':
