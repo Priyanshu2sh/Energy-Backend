@@ -1765,7 +1765,7 @@ class OptimizeCapacityAPI(APIView):
         all_hourly_data = []
 
         logger.debug("not entered....")
-        print(monthly_consumptions)
+        logger.debug(monthly_consumptions)
         for month_data in monthly_consumptions:
             logger.debug("entered....")
             # Extract month details and convert month name to number
@@ -2031,7 +2031,7 @@ class OptimizeCapacityAPI(APIView):
                 #     )
                 # ]
 
-                # print('c ', combinations)
+                # logger.debug('c ', combinations)
                 valid_combinations = []  
                 # for combo in combinations:
                 #     combination = Combination.objects.filter(requirement=consumer_requirement, combination=combo).first()
@@ -2632,8 +2632,8 @@ class OptimizeCapacityAPI(APIView):
             #                     }
 
             #         # Print the final aggregated response
-            #         print('rrrrrrrrrr')
-            #         print(aggregated_response)
+            #         logger.debug('rrrrrrrrrr')
+            #         logger.debug(aggregated_response)
 
             #     else:
             #         return Response({"response": "No IPPs matched"}, status=status.HTTP_200_OK)
@@ -4367,12 +4367,12 @@ class CapacitySizingAPI(APIView):
         # Total Project Cost (Rs Cr)
         # Excel: BESS!C5 = C3 * C4
 
-        print("\n======== INITIAL PARAMETERS ========")
-        print(f"Capacity: {capacity}")
-        print(f"CAPEX: {capex}")
-        print(f"Debt Fraction: {debt_frac}")
-        print(f"Annual Energy Input: {annual_energy}")
-        print("====================================\n")
+        logger.debug("\n======== INITIAL PARAMETERS ========")
+        logger.debug(f"Capacity: {capacity}")
+        logger.debug(f"CAPEX: {capex}")
+        logger.debug(f"Debt Fraction: {debt_frac}")
+        logger.debug(f"Annual Energy Input: {annual_energy}")
+        logger.debug("====================================\n")
         
         total_project_cost = capacity * capex
 
@@ -4411,13 +4411,13 @@ class CapacitySizingAPI(APIView):
         B59 = om_exp_wcap
         known_wc_other = B58 + B59
 
-        print(f"Initial Energy (after degrade_1): {energy}")
-        print(f"Total Debt: {total_debt}, Total Equity: {total_equity}")
-        print(f"ROE Pre-Tax: {roe_pre_tax}, Base Repayment: {repay_base}\n")
+        logger.debug(f"Initial Energy (after degrade_1): {energy}")
+        logger.debug(f"Total Debt: {total_debt}, Total Equity: {total_equity}")
+        logger.debug(f"ROE Pre-Tax: {roe_pre_tax}, Base Repayment: {repay_base}\n")
 
         for year in range(1, ppa_years + 1):
             
-            print(f"\n================ YEAR {year} ================\n")
+            logger.debug(f"\n================ YEAR {year} ================\n")
 
             # ---------- ENERGY ----------
             # Excel: Next year = Previous year * (1 - C29)
@@ -4427,18 +4427,18 @@ class CapacitySizingAPI(APIView):
                     energy *= (1 - degrade_rest[idx])
             energy_mwh = energy  # BESS!Row43 values
 
-            print(f"Energy (MWh): {energy_mwh}")
+            logger.debug(f"Energy (MWh): {energy_mwh}")
 
             # ---------- O&M ----------
             # Excel: BESS!B34 (O&M for ARR):
             # = C3 * C25 / 100 * (1 + C26)^(year-1)
-            o_m = (capacity * o_m_cost / 100) * ((1 + o_m_escalation) ** (year - 1))
-            print(f"O&M Cost: {o_m}")
+            o_m = (capacity * o_m_cost) * ((1 + o_m_escalation) ** (year - 1))
+            logger.debug(f"O&M Cost: {o_m}")
 
             # ---------- Debt Repayment (B52) ----------
             # Excel: B52 = $C$8*(1/$C$16)*($C$16>=B34)
             repay = repay_base if year <= debt_tenor else 0.0
-            print(f"Repayment: {repay}")
+            logger.debug(f"Repayment: {repay}")
 
             # ---------- Depreciation / Loan Repayment ----------
             # Excel: =IF(B34<=$C$16, B52, (1-$C$17-$C$6)*$C$5/($C$30-$C$16))
@@ -4446,25 +4446,26 @@ class CapacitySizingAPI(APIView):
                 depreciation = repay
             else:
                 depreciation = ((1 - salvage - debt_frac) * total_project_cost) / (ppa_years - debt_tenor)
-            print(f"Depreciation: {depreciation}")
+            logger.debug(f"Depreciation: {depreciation}")
 
             # ---------- Interest on Term Loan ----------
             # Excel: Interest on TL in schedule:
             # = ((Opening + Closing)/2) * C14
             closing = opening - repay
             interest_calc = ((opening + closing) / 2) * interest
-            print(f"Opening TL: {opening}, Closing TL: {closing}, Interest: {interest_calc}")
+            logger.debug(f'interest_calc = (({opening} + {closing}) / 2) * {interest}')
+            logger.debug(f"Opening TL: {opening}, Closing TL: {closing}, Interest: {interest_calc}")
             opening = closing
 
             # ---------- Return on Equity (ARR component) ----------
             # Excel: Row "RoE (pre-tax)" for ARR = C9 * C13
             roe = total_equity * roe_pre_tax
-            print(f"ROE: {roe}")
+            logger.debug(f"ROE: {roe}")
 
             # ---------- Total ARR (Rs Cr) for that year ----------
             # Excel: BESSARR row = O&M + Depreciation + Interest + RoE (+ WC part skipped to avoid circularity)
             arr0 = o_m + depreciation + interest_calc + roe
-            print(f"ARR0 (before WC): {arr0}")
+            logger.debug(f"ARR0 (before WC): {arr0}")
 
             # ---------------------------------------------------------
             # 🔥 🔥 EXCEL CIRCULAR REFERENCE SOLVED BY ITERATION 🔥 🔥
@@ -4481,7 +4482,7 @@ class CapacitySizingAPI(APIView):
                 x = x_new
 
             arr = x   # final B40
-            print(f"Final ARR after WC: {arr}")
+            logger.debug(f"Final ARR after WC: {arr}")
             # ---------------------------------------------------------
 
             arr_vals.append(arr)
@@ -4489,8 +4490,8 @@ class CapacitySizingAPI(APIView):
             # ---------- Per Unit Cost (Rs/kWh) ----------
             # Excel: B45 = (B40*10^7)/(B43*10^3)
             # Here, B40 ≈ arr (total yearly cost), B43 = energy_mwh
-            cost = (arr * 10**7) / (energy_mwh * 10**3)
-            print(f"Per Unit Cost (Rs/kWh): {cost}")
+            cost = (arr) / (energy_mwh * 10**3)
+            logger.debug(f"Per Unit Cost (Rs/kWh): {cost}")
             per_unit_cost.append(cost)
 
             # ---------- Discount Factor ----------
@@ -4502,18 +4503,18 @@ class CapacitySizingAPI(APIView):
             else:
                 df = disc_factors[-1] / (1 + discount_rate)
             disc_factors.append(df)
-            print(f"Discount Factor: {df}")
+            logger.debug(f"Discount Factor: {df}")
 
         # === FINAL LEVELIZED MARGINAL COST (Rs/kWh) ===
         # Excel: BESS!C46 = SUMPRODUCT(B45:Z45, B64:Z64) / SUM(B64:Z64)
         numerator = sum(c * d for c, d in zip(per_unit_cost, disc_factors))
         denominator = sum(disc_factors)
-        print("\n=========== FINAL LMC CALCULATION ===========")
-        print(f"Numerator = {numerator}")
-        print(f"Denominator = {denominator}")
-        print("=============================================\n")
+        logger.debug("\n=========== FINAL LMC CALCULATION ===========")
+        logger.debug(f"Numerator = {numerator}")
+        logger.debug(f"Denominator = {denominator}")
+        logger.debug("=============================================\n")
         lmc = numerator / denominator if denominator != 0 else None # levelized marginal cost
-        print(f"\n🔥🔥 FINAL LMC = {lmc} 🔥🔥\n")
+        logger.debug(f"\n🔥🔥 FINAL LMC = {lmc} 🔥🔥\n")
 
         return round(lmc, 2)
 
@@ -4706,13 +4707,13 @@ class CapacitySizingAPI(APIView):
 
             if base_hours == 24:
                 hourly_demand = pd.concat([hourly_demand] * 365, ignore_index=True)
-                print(f"Base hourly demand expanded for 1 year = {len(hourly_demand)} rows")
+                logger.debug(f"Base hourly demand expanded for 1 year = {len(hourly_demand)} rows")
 
             # Convert to a comma-separated string
             hourly_demand_str = ','.join(hourly_demand)
 
             extended_demand = pd.concat([hourly_demand] * run_for_years, ignore_index=True)
-            print(f"Base hourly demand expanded for 1 year = {len(extended_demand)} rows")
+            logger.debug(f"Base hourly demand expanded for 1 year = {len(extended_demand)} rows")
             # ---------------------------------------------------------------------------
 
             # def parse_time_string(time_str):
@@ -4733,10 +4734,10 @@ class CapacitySizingAPI(APIView):
         if monthly_availability:
             # Handle single value case: replicate across all 12 months
             if len(monthly_availability) == 1:
-                # print(f"ℹ️ Single monthly availability value provided ({monthly_availability[0]}). Applying to all 12 months.")
+                # logger.debug(f"ℹ️ Single monthly availability value provided ({monthly_availability[0]}). Applying to all 12 months.")
                 monthly_availability = monthly_availability * 12
             elif len(monthly_availability) != 12:
-                # print("Warning: monthly_availability must contain 12 values (Jan..Dec) or 1 value for all months. Ignoring monthly availability.")
+                # logger.debug("Warning: monthly_availability must contain 12 values (Jan..Dec) or 1 value for all months. Ignoring monthly availability.")
                 monthly_availability = None
             
             # convert 0-100 -> 0-1
@@ -4951,7 +4952,7 @@ class CapacitySizingAPI(APIView):
                             annual_energy=solar.annual_generation_potential
                         )
 
-                    print('ssssss marginal - ', solar_marginal_cost)
+                    logger.debug('ssssss marginal - ', solar_marginal_cost)
                     # solar.annual_generation_potential is the annual energy taken from financial assumptions 
                     # solar.available_capacity is the project capacity taken from financial assumptions 
 
@@ -4960,7 +4961,7 @@ class CapacitySizingAPI(APIView):
                     # Divide all rows by 5
                     # profile_data = profile_data / solar.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity 
                     profile_df = apply_degradation(profile_data, solar_degradation, run_for_years)
-                    print('length of solar ', len(profile_df))
+                    logger.debug('length of solar ', len(profile_df))
                     input_data[generator.username]["Solar"][solar.project] = {
                         "profile": profile_df,
                         "max_capacity": solar.available_capacity,
@@ -4971,7 +4972,7 @@ class CapacitySizingAPI(APIView):
         
                 if not solar_gen_all.empty:
                     solar_gen_all.to_excel("extended_solar_generation.xlsx", index=False)
-                    # print("✅ Solar generation file saved as 'extended_solar_generation.xlsx'")
+                    # logger.debug("✅ Solar generation file saved as 'extended_solar_generation.xlsx'")
 
             # logger.debug(f'sssss: {input_data}')
             # Add Wind projects if wind_data exists
@@ -5023,7 +5024,7 @@ class CapacitySizingAPI(APIView):
                             annual_energy=wind.annual_generation_potential
                         )
 
-                    print('wwwwwww marginal - ', wind_marginal_cost)
+                    logger.debug('wwwwwww marginal - ', wind_marginal_cost)
                         # wind.annual_generation_potential = annual energy taken from financial assumptions 
                         # wind.available_capacity = project capacity taken from financial assumptions
 
@@ -5032,7 +5033,7 @@ class CapacitySizingAPI(APIView):
                     # Divide all rows by 5
                     profile_data = profile_data / wind.available_capacity # model algorithm considering profile for per MW so that's why we are dividing profile by available capacity
                     profile_df = profile_df * run_for_years
-                    print('length of wind ', len(profile_df))
+                    logger.debug('length of wind ', len(profile_df))
                     input_data[generator.username]["Wind"][wind.project] = {
                         "profile": profile_data,
                         "max_capacity": wind.available_capacity,
@@ -5043,7 +5044,7 @@ class CapacitySizingAPI(APIView):
         
                 if not wind_gen_all.empty:
                     wind_gen_all.to_excel("extended_wind_generation.xlsx", index=False)
-                    # print("✅ Wind generation file saved as 'extended_wind_generation.xlsx'")
+                    # logger.debug("✅ Wind generation file saved as 'extended_wind_generation.xlsx'")
 
             # logger.debug(f'sssss: {input_data}')
             # Add ESS projects if ess_data exists
@@ -5062,9 +5063,9 @@ class CapacitySizingAPI(APIView):
                             debt_frac={processed_debt_frac}, 
                             roe_post_tax={processed_roe_post_tax}, 
                             tax={processed_tax}, 
-                            interest={interest}, 
+                            interest={processed_interest}, 
                             debt_tenor={debt_tenor}, 
-                            salvage={salvage}, 
+                            salvage={processed_salvage}, 
                             o_m_cost={bess_total_O_and_m}, 
                             o_m_escalation={processed_bess_O_and_m_escalation}, 
                             degrade_1={processed_bess_degrade_first}, 
@@ -5082,18 +5083,18 @@ class CapacitySizingAPI(APIView):
                             debt_frac=processed_debt_frac, 
                             roe_post_tax=processed_roe_post_tax, 
                             tax=processed_tax, 
-                            interest=interest, 
+                            interest=processed_interest, 
                             debt_tenor=debt_tenor, 
-                            salvage=salvage, 
+                            salvage=processed_salvage, 
                             o_m_cost=bess_total_O_and_m, 
-                            o_m_escalation=bess_O_and_m_escalation, 
+                            o_m_escalation=processed_bess_O_and_m_escalation, 
                             degrade_1=processed_bess_degrade_first, 
                             degrade_rest=processed_bess_degrade_rest, 
                             ppa_years=PPA_tenure, 
                             annual_energy=ess.available_capacity * 365 * 1
                         )
 
-                    print('eeeeeee marginal - ', ess_marginal_cost)
+                    logger.debug('eeeeeee marginal - ', ess_marginal_cost)
                     # ess.annual_generation_potential = annual energy taken from financial assumptions 
                     # ess.available_capacity = project capacity taken from financial assumptions
 
@@ -5164,11 +5165,11 @@ class CapacitySizingAPI(APIView):
                 json.dump(safe_data, f, indent=4)
 
             response_data = optimization_model_capacity_sizing(input_data, hourly_demand=extended_demand, re_replacement=re_replacement, OA_cost=OA_cost, curtailment_selling_price=excessTariff, annual_curtailment_limit=annual_curtailment_limit, peak_target=peak_hour_availability, peak_hours=peak_hours, max_hours=max_hours, transmission_capacity=transmission_capacity, monthly_availability=monthly_availability)
-            print('output---------------- ', response_data)
+            logger.debug('output---------------- ', response_data)
             with open("response_data.txt", "w", encoding="utf-8") as f:
                 f.write(str(response_data))
 
-            print("-----------------response_data written to response_data.txt-----------------")
+            logger.debug("-----------------response_data written to response_data.txt-----------------")
 
             # logger.debug(f'capacity sizing output: {response_data}')
             # if response_data == 'The demand cannot be met by the IPPs':
@@ -5785,7 +5786,7 @@ class SensitivityAPI(APIView):
                                         "per_unit_savings": grid_tariff.cost - details['Per Unit Cost'] - ISTS_charges - master_record.state_charges,
                                     }
                             else:
-                                print('newwwwwwww')
+                                logger.debug('newwwwwwww')
                                 combi_parts = [
                                     response_data.get('ipp'),
                                     response_data.get('solar'),
@@ -5798,7 +5799,7 @@ class SensitivityAPI(APIView):
 
                                 # Join with underscore
                                 combi = "-".join(filtered_parts)
-                                print(combi)
+                                logger.debug(combi)
                                 if combi not in aggregated_response:
                                     aggregated_response[combi] = {}
                                 aggregated_response[combi][re_replacement] = "The demand cannot be met"
