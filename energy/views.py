@@ -4731,8 +4731,10 @@ class CapacitySizingAPI(APIView):
 
         # Enter monthly availability percentages (comma-separated, 12 values for Jan..Dec OR 1 value for all months, values 0-100 or 0-1)", default=None, cast_type=list)
         # normalize if user provided ints in the config as strings
+        logger.debug("monthly_availability---- ", monthly_availability)
         if monthly_availability:
             # Handle single value case: replicate across all 12 months
+            logger.debug("monthly_availability---- ", monthly_availability)
             if len(monthly_availability) == 1:
                 # logger.debug(f"ℹ️ Single monthly availability value provided ({monthly_availability[0]}). Applying to all 12 months.")
                 monthly_availability = monthly_availability * 12
@@ -4742,6 +4744,7 @@ class CapacitySizingAPI(APIView):
             
             # convert 0-100 -> 0-1
             if monthly_availability:
+                logger.debug("monthly_availability: ", monthly_availability)
                 monthly_availability = [v/100.0 if v>1.0 else v for v in monthly_availability]
 
         generator_demand = GeneratorDemand(
@@ -4844,9 +4847,6 @@ class CapacitySizingAPI(APIView):
             processed_solar_degrade_first = safe_div(solar_degradation[0])
             processed_solar_degrade_rest = [d/100 for d in solar_degradation[1:]]
             processed_solar_O_and_m_escalation = safe_div(solar_O_and_m_escalation)
-            # processed_solar_degrade_first = solar_degradation[0]
-            # processed_solar_degrade_rest = [d for d in solar_degradation[1:]]
-            # processed_solar_O_and_m_escalation = solar_O_and_m_escalation
 
         if data.get("wind"):
             wind_total_capex = mul_or_zero(wind_total_capex, 10000000, "wind_total_capex")
@@ -4861,9 +4861,6 @@ class CapacitySizingAPI(APIView):
             processed_bess_degrade_first = safe_div(bess_degradation[0])
             processed_bess_degrade_rest = [d/100 for d in bess_degradation[1:]]
             processed_bess_O_and_m_escalation = safe_div(bess_O_and_m_escalation)
-            # processed_bess_degrade_first = bess_degradation[0]
-            # processed_bess_degrade_rest = [d for d in bess_degradation[1:]]
-            # processed_bess_O_and_m_escalation = bess_O_and_m_escalation
 
         # If any missing fields → return 400 with errors
         if errors:
@@ -4952,6 +4949,8 @@ class CapacitySizingAPI(APIView):
                             annual_energy=solar.annual_generation_potential
                         )
 
+                        solar_marginal_cost = solar_marginal_cost * 1000 # to convert in MWh
+
                     logger.debug('ssssss marginal - ', solar_marginal_cost)
                     # solar.annual_generation_potential is the annual energy taken from financial assumptions 
                     # solar.available_capacity is the project capacity taken from financial assumptions 
@@ -5024,6 +5023,8 @@ class CapacitySizingAPI(APIView):
                             annual_energy=wind.annual_generation_potential
                         )
 
+                        wind_marginal_cost = wind_marginal_cost * 1000 # to convert in MWh
+
                     logger.debug('wwwwwww marginal - ', wind_marginal_cost)
                         # wind.annual_generation_potential = annual energy taken from financial assumptions 
                         # wind.available_capacity = project capacity taken from financial assumptions
@@ -5093,6 +5094,8 @@ class CapacitySizingAPI(APIView):
                             ppa_years=PPA_tenure, 
                             annual_energy=ess.available_capacity * 365 * 1
                         )
+
+                        ess_marginal_cost = ess_marginal_cost * 1000 # to convert in MWh
 
                     logger.debug('eeeeeee marginal - ', ess_marginal_cost)
                     # ess.annual_generation_potential = annual energy taken from financial assumptions 
@@ -5242,6 +5245,13 @@ class CapacitySizingAPI(APIView):
                 details['Per Unit Cost'] = details['Per Unit Cost'] / 1000
                 details['Final Cost'] = details['Final Cost'] / 1000
                 details["Annual Demand Met"] = (details["Annual Demand Met"]) / 1000
+
+                if max_hours is None:
+                    details["BESS energy capacity(MWh)"] = details["Optimal Battery Capacity (MW)"]
+                    details.pop("Optimal Battery Capacity (MW)", None)
+                else:
+                    details["BESS energy capacity(MWh)"] = details["Optimal Battery Capacity (MW)"] * max_hours
+
                # Update the aggregated response dictionary
                 if combination_key not in aggregated_response:
                     heatmap = self.generate_heatmap(
